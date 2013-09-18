@@ -44,10 +44,13 @@
 #include "ai/Paths.h"
 #include "font/Font.h"
 #include "graphics/effects/Fog.h"
+
 #include "scene/Interactive.h"
 #include "scene/Light.h"
+
 #include "physics/Anchors.h"
 #include "physics/Collisions.h"
+#include "physics/bullet/BulletPhysicsBackend.h"
 
 extern bool EXTERNALVIEW; // *sigh*
 extern float GetIOHeight(Entity * io);
@@ -81,6 +84,7 @@ enum DebugViewType {
 	DebugView_Fogs,
 	DebugView_CollisionShapes,
 	DebugView_Portals,
+	DebugView_Physics,
 	DebugViewCount
 };
 
@@ -529,6 +533,11 @@ void drawDebugRender() {
 		case DebugView_Portals: {
 			ss << "Portals";
 			drawDebugPortals();
+			break;
+		}
+		case DebugView_Physics: {
+			ss << "Physics";
+			g_bulletPhysics->DrawBackgroundMesh();
 			break;
 		}
 		default: return;

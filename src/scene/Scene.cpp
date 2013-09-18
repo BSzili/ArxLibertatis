@@ -84,6 +84,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 
 #include "physics/Projectile.h"
+#include "physics/bullet/BulletPhysicsBackend.h"
 
 using std::vector;
 
@@ -1454,10 +1455,10 @@ void ARX_SCENE_Update() {
 			ARX_PORTALS_Frustrum_RenderRoomTCullSoft(RoomDrawList[i], RoomDraw[RoomDrawList[i]].frustrum, tim);
 		}
 	}
-
-	ARX_THROWN_OBJECT_Manage(checked_range_cast<unsigned long>(framedelay));
-
-	UpdateInter();
+	
+	//ARX_THROWN_OBJECT_Manage(checked_range_cast<unsigned long>(framedelay));
+	
+	g_bulletPhysics->Step(framedelay);
 }
 
 extern short uw_mode;
