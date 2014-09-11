@@ -47,6 +47,10 @@
 #include <sys/param.h>
 #endif
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <proto/dos.h>
+#endif
+
 #ifdef ARX_HAVE_SYSCTL
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -282,6 +286,13 @@ std::string getExecutablePath() {
 	buffer.resize(MAX_PATH);
 	if(GetModuleFileNameA(NULL, &*buffer.begin(), buffer.size()) > 0) {
 		return std::string(buffer.begin(), buffer.end());
+	}
+	
+#elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+
+	char buffer[1024];
+	if (NameFromLock(GetProgramDir(), (STRPTR)buffer, sizeof(buffer)) && AddPart((STRPTR)buffer, (STRPTR)"BSzili", sizeof(buffer))) {
+		return std::string(buffer);
 	}
 	
 #else

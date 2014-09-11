@@ -59,7 +59,11 @@ OpenALBackend::~OpenALBackend() {
 		
 		ALenum error = alcGetError(device);
 		if(error != AL_NO_ERROR) {
+#ifdef __MORPHOS__
+#warning REMOVE THIS HACK!!!
+#else
 			LogError << "Error destroying OpenAL context: " << error << " = " << getAlcErrorString(error);
+#endif
 		}
 	}
 	

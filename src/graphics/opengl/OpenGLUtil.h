@@ -22,7 +22,11 @@
 
 #include "platform/Platform.h"
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <GL/gl.h>
+#else
 #include <GL/glew.h>
+#endif
 
 #include <io/log/Logger.h>
 

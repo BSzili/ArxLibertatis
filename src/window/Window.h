@@ -25,6 +25,10 @@
 
 #include "math/Vector2.h"
 
+#ifdef __amigaos4__
+#define Window Window_ARX
+#endif
+
 class Window {
 	
 public:

@@ -192,6 +192,18 @@ void MiniMap::loadOffsets(PakReader *pakRes) {
 			char t[512];
 			int nRead = sscanf(dat + pos, "%s %f %f", t, &m_miniOffsetX[i], &m_miniOffsetY[i]);
 			
+#ifdef __MORPHOS__
+			// setlocale() won't work, we have to replace decimal dots with decimal commas
+			if(nRead != 3) {
+				for(int j = 0; j < fileSize + 1; j++) {
+					if(dat[j] == '.') {
+						dat[j] = ',';
+					}
+				}
+				nRead = sscanf(dat + pos, "%s %f %f", t, &m_miniOffsetX[i], &m_miniOffsetY[i]);
+			}
+#endif
+			
 			if(nRead != 3) {
 				LogError << "Error parsing line " << i << " of mini_offsets.ini: read " << nRead;
 			}

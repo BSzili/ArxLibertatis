@@ -40,9 +40,12 @@ bool GLTexture2D::Create() {
 	minFilter = TextureStage::FilterNearest;
 	magFilter = TextureStage::FilterLinear;
 
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(GLEW_ARB_texture_non_power_of_two) {
 		storedSize = size;
-	} else {
+	} else
+#endif
+	{
 		storedSize = Vec2i(GetNextPowerOf2(size.x), GetNextPowerOf2(size.y));
 	}
 	
@@ -63,9 +66,17 @@ void GLTexture2D::Upload() {
 	if(mFormat == Image::Format_L8) {
 		internal = GL_LUMINANCE8, format = GL_LUMINANCE;
 	} else if(mFormat == Image::Format_A8) {
+#ifdef __amigaos4__
+		internal = GL_ALPHA, format = GL_ALPHA;
+#else
 		internal = GL_ALPHA8, format = GL_ALPHA;
+#endif
 	} else if(mFormat == Image::Format_L8A8) {
+#ifdef __amigaos4__
+		internal = GL_LUMINANCE_ALPHA, format = GL_LUMINANCE_ALPHA;
+#else
 		internal = GL_LUMINANCE8_ALPHA8, format = GL_LUMINANCE_ALPHA;
+#endif
 	} else if(mFormat == Image::Format_R8G8B8) {
 		internal = GL_RGB8, format = GL_RGB;
 	} else if(mFormat == Image::Format_B8G8R8) {
@@ -80,7 +91,13 @@ void GLTexture2D::Upload() {
 	}
 	
 	if(hasMipmaps()) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		gluBuild2DMipmaps(GL_TEXTURE_2D, internal, size.x, size.y, format, GL_UNSIGNED_BYTE, mImage.GetData());
+		CHECK_GL;
+		return;
+#else
 		glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+#endif
 	}
 	
 	// TODO handle GL_MAX_TEXTURE_SIZE
@@ -92,9 +109,11 @@ void GLTexture2D::Upload() {
 		glTexImage2D(GL_TEXTURE_2D, 0, internal, size.x, size.y, 0, format, GL_UNSIGNED_BYTE, mImage.GetData());
 	}
 	
+#ifndef __amigaos4__
 	if(renderer->GetMaxAnisotropy() != 1.f) {
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, renderer->GetMaxAnisotropy());
 	}
+#endif
 	
 	CHECK_GL;
 }
@@ -119,7 +138,11 @@ void GLTexture2D::Destroy() {
 
 static const GLint arxToGlWrapMode[] = {
 	GL_REPEAT, // WrapRepeat,
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	GL_REPEAT, // sigh
+#else
 	GL_MIRRORED_REPEAT, // WrapMirror
+#endif
 	GL_CLAMP_TO_EDGE // WrapClamp
 };
 
@@ -167,7 +190,12 @@ void GLTexture2D::apply(GLTextureStage * stage) {
 	if(stage->magFilter != magFilter) {
 		magFilter = stage->magFilter;
 		arx_assert(magFilter != TextureStage::FilterNone);
+#ifdef __amigaos4__
+#warning HACK!
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+#else
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, arxToGlFilter[0][magFilter]);
+#endif
 	}
 	
 }

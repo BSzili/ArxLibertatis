@@ -200,6 +200,9 @@ public:
 #if ARX_PLATFORM == ARX_PLATFORM_WIN32
 			|| (pathstr.length() >= 2 && pathstr[1] == ':')
 #endif
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+			|| (pathstr.find(':') != std::string::npos)
+#endif
 		);
 	}
 	
@@ -208,6 +211,9 @@ public:
 		return !empty() && (pathstr[0] == '/'
 #if ARX_PLATFORM == ARX_PLATFORM_WIN32
 			|| (pathstr.length() >= 2 && pathstr[1] == ':')
+#endif
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+			|| (pathstr.find(':') != std::string::npos)
 #endif
 		);
 	}

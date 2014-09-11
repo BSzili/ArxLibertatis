@@ -22,6 +22,13 @@
 #include "graphics/opengl/GLTexture2D.h"
 #include "graphics/opengl/OpenGLRenderer.h"
 
+#ifdef __MORPHOS__
+#define glActiveTexture glActiveTextureARB
+#endif
+#ifdef __amigaos4__
+#include <GL/glext.h>
+#endif
+
 GLTextureStage::GLTextureStage(OpenGLRenderer * _renderer, unsigned stage) : TextureStage(stage), renderer(_renderer), tex(NULL), current(NULL) {
 	
 	// Set default state
@@ -254,6 +261,7 @@ void GLTextureStage::SetMipFilter(FilterMode filterMode) {
 }
 
 void GLTextureStage::SetMipMapLODBias(float bias) {
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	
 	if(mStage != 0) {
 		glActiveTexture(GL_TEXTURE0 + mStage);
@@ -266,6 +274,7 @@ void GLTextureStage::SetMipMapLODBias(float bias) {
 	}
 	
 	CHECK_GL;
+#endif
 }
 
 void GLTextureStage::apply() {

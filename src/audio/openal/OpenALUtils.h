@@ -22,7 +22,11 @@
 
 #include <boost/math/special_functions/fpclassify.hpp>
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <AL/al.h>
+#else
 #include <al.h>
+#endif
 
 #include "math/Vector3.h"
 

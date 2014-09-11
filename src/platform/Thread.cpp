@@ -28,7 +28,9 @@ void Thread::setThreadName(const std::string & _threadName) {
 
 #if defined(ARX_HAVE_PTHREADS)
 
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
 #include <sched.h>
+#endif
 #include <unistd.h>
 
 #if !defined(ARX_HAVE_PTHREAD_SETNAME_NP) && !defined(ARX_HAVE_PTHREAD_SET_NAME_NP) \
@@ -41,7 +43,11 @@ void Thread::setThreadName(const std::string & _threadName) {
 #endif
 
 Thread::Thread() : started(false) {
+#if defined(__AROS__) || defined(__amigaos4__)
+	setPriority(High);
+#else
 	setPriority(Normal);
+#endif
 }
 
 void Thread::start() {
@@ -72,8 +78,13 @@ void Thread::setPriority(Priority _priority) {
 	int policy = SCHED_RR;
 #endif
 	
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+	int min = Lowest;
+	int max = Highest;
+#else
 	int min = sched_get_priority_min(policy);
 	int max = sched_get_priority_max(policy);
+#endif
 	
 	priority = min + ((_priority - Lowest) * (max - min) / (Highest - Lowest));
 	
@@ -254,6 +265,12 @@ void Thread::sleep(unsigned milliseconds) {
 
 void Thread::sleep(unsigned milliseconds) {
 	Sleep(milliseconds);
+}
+
+#elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+
+void Thread::sleep(unsigned milliseconds) {
+	usleep(milliseconds * 1000);
 }
 
 #else

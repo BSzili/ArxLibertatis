@@ -48,6 +48,14 @@
 	#undef main /* in case SDL.h was already included */
 #endif
 
+#if defined(__AROS__) || defined(__MORPHOS__)
+#include <locale.h>
+extern "C" const int __stack __attribute__((used)) = 0x100000;
+#endif
+#if defined(__amigaos4__)
+extern "C" const char * __attribute__((used)) stack = "$STACK: 1048576";
+#endif
+
 #include "core/Config.h"
 #include "core/Core.h"
 #include "core/Version.h"
@@ -111,6 +119,18 @@ static ExitStatus parseCommandLine(int argc, char ** argv) {
 	return RunProgram;
 }
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL.h>
+#include "../scene/GameSound.h"
+#include "../ai/PathFinderManager.h"
+void threadCleanup(void)
+{
+	EERIE_PATHFINDER_Release();
+	ARX_SOUND_Release();
+	SDL_Quit();
+}
+#endif
+
 #if ARX_PLATFORM != ARX_PLATFORM_WIN32
 extern int main(int argc, char ** argv) {
 #else
@@ -123,6 +143,14 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
 	ARX_UNUSED(nCmdShow);
 	int argc = __argc;
 	char ** argv = __argv;
+#endif
+	
+#ifdef __MORPHOS__
+	setlocale(LC_NUMERIC, "C"); /* so parsing floats won't be screwed up on MorphOS */
+	//setlocale(LC_ALL, "C");
+#endif
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+	atexit(threadCleanup);
 #endif
 	
 	// Initialize Random now so that the crash handler can use it

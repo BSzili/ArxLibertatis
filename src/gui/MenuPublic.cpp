@@ -49,6 +49,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <sstream>
 #include <string>
 
+#ifdef __amigaos4__
+#include "graphics/image/Image.h"
+#endif
 #include "animation/Animation.h"
 
 #include "core/Application.h"

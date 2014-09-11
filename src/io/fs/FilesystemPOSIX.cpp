@@ -161,6 +161,11 @@ bool rename(const path & old_p, const path & new_p, bool overwrite) {
 		return false;
 #endif
 	}
+#ifdef __amigaos4__
+	else {
+		remove(new_p);
+	}
+#endif
 	
 	return !::rename(old_p.string().c_str(), new_p.string().c_str());
 }
@@ -253,11 +258,20 @@ static void readdir(void * _handle, void * & _buf) {
 	
 	do {
 		
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+		buf = readdir(handle);
+		_buf = (void *)buf; // I hate C++
+		if (!buf) {
+			//LogWarning << "error: " << strerror(errno);
+			return;
+		}
+#else
 		dirent * entry;
 		if(readdir_r(handle, buf, &entry) || !entry) {
 			std::free(_buf), _buf = NULL;
 			return;
 		}
+#endif
 		
 	} while(!strcmp(buf->d_name, ".") || !strcmp(buf->d_name, ".."));
 	
@@ -269,6 +283,7 @@ directory_iterator::directory_iterator(const path & p) : buf(NULL) {
 	
 	if(DIR_HANDLE(handle)) {
 		
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
 		// Allocate a large enough buffer for readdir_r.
 		long name_max;
 #if ((defined(ARX_HAVE_DIRFD) && defined(ARX_HAVE_FPATHCONF)) || defined(ARX_HAVE_PATHCONF)) \
@@ -295,6 +310,7 @@ directory_iterator::directory_iterator(const path & p) : buf(NULL) {
 			size = sizeof(dirent);
 		}
 		buf = std::malloc(size);
+#endif
 		
 		readdir(handle, buf);
 	}
@@ -305,7 +321,9 @@ directory_iterator::~directory_iterator() {
 		closedir(DIR_HANDLE(handle));
 		DIR_HANDLE_FREE(handle);
 	}
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
 	std::free(buf);
+#endif
 }
 
 directory_iterator & directory_iterator::operator++() {

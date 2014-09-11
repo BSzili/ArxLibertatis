@@ -254,6 +254,15 @@ TextureContainer * TextureContainer::Load(const res::path & name, TCFlags flags)
 		return newTexture;
 	}
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	// gluBuild2DMipmaps upscales the textures, so make sure we don't resize the UI elements.
+	// why would the interface textures need mipmaps is beyond me anyway...
+	if(name.string().find("interface") != std::string::npos || name.string().find("levels") != std::string::npos) {
+		//LogWarning << name << " loaded with " << __FUNCTION__;
+		flags |= UI;
+	}
+#endif
+	
 	// Allocate and add the texture to the linked list of textures;
 	newTexture = new TextureContainer(name, flags);
 	if(!newTexture) {

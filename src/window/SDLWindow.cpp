@@ -17,6 +17,11 @@
  * along with Arx Libertatis.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifdef __amigaos4__
+//#include "graphics/opengl/OpenGLRenderer.h"
+//#include "graphics/image/Image.h"
+#include <GL/gl.h>
+#endif
 #include "window/SDLWindow.h"
 
 #include <sstream>
@@ -27,6 +32,9 @@
 #endif
 
 #include "core/Config.h"
+#ifdef __amigaos4__
+#include "graphics/image/Image.h"
+#endif
 #include "graphics/opengl/OpenGLRenderer.h"
 #include "input/SDLInputBackend.h"
 #include "io/log/Logger.h"

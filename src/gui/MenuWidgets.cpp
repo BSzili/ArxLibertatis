@@ -57,6 +57,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <boost/foreach.hpp>
 
+#ifdef __amigaos4__
+#include "graphics/image/Image.h"
+#endif
 #include "core/Application.h"
 #include "core/Config.h"
 #include "core/Core.h"
@@ -87,7 +90,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "window/RenderWindow.h"
 
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
 using std::wistringstream;
+#endif
 using std::min;
 using std::max;
 using std::string;

@@ -25,6 +25,10 @@
 namespace fs { class path; }
 namespace res { class path; }
 
+#ifdef __amigaos4__
+#define Image Image_ARX
+#endif
+
 class Image {
 	
 public:

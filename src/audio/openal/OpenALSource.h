@@ -22,7 +22,11 @@
 
 #include <stddef.h>
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <AL/al.h>
+#else
 #include <al.h>
+#endif
 
 #include "audio/AudioTypes.h"
 #include "audio/AudioSource.h"

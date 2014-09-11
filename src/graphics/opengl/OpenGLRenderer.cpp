@@ -23,7 +23,14 @@
 #include "graphics/opengl/GLNoVertexBuffer.h"
 #include "graphics/opengl/GLTexture2D.h"
 #include "graphics/opengl/GLTextureStage.h"
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include "graphics/Math.h"
+#ifndef GL_MAX_TEXTURE_UNITS
+#define GL_MAX_TEXTURE_UNITS GL_MAX_TEXTURE_UNITS_ARB
+#endif
+#else
 #include "graphics/opengl/GLVertexBuffer.h"
+#endif
 #include "io/log/Logger.h"
 #include "platform/CrashHandler.h"
 #include "window/RenderWindow.h"
@@ -60,6 +67,7 @@ enum GLTransformMode {
 
 static GLTransformMode currentTransform;
 
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 static bool checkShader(GLuint object, const char * op, GLuint check) {
 	
 	GLint status;
@@ -111,14 +119,17 @@ static GLuint loadVertexShader(const char * source) {
 	
 	return shader;
 }
+#endif
 
 void OpenGLRenderer::Initialize() {
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(glewInit() != GLEW_OK) {
 		LogError << "GLEW init failed";
 	}
 	
 	CrashHandler::setVariable("GLEW version", glewGetString(GLEW_VERSION));
+#endif
 	
 	LogInfo << "Using OpenGL " << glGetString(GL_VERSION);
 	CrashHandler::setVariable("OpenGL version", glGetString(GL_VERSION));
@@ -136,10 +147,16 @@ void OpenGLRenderer::reinit() {
 	
 	arx_assert(!initialized);
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(!GLEW_ARB_vertex_array_bgra) {
 		LogWarning << "Missing OpenGL extension ARB_vertex_array_bgra, not using vertex arrays!";
 	}
+#ifdef __AROS__
+	// the above shader doesn't work very well with AROSMesa
+	useVertexArrays = false;
+#else
 	useVertexArrays = GLEW_ARB_vertex_array_bgra == GL_TRUE;
+#endif
 	
 	if(!GLEW_ARB_draw_elements_base_vertex) {
 		LogWarning << "Missing OpenGL extension ARB_draw_elements_base_vertex!";
@@ -149,6 +166,7 @@ void OpenGLRenderer::reinit() {
 	if(useVBOs && !GLEW_ARB_map_buffer_range) {
 		LogWarning << "Missing OpenGL extension ARB_map_buffer_range, VBO performance will suffer.";
 	}
+#endif
 	
 	glEnable(GL_POLYGON_OFFSET_FILL);
 	
@@ -171,10 +189,13 @@ void OpenGLRenderer::reinit() {
 	Clear(ColorBuffer | DepthBuffer);
 	
 	currentTransform = GL_UnsetTransform;
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	glArrayClientState = GL_NoArray;
+#endif
 	
 	CHECK_GL;
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(useVertexArrays && useVBOs) {
 		if(!GLEW_ARB_shader_objects) {
 			LogWarning << "Missing OpenGL extension ARB_shader_objects.";
@@ -193,6 +214,7 @@ void OpenGLRenderer::reinit() {
 		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maximumAnisotropy);
 		CHECK_GL;
 	}
+#endif
 	
 	initialized = true;
 }
@@ -201,10 +223,12 @@ void OpenGLRenderer::shutdown() {
 	
 	arx_assert(initialized);
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(shader) {
 		glDeleteObjectARB(shader);
 		CHECK_GL;
 	}
+#endif
 	
 	for(size_t i = 0; i < m_TextureStages.size(); ++i) {
 		delete m_TextureStages[i];
@@ -233,9 +257,11 @@ void OpenGLRenderer::enableTransform() {
 		return;
 	}
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(shader) {
 		glUseProgram(0);
 	}
+#endif
 	
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(&view._11);
@@ -257,9 +283,12 @@ void OpenGLRenderer::disableTransform() {
 	// D3D doesn't apply any transform for D3DTLVERTEX
 	// but we still need to change from D3D to OpenGL coordinates
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(shader) {
 		glUseProgram(shader);
-	} else {
+	} else 
+#endif
+	{
 		glMatrixMode(GL_MODELVIEW);
 		glLoadIdentity();
 	}
@@ -423,6 +452,11 @@ static const GLenum arxToGlBlendFactor[] = {
 };
 
 void OpenGLRenderer::SetBlendFunc(PixelBlendingFactor srcFactor, PixelBlendingFactor dstFactor) {
+#ifdef __amigaos4__
+	// used for uslNbIndiceCull_TNormalTrans, should be substituted with something else
+	if (srcFactor == Renderer::BlendSrcColor)
+		return;
+#endif
 	glBlendFunc(arxToGlBlendFactor[srcFactor], arxToGlBlendFactor[dstFactor]);
 	CHECK_GL;
 }
@@ -598,25 +632,34 @@ void OpenGLRenderer::DrawTexturedRect(float x, float y, float w, float h, float 
 }
 
 VertexBuffer<TexturedVertex> * OpenGLRenderer::createVertexBufferTL(size_t capacity, BufferUsage usage) {
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(useVBOs && shader) {
 		return new GLVertexBuffer<TexturedVertex>(this, capacity, usage); 
-	} else {
+	} else 
+#endif
+	{
 		return new GLNoVertexBuffer<TexturedVertex>(this, capacity); 
 	}
 }
 
 VertexBuffer<SMY_VERTEX> * OpenGLRenderer::createVertexBuffer(size_t capacity, BufferUsage usage) {
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(useVBOs) {
 		return new GLVertexBuffer<SMY_VERTEX>(this, capacity, usage);
-	} else {
+	} else
+#endif
+	{
 		return new GLNoVertexBuffer<SMY_VERTEX>(this, capacity);
 	}
 }
 
 VertexBuffer<SMY_VERTEX3> * OpenGLRenderer::createVertexBuffer3(size_t capacity, BufferUsage usage) {
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(useVBOs) {
 		return new GLVertexBuffer<SMY_VERTEX3>(this, capacity, usage);
-	} else {
+	} else
+#endif
+	{
 		return new GLNoVertexBuffer<SMY_VERTEX3>(this, capacity);
 	}
 }
@@ -633,6 +676,7 @@ void OpenGLRenderer::drawIndexed(Primitive primitive, const TexturedVertex * ver
 	
 	beforeDraw<TexturedVertex>();
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(useVertexArrays && shader) {
 		
 		glBindBuffer(GL_ARRAY_BUFFER, GL_NONE);
@@ -641,7 +685,9 @@ void OpenGLRenderer::drawIndexed(Primitive primitive, const TexturedVertex * ver
 		
 		glDrawRangeElements(arxToGlPrimitiveType[primitive], 0, nvertices - 1, nindices, GL_UNSIGNED_SHORT, indices);
 		
-	} else {
+	} else
+#endif
+	{
 		
 		glBegin(arxToGlPrimitiveType[primitive]);
 		

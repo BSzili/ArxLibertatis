@@ -51,6 +51,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <boost/foreach.hpp>
 
+#ifdef __amigaos4__
+#include "graphics/image/Image.h"
+#endif
 #include "ai/PathFinderManager.h"
 #include "ai/Paths.h"
 
@@ -269,8 +272,15 @@ void ArxGame::setFullscreen(bool fullscreen) {
 	} else {
 		
 		// Clamp to a sane window size!
+#ifdef __AROS__
+#warning HACK!
+		config.window.size.x = s32(320);
+		config.window.size.y = s32(240);
+
+#else
 		config.window.size.x = std::max(config.window.size.x, s32(640));
 		config.window.size.y = std::max(config.window.size.y, s32(480));
+#endif
 		
 		GetWindow()->setWindowSize(config.window.size);
 		
@@ -320,8 +330,14 @@ bool ArxGame::initWindow(RenderWindow * window) {
 	// Clamp to a sane resolution and window size!
 	mode.resolution.x = std::max(mode.resolution.x, s32(640));
 	mode.resolution.y = std::max(mode.resolution.y, s32(480));
+#ifdef __AROS__
+#warning HACK!
+	config.window.size.x = s32(320);
+	config.window.size.y = s32(240);
+#else
 	config.window.size.x = std::max(config.window.size.x, s32(640));
 	config.window.size.y = std::max(config.window.size.y, s32(480));
+#endif
 	
 	Vec2i size = config.video.fullscreen ? mode.resolution : config.window.size;
 	
@@ -433,6 +449,70 @@ static const char * default_paks[][2] = {
 	{ "speech.pak", "speech_default.pak" },
 };
 
+#ifdef __MORPHOS__
+// terrible hackery based on arxunpak
+#include "io/fs/FilePath.h"
+#include "io/fs/Filesystem.h"
+#include "io/fs/FileStream.h"
+
+static void dump(PakDirectory * dir, const fs::path & dirname = fs::current_path(), int level = 0) {
+	
+	fs::create_directories(dirname);
+	
+	for(PakDirectory::files_iterator i = dir->files_begin(); i != dir->files_end(); ++i) {
+		
+		fs::path filename = dirname / i->first;
+		
+		if (i->first.rfind("wav") == std::string::npos || fs::exists(filename)) {
+			continue;
+		}
+		
+		PakFile * file = i->second;
+		
+		LogInfo << "extracting " << filename;
+		
+		fs::ofstream ofs(filename, fs::fstream::out | fs::fstream::binary | fs::fstream::trunc);
+		if(!ofs.is_open()) {
+			LogWarning << "error opening file for writing: " << filename;
+			continue;
+		}
+		
+		if(file->size() > 0) {
+			
+			char * data = (char*)file->readAlloc();
+			arx_assert(data != NULL);
+			
+			if(ofs.write(data, file->size()).fail()) {
+				LogWarning << "error writing to file: " << filename;
+				continue;
+			}
+			
+			free(data);
+			
+		}
+		
+	}
+	
+	for(PakDirectory::dirs_iterator i = dir->dirs_begin(); i != dir->dirs_end(); ++i) {
+		
+		switch (level) {
+			case 0:
+				if (i->first != "sfx" && i->first != "speech") {
+					continue;
+				}
+				break;
+			case 1:
+				if (i->first != "ambiance" && i->first != "woosh" && i->first != config.language) {
+					continue;
+				}
+				break;
+		}
+		dump(&i->second, dirname / i->first, level + 1);
+	}
+	
+}
+#endif
+
 bool ArxGame::AddPaks() {
 	
 	arx_assert(!resources);
@@ -455,7 +535,7 @@ bool ArxGame::AddPaks() {
 	if(!missing.empty()) {
 		
 		// Try to launch the data file installer on non-Windows systems
-		#if ARX_PLATFORM != ARX_PLATFORM_WIN32
+		#if ARX_PLATFORM != ARX_PLATFORM_WIN32 && !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__) 
 		int ret = system("nohup arx-install-data --gui >/dev/null 2>&1 &");
 		(void)ret; // we really don't care!
 		#endif
@@ -496,13 +576,18 @@ bool ArxGame::AddPaks() {
 		oss << "\nSee  " << url::help_get_data;
 		oss << "  and  " << url::help_install_data << "\n";
 		oss << "\nThe search path can be adjusted with command-line parameters.\n";
-		#if ARX_PLATFORM != ARX_PLATFORM_WIN32
+		#if ARX_PLATFORM != ARX_PLATFORM_WIN32 && !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__) 
 		oss << "\nWe will now try to launch the data install script for you...\n";
 		#endif
 		LogCritical << oss.str();
 		
 		return false;
 	}
+	
+#ifdef __MORPHOS__
+	// streaming from the PAKs is super slow, we need to extract the sounds
+	dump(resources);
+#endif
 	
 	// Load optional patch files
 	BOOST_REVERSE_FOREACH(const fs::path & base, fs::paths.data) {

@@ -72,7 +72,9 @@
 //
 // Configuration:
 #define STBI_NO_STDIO
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
 #define STBI_NO_HDR
+#endif
 #define STBI_NO_CALLBACK
 #define STBI_NO_GIF
 

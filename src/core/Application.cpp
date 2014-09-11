@@ -141,6 +141,9 @@ void Application::Quit() {
 }
 
 static bool migrateFilenames(fs::path path, bool is_dir) {
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__) 
+	return true;
+#else
 	
 	string name = path.filename();
 	string lowercase = boost::to_lower_copy(name);
@@ -167,9 +170,13 @@ static bool migrateFilenames(fs::path path, bool is_dir) {
 	}
 	
 	return migrated;
+#endif
 }
 
 static bool migrateFilenames(const fs::path & configFile) {
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__) 
+	return true;
+#else
 	
 	LogInfo << "Changing filenames to lowercase...";
 	
@@ -196,6 +203,7 @@ static bool migrateFilenames(const fs::path & configFile) {
 	}
 	
 	return migrated;
+#endif
 }
 
 bool Application::InitConfig() {

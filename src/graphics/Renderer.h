@@ -25,6 +25,9 @@
 #include "platform/Flags.h"
 #include "math/MathFwd.h"
 #include "graphics/Color.h"
+#ifdef __amigaos4__
+#include "graphics/image/Image.h"
+#endif
 
 struct EERIEMATRIX;
 struct TexturedVertex;

@@ -75,6 +75,14 @@ static bool showDialog(DialogType type, const std::string & message,
 bool showDialog(DialogType type, const std::string & message,
                 const std::string & dialogTitle);
 
+#elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+
+static bool showDialog(DialogType type, const std::string & message,
+                       const std::string & dialogTitle) {
+#warning Implement me!
+	return false;
+}
+
 #else
 
 static std::string escape(const std::string & input) {

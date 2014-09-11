@@ -22,6 +22,9 @@
 
 #include <boost/intrusive/list.hpp>
 
+#ifdef __amigaos4__
+#include <intuition/intuition.h> // struct Image
+#endif
 #include "graphics/Renderer.h"
 #include "graphics/opengl/GLTexture2D.h"
 #include "math/Rectangle.h"

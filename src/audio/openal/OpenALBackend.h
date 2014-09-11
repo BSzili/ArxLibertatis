@@ -22,8 +22,13 @@
 
 #include "Configure.h"
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <AL/al.h>
+#include <AL/alc.h>
+#else
 #include <al.h>
 #include <alc.h>
+#endif
 #ifdef ARX_HAVE_OPENAL_EFX
 	#include <efx.h>
 #endif

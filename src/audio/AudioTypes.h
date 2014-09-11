@@ -123,6 +123,9 @@ struct SourceFalloff {
 	float end;
 };
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#undef INVALID_ID
+#endif
 const s32 INVALID_ID = -1;
 
 typedef s32 SourceId;

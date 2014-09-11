@@ -19,7 +19,11 @@
 
 #include "audio/openal/OpenALUtils.h"
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <AL/alc.h>
+#else
 #include <alc.h>
+#endif
 
 const char * getAlcErrorString(ALenum error) {
 	

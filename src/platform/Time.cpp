@@ -112,6 +112,40 @@ u64 getUs() {
 	return (ts.tv_sec * 1000000ull) + (ts.tv_nsec / 1000);
 }
 
+#elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+
+#include <sys/time.h>
+
+time_t timeBase = 0;
+
+void init() {
+	LogWarning << "using gettimeofday, time will jump if adjusted by other processes";
+}
+
+u32 getMs() {
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+
+	if (!timeBase) {
+		timeBase = tp.tv_sec;
+		return tp.tv_usec / 1000;
+	}
+
+	return (tp.tv_sec - timeBase) * 1000 + tp.tv_usec / 1000;
+}
+
+u64 getUs() {
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+
+	if (!timeBase) {
+		timeBase = tp.tv_sec;
+		return tp.tv_usec;
+	}
+
+	return /*(u64)*/(tp.tv_sec - timeBase) * 1000000ull + /*(u64)*/tp.tv_usec;
+}
+
 #else
 #error "Time not supported: need either ARX_HAVE_CLOCK_GETTIME or ARX_HAVE_WINAPI or ARX_HAVE_MACH_CLOCK"
 #endif

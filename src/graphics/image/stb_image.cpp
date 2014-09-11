@@ -16,7 +16,9 @@
 #include <stdio.h>
 #endif
 #include <stdlib.h>
+#ifndef __amigaos4__
 #include <memory.h>
+#endif
 #include <assert.h>
 #include <stdarg.h>
 

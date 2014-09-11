@@ -77,6 +77,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/Renderer.h"
 #include "graphics/Vertex.h"
 #include "graphics/data/Mesh.h"
+#ifdef __amigaos4__
+#include "graphics/data/TextureContainer.h"
+#endif
 #include "graphics/particle/ParticleEffects.h"
 
 #include "io/resource/ResourcePath.h"
@@ -130,6 +133,12 @@ void ARX_DAMAGE_Show_Hit_Blood()
 	Color color;
 	static float Last_Blood_Pos = 0.f;
 	static long duration;
+#ifdef __amigaos4__
+	/*static TextureContainer *bloodTex = NULL;
+	if(!bloodTex) {
+		bloodTex = TextureContainer::Load("graph/obj3d/textures/item_blood");
+	}*/
+#endif
 
 	if (Blood_Pos > 2.f) // end of blood flash
 	{
@@ -147,7 +156,13 @@ void ARX_DAMAGE_Show_Hit_Blood()
 		else
 			color = Color3f(1.f, Blood_Pos - 1.f, Blood_Pos - 1.f).to<u8>();
 
+#ifdef __amigaos4__
+#warning HACK
+		//EERIEDrawBitmap(0.f, 0.f, (float)DANAESIZX, (float)DANAESIZY, 0.00009f, bloodTex, color);
+#else
 		EERIEDrawBitmap(0.f, 0.f, (float)DANAESIZX, (float)DANAESIZY, 0.00009f, NULL, color);
+#endif
+
 		GRenderer->SetRenderState(Renderer::DepthWrite, true);
 		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 	}
@@ -162,7 +177,12 @@ void ARX_DAMAGE_Show_Hit_Blood()
 		else
 			color = Color3f(1.f, 1.f - Blood_Pos, 1.f - Blood_Pos).to<u8>();
 
+#ifdef __amigaos4__
+#warning HACK
+		//EERIEDrawBitmap(0.f, 0.f, (float)DANAESIZX, (float)DANAESIZY, 0.00009f, bloodTex, color);
+#else
 		EERIEDrawBitmap(0.f, 0.f, (float)DANAESIZX, (float)DANAESIZY, 0.00009f, NULL, color);
+#endif
 		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 		GRenderer->SetRenderState(Renderer::DepthWrite, true);
 	}

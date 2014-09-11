@@ -328,12 +328,60 @@ bool SaveBlock::loadFileTable() {
 	return true;
 }
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// On MorphOS you can't seek to advance a new file stream when it's opened 
+// for writing. If the stream ends before the desired offset, we will pad
+// it with zeroes.
+static void mos_seekp(std::ostream &handle, std::streampos ofs)
+{
+	std::streampos cpos = handle.tellp();
+	
+	if (cpos == ofs)
+	{
+		return;
+	}
+	else if (cpos > ofs)
+	{
+		handle.seekp(ofs);
+	}
+	else
+	{
+		handle.seekp(0, std::ios_base::end);
+		
+		cpos = handle.tellp();
+		
+		if (cpos == ofs)
+		{
+			return;
+		}
+		else if (cpos > ofs)
+		{
+			handle.seekp(ofs);
+		}
+		else
+		{	
+			size_t i;
+			std::streampos diff = ofs - cpos;
+			
+			for (i = 0; i < diff; i++)
+			{
+				handle.put(0);
+			}
+		}
+	}
+}
+#endif
+
 void SaveBlock::writeFileTable(const std::string & important) {
 	
 	LogDebug("writeFileTable " << savefile);
 	
 	u32 fatOffset = totalSize;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	mos_seekp(handle, fatOffset + 4);
+#else
 	handle.seekp(fatOffset + 4);
+#endif
 	
 	fs::write(handle, SAV_VERSION_NOEXT);
 	
@@ -423,7 +471,11 @@ bool SaveBlock::defragment() {
 	}
 	
 	totalSize = 0;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	mos_seekp(tempFile, 4);
+#else
 	tempFile.seekp(4);
+#endif
 	
 	for(Files::iterator file = files.begin(); file != files.end(); ++file) {
 		
@@ -513,7 +565,11 @@ bool SaveBlock::save(const string & name, const char * data, size_t size) {
 	for(File::ChunkList::iterator chunk = file->chunks.begin();
 	    chunk != file->chunks.end(); ++chunk) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		mos_seekp(handle, chunk->offset + 4);
+#else
 		handle.seekp(chunk->offset + 4);
+#endif
 		
 		if(chunk->size > remaining) {
 			usedSize -= chunk->size - remaining;
@@ -532,7 +588,11 @@ bool SaveBlock::save(const string & name, const char * data, size_t size) {
 	}
 	
 	file->chunks.push_back(File::Chunk(remaining, totalSize));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	mos_seekp(handle, totalSize + 4);
+#else
 	handle.seekp(totalSize + 4);
+#endif
 	handle.write(p, remaining);
 	totalSize += remaining, usedSize += remaining, chunkCount++;
 	
