@@ -1,0 +1,29 @@
+Failat 21
+
+SetEnv installer_file "setup_arx_fatalis_2.0.0.7.exe"
+
+If Not Exists ${installer_file}
+  RequestChoice >ENV:Choicex Title="Error" Body="Can't find the GOG installer: ${installer_file}" Gadgets=OK
+  Quit
+EndIf
+
+innoextract ${installer_file}
+
+; copy the extacted data
+Copy FROM app/#? TO "" ALL MOVE
+; Copy FROM app/#? TO "" ALL
+Delete app ALL
+Delete tmp ALL
+
+; delete some unnecessary files
+Delete ARX.exe
+Delete ARX_SCRIPT_DEBUGGER.DLL
+Delete Athena.dll
+Delete game.ico
+Delete GameuxInstallHelper.dll
+Delete gfw_high.ico
+Delete gog.ico
+Delete goggame.dll
+Delete instscript.vdf
+Delete Support.ico
+Delete unicows.dll

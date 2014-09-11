@@ -1,0 +1,38 @@
+Failat 21
+
+SetEnv patch_file "ArxFatalis_1.21_MULTILANG.exe"
+
+If Not Exists "Arx Fatalis:setup1.cab"
+  RequestChoice >ENV:Choicex Title="Error" Body="Can't find the Arx Fatalis CD" Gadgets=OK
+  Quit
+EndIf
+
+If Not Exists ${patch_file}
+  RequestChoice >ENV:Choicex Title="Error" Body="Can't find patch: ${patch_file}" Gadgets=OK
+  Quit
+EndIf
+
+; copy data from the CD
+xadUnFile "Arx Fatalis:setup1.cab" "" OVERWRITE
+xadUnFile "Arx Fatalis:setup2.cab" "" OVERWRITE
+xadUnFile "Arx Fatalis:setup3.cab" "" OVERWRITE
+copy "Arx Fatalis:bin/data2.pak" "" NOPRO
+copy "Arx Fatalis:bin/LOC.pak" "" NOPRO
+
+; extract patch
+innoextract ${patch_file}
+
+; copy the extacted data
+Copy FROM app/#? TO "" ALL MOVE
+; Copy FROM app/#? TO "" ALL
+Delete app ALL
+
+; delete some unnecessary files from the patch
+Delete arx.exe
+Delete ARX_SCRIPT_DEBUGGER.DLL
+Delete Athena.dll
+Delete game.ico
+Delete innosetup_license.txt
+Delete instscript.vdf
+Delete MD5_MIT_license.txt
+Delete unicows.dll
