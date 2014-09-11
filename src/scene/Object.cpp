@@ -51,6 +51,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "core/Config.h"
 #include "core/Core.h"
 
@@ -86,6 +90,23 @@ using std::min;
 using std::max;
 using std::string;
 using std::vector;
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
 
 void EERIE_RemoveCedricData(EERIE_3DOBJ * eobj);
 
@@ -265,7 +286,18 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 	
 	EERIE_ANIM * eerie = allocStructZero<EERIE_ANIM>();
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	const THEA_HEADER *th_const = reinterpret_cast<const THEA_HEADER *>(adr + pos);
+	THEA_HEADER th_copy = *th_const;
+	THEA_HEADER *th = &th_copy;
+	
+	th->version = SDL_SwapLE32(th->version);
+	th->nb_frames = SDL_SwapLE32(th->nb_frames);
+	th->nb_groups = SDL_SwapLE32(th->nb_groups);
+	th->nb_key_frames = SDL_SwapLE32(th->nb_key_frames);
+#else
 	const THEA_HEADER * th = reinterpret_cast<const THEA_HEADER *>(adr + pos);
+#endif
 	if(th->version < 2014) {
 		LogError << "Invalid TEA Version " << th->version << " in " << file;
 		free(eerie);
@@ -295,13 +327,37 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 		const THEA_KEYFRAME_2015 * tkf2015;
 		if(th->version >= 2015) {
 			LogDebug(" New keyframe version THEA_KEYFRAME_2015:" << sizeof(THEA_KEYFRAME_2015));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			kf2015 = *reinterpret_cast<const THEA_KEYFRAME_2015 *>(adr + pos);
+			
+			kf2015.num_frame = SDL_SwapLE32(kf2015.num_frame);
+			kf2015.flag_frame = SDL_SwapLE32(kf2015.flag_frame);
+			kf2015.master_key_frame = SDL_SwapLE32(kf2015.master_key_frame);
+			kf2015.key_frame = SDL_SwapLE32(kf2015.key_frame);
+			kf2015.key_move = SDL_SwapLE32(kf2015.key_move);
+			kf2015.key_orient = SDL_SwapLE32(kf2015.key_orient);
+			kf2015.key_morph = SDL_SwapLE32(kf2015.key_morph);
+			kf2015.time_frame = SDL_SwapLE32(kf2015.time_frame);
+			tkf2015 = &kf2015;
+#else
 			tkf2015 = reinterpret_cast<const THEA_KEYFRAME_2015 *>(adr + pos);
+#endif
 			pos += sizeof(THEA_KEYFRAME_2015);
 		} else {
 			LogDebug(" Old keyframe version THEA_KEYFRAME:" << sizeof(THEA_KEYFRAME));
 			const THEA_KEYFRAME * tkf = reinterpret_cast<const THEA_KEYFRAME *>(adr + pos);
 			pos += sizeof(THEA_KEYFRAME);
 			memset(&kf2015, 0, sizeof(THEA_KEYFRAME_2015));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			kf2015.num_frame = SDL_SwapLE32(tkf->num_frame);
+			kf2015.flag_frame = SDL_SwapLE32(tkf->flag_frame);
+			kf2015.master_key_frame = SDL_SwapLE32(tkf->master_key_frame);
+			kf2015.key_frame = SDL_SwapLE32(tkf->key_frame);
+			kf2015.key_move = SDL_SwapLE32(tkf->key_move);
+			kf2015.key_orient = SDL_SwapLE32(tkf->key_orient);
+			kf2015.key_morph = SDL_SwapLE32(tkf->key_morph);
+			kf2015.time_frame = SDL_SwapLE32(tkf->time_frame);
+#else
 			kf2015.num_frame = tkf->num_frame;
 			kf2015.flag_frame = tkf->flag_frame;
 			kf2015.master_key_frame = tkf->master_key_frame;
@@ -310,6 +366,7 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 			kf2015.key_orient = tkf->key_orient;
 			kf2015.key_morph = tkf->key_morph;
 			kf2015.time_frame = tkf->time_frame;
+#endif
 			tkf2015 = &kf2015;
 		}
 		
@@ -334,7 +391,17 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 		// Is There a Global translation ?
 		if(tkf2015->key_move != 0) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const THEA_KEYMOVE *tkm_const = reinterpret_cast<const THEA_KEYMOVE *>(adr + pos);
+			THEA_KEYMOVE tkm_copy = *tkm_const;
+			THEA_KEYMOVE *tkm = &tkm_copy;
+			
+			tkm->x = SDL_SwapFloatLE(tkm->x);
+			tkm->y = SDL_SwapFloatLE(tkm->y);
+			tkm->z = SDL_SwapFloatLE(tkm->z);
+#else
 			const THEA_KEYMOVE * tkm = reinterpret_cast<const THEA_KEYMOVE *>(adr + pos);
+#endif
 			pos += sizeof(THEA_KEYMOVE);
 			
 			LogDebug(" -> move x " << tkm->x << " y " << tkm->y << " z " << tkm->z
@@ -347,7 +414,18 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 		if(tkf2015->key_orient != 0) {
 			pos += 8; // THEO_ANGLE
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const ArxQuat *quat_const = reinterpret_cast<const ArxQuat *>(adr + pos);
+			ArxQuat quat_copy = *quat_const;
+			ArxQuat *quat = &quat_copy;
+			
+			quat->x = SDL_SwapFloatLE(quat->x);
+			quat->y = SDL_SwapFloatLE(quat->y);
+			quat->z = SDL_SwapFloatLE(quat->z);
+			quat->w = SDL_SwapFloatLE(quat->w);
+#else
 			const ArxQuat * quat = reinterpret_cast<const ArxQuat *>(adr + pos);
+#endif
 			pos += sizeof(ArxQuat);
 			
 			LogDebug(" -> rotate x " << quat->x << " y " << quat->y << " z " << quat->z
@@ -364,7 +442,27 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 		// Now go for Group Rotations/Translations/scaling for each GROUP
 		for(long j = 0; j < th->nb_groups; j++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const THEO_GROUPANIM *tga_const = reinterpret_cast<const THEO_GROUPANIM *>(adr + pos);
+			THEO_GROUPANIM tga_copy = *tga_const;
+			THEO_GROUPANIM *tga = &tga_copy;
+			
+			tga->key_group = SDL_SwapLE32(tga->key_group);
+			tga->Quaternion.x = SDL_SwapFloatLE(tga->Quaternion.x);
+			tga->Quaternion.y = SDL_SwapFloatLE(tga->Quaternion.y);
+			tga->Quaternion.z = SDL_SwapFloatLE(tga->Quaternion.z);
+			tga->Quaternion.w = SDL_SwapFloatLE(tga->Quaternion.w);
+
+			tga->translate.x = SDL_SwapFloatLE(tga->translate.x);
+			tga->translate.y = SDL_SwapFloatLE(tga->translate.y);
+			tga->translate.z = SDL_SwapFloatLE(tga->translate.z);
+			
+			tga->zoom.x = SDL_SwapFloatLE(tga->zoom.x);
+			tga->zoom.y = SDL_SwapFloatLE(tga->zoom.y);
+			tga->zoom.z = SDL_SwapFloatLE(tga->zoom.z);
+#else
 			const THEO_GROUPANIM * tga = reinterpret_cast<const THEO_GROUPANIM *>(adr + pos);
+#endif
 			pos += sizeof(THEO_GROUPANIM);
 			
 			EERIE_GROUP * eg = &eerie->groups[j + i * th->nb_groups];
@@ -376,13 +474,24 @@ EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & file) 
 		
 		// Now Read Sound Data included in this frame
 		s32 num_sample = *reinterpret_cast<const s32 *>(adr + pos);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		num_sample = SDL_SwapLE32(num_sample);
+#endif
 		pos += sizeof(s32);
 		LogDebug(" -> num_sample " << num_sample << " s32:" << sizeof(s32));
 		
 		eerie->frames[i].sample = -1;
 		if(num_sample != -1) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const THEA_SAMPLE *ts_const = reinterpret_cast<const THEA_SAMPLE *>(adr + pos);
+			THEA_SAMPLE ts_copy = *ts_const;
+			THEA_SAMPLE *ts = &ts_copy;
+			
+			ts->sample_size = SDL_SwapLE32(ts->sample_size);
+#else
 			const THEA_SAMPLE * ts = reinterpret_cast<const THEA_SAMPLE *>(adr + pos);
+#endif
 			pos += sizeof(THEA_SAMPLE);
 			pos += ts->sample_size;
 			

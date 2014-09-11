@@ -52,6 +52,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "animation/Cinematic.h"
 #include "animation/CinematicKeyframer.h"
 
@@ -69,6 +73,23 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/CinematicSound.h"
 
 extern C_KEY KeyTemp;
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
 
 static res::path fixTexturePath(const std::string & path) {
 	
@@ -167,6 +188,9 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 		LogError << "Error reading file version";
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	version = SDL_SwapLE32(version);
+#endif
 	LogDebug("version " << version);
 	
 	if(version < CINEMATIC_VERSION_1_75) {
@@ -187,6 +211,9 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 		LogError << "Error reading bitmap count";
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	nbitmaps = SDL_SwapLE32(nbitmaps);
+#endif
 	LogDebug(nbitmaps << " images:");
 	
 	c->m_bitmaps.reserve(nbitmaps);
@@ -198,6 +225,9 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 			LogError << "Error reading bitmap scale";
 			return false;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		scale = SDL_SwapLE32(scale);
+#endif
 		
 		const char * str = safeGetString(data, size);
 		if(!str) {
@@ -221,6 +251,9 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 		LogError << "Error reading sound count";
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	nsounds = SDL_SwapLE32(nsounds);
+#endif
 	
 	LogDebug(nsounds << " sounds:");
 	for(int i = 0; i < nsounds; i++) {
@@ -252,6 +285,14 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 		LogError << "Error reading track";
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	t.startframe = SDL_SwapLE32(t.startframe);
+	t.endframe = SDL_SwapLE32(t.endframe);
+	t.currframe = SDL_SwapFloatLE(t.currframe);
+	t.fps = SDL_SwapFloatLE(t.fps);
+	t.nbkey = SDL_SwapLE32(t.nbkey);
+	t.pause = SDL_SwapLE32(t.pause);
+#endif
 	AllocTrack(t.startframe, t.endframe, t.fps);
 	
 	LogDebug(t.nbkey << " keyframes:");
@@ -267,6 +308,37 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 				LogError << "Error reading key v1.75";
 				return false;
 			}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			k175.frame = SDL_SwapLE32(k175.frame);
+			k175.numbitmap = SDL_SwapLE32(k175.numbitmap);
+			k175.fx = SDL_SwapLE32(k175.fx);
+			k175.typeinterp = SDL_SwapLE16(k175.typeinterp);
+			k175.force = SDL_SwapLE16(k175.force);
+			k175.pos.x = SDL_SwapFloatLE(k175.pos.x);
+			k175.pos.y = SDL_SwapFloatLE(k175.pos.y);
+			k175.pos.z = SDL_SwapFloatLE(k175.pos.z);
+			k175.angz = SDL_SwapLE32(k175.angz);
+			k175.color = SDL_SwapLE32(k175.color);
+			k175.colord = SDL_SwapLE32(k175.colord);
+			k175.colorf = SDL_SwapLE32(k175.colorf);
+			k175.idsound = SDL_SwapLE32(k175.idsound);
+			k175.speed = SDL_SwapFloatLE(k175.speed);
+			k175.light.pos.x = SDL_SwapFloatLE(k175.light.pos.x);
+			k175.light.pos.y = SDL_SwapFloatLE(k175.light.pos.y);
+			k175.light.pos.z = SDL_SwapFloatLE(k175.light.pos.z);
+			k175.light.fallin = SDL_SwapFloatLE(k175.light.fallin);
+			k175.light.fallout = SDL_SwapFloatLE(k175.light.fallout);
+			k175.light.color.r = SDL_SwapFloatLE(k175.light.color.r);
+			k175.light.color.g = SDL_SwapFloatLE(k175.light.color.g);
+			k175.light.color.b = SDL_SwapFloatLE(k175.light.color.b);
+			k175.light.intensity = SDL_SwapFloatLE(k175.light.intensity);
+			k175.light.intensiternd = SDL_SwapFloatLE(k175.light.intensiternd);
+			k175.posgrille.x = SDL_SwapFloatLE(k175.posgrille.x);
+			k175.posgrille.y = SDL_SwapFloatLE(k175.posgrille.y);
+			k175.posgrille.z = SDL_SwapFloatLE(k175.posgrille.z);
+			k175.angzgrille = SDL_SwapFloatLE(k175.angzgrille);
+			k175.speedtrack = SDL_SwapFloatLE(k175.speedtrack);
+#endif
 			
 			k.angz = k175.angz;
 			k.color = k175.color;
@@ -293,6 +365,39 @@ bool parseCinematic(Cinematic * c, const char * data, size_t size) {
 				LogError << "Error reading key v1.76";
 				return false;
 			}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			k176.frame = SDL_SwapLE32(k176.frame);
+			k176.numbitmap = SDL_SwapLE32(k176.numbitmap);
+			k176.fx = SDL_SwapLE32(k176.fx);
+			k176.typeinterp = SDL_SwapLE16(k176.typeinterp);
+			k176.force = SDL_SwapLE16(k176.force);
+			k176.pos.x = SDL_SwapFloatLE(k176.pos.x);
+			k176.pos.y = SDL_SwapFloatLE(k176.pos.y);
+			k176.pos.z = SDL_SwapFloatLE(k176.pos.z);
+			k176.angz = SDL_SwapLE32(k176.angz);
+			k176.color = SDL_SwapLE32(k176.color);
+			k176.colord = SDL_SwapLE32(k176.colord);
+			k176.colorf = SDL_SwapLE32(k176.colorf);
+			for (int i = 0; i < 16; i++) {
+				k176.idsound[i] = SDL_SwapLE32(k176.idsound[i]);
+			}
+			k176.speed = SDL_SwapFloatLE(k176.speed);
+			k176.light.pos.x = SDL_SwapFloatLE(k176.light.pos.x);
+			k176.light.pos.y = SDL_SwapFloatLE(k176.light.pos.y);
+			k176.light.pos.z = SDL_SwapFloatLE(k176.light.pos.z);
+			k176.light.fallin = SDL_SwapFloatLE(k176.light.fallin);
+			k176.light.fallout = SDL_SwapFloatLE(k176.light.fallout);
+			k176.light.color.r = SDL_SwapFloatLE(k176.light.color.r);
+			k176.light.color.g = SDL_SwapFloatLE(k176.light.color.g);
+			k176.light.color.b = SDL_SwapFloatLE(k176.light.color.b);
+			k176.light.intensity = SDL_SwapFloatLE(k176.light.intensity);
+			k176.light.intensiternd = SDL_SwapFloatLE(k176.light.intensiternd);
+			k176.posgrille.x = SDL_SwapFloatLE(k176.posgrille.x);
+			k176.posgrille.y = SDL_SwapFloatLE(k176.posgrille.y);
+			k176.posgrille.z = SDL_SwapFloatLE(k176.posgrille.z);
+			k176.angzgrille = SDL_SwapFloatLE(k176.angzgrille);
+			k176.speedtrack = SDL_SwapFloatLE(k176.speedtrack);
+#endif
 			
 			k.angz = k176.angz;
 			k.color = k176.color;

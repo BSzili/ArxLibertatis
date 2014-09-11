@@ -43,6 +43,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "audio/codec/RAW.h"
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "io/resource/PakReader.h"
 #include "platform/Platform.h"
 
@@ -80,6 +84,11 @@ size_t CodecRAW::getPosition() {
 
 aalError CodecRAW::read(void * buffer, size_t to_read, size_t & read) {
 	read = stream->read(buffer, to_read);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	for (size_t i = 0; i < read/2; i++) {
+		((s16 *)buffer)[i] = SDL_SwapLE16(((s16 *)buffer)[i]);
+	}
+#endif
 	return AAL_OK;
 }
 

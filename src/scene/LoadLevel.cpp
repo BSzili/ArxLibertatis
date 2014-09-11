@@ -53,6 +53,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <boost/algorithm/string/case_conv.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "ai/PathFinderManager.h"
 #include "ai/Paths.h"
 
@@ -103,6 +107,23 @@ extern long DONT_ERASE_PLAYER;
 extern QUAKE_FX_STRUCT QuakeFx;
 extern bool bGToggleCombatModeWithKey;
 extern bool bGCroucheToggle;
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
 
 bool CanPurge(Vec3f * pos)
 {
@@ -662,6 +683,38 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	
 	DANAE_LS_HEADER dlh;
 	memcpy(&dlh, dat + pos, sizeof(DANAE_LS_HEADER));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	dlh.version = SDL_SwapFloatLE(dlh.version);
+	dlh.time = SDL_SwapLE32(dlh.time);
+	dlh.pos_edit.x = SDL_SwapFloatLE(dlh.pos_edit.x);
+	dlh.pos_edit.y = SDL_SwapFloatLE(dlh.pos_edit.y);
+	dlh.pos_edit.z = SDL_SwapFloatLE(dlh.pos_edit.z);
+	dlh.angle_edit.a = SDL_SwapFloatLE(dlh.angle_edit.a);
+	dlh.angle_edit.b = SDL_SwapFloatLE(dlh.angle_edit.b);
+	dlh.angle_edit.g = SDL_SwapFloatLE(dlh.angle_edit.g);
+
+	dlh.nb_scn = SDL_SwapLE32(dlh.nb_scn);
+	dlh.nb_inter = SDL_SwapLE32(dlh.nb_inter);
+	dlh.nb_nodes = SDL_SwapLE32(dlh.nb_nodes);
+	dlh.nb_nodeslinks = SDL_SwapLE32(dlh.nb_nodeslinks);
+	dlh.nb_zones = SDL_SwapLE32(dlh.nb_zones);
+	dlh.lighting = SDL_SwapLE32(dlh.lighting);
+	//s32 Bpad[256];
+	dlh.nb_lights = SDL_SwapLE32(dlh.nb_lights);
+	dlh.nb_fogs = SDL_SwapLE32(dlh.nb_fogs);
+	
+	dlh.nb_bkgpolys = SDL_SwapLE32(dlh.nb_bkgpolys);
+	dlh.nb_ignoredpolys = SDL_SwapLE32(dlh.nb_ignoredpolys);
+	dlh.nb_childpolys = SDL_SwapLE32(dlh.nb_childpolys);
+	dlh.nb_paths = SDL_SwapLE32(dlh.nb_paths);
+	//s32 pad[250];
+	dlh.offset.x = SDL_SwapFloatLE(dlh.offset.x);
+	dlh.offset.y = SDL_SwapFloatLE(dlh.offset.y);
+	dlh.offset.z = SDL_SwapFloatLE(dlh.offset.z);
+	//f32 fpad[253];
+	//char cpad[4096];
+	//s32 bpad[256];
+#endif
 	pos += sizeof(DANAE_LS_HEADER);
 	
 	LogDebug("dlh.version " << dlh.version << " header size " << sizeof(DANAE_LS_HEADER));
@@ -769,7 +822,22 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 		PROGRESS_BAR_COUNT += increment;
 		LoadLevelScreen();
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_INTER *dli = reinterpret_cast<DANAE_LS_INTER *>(dat + pos);
+		DANAE_LS_INTER dli_copy = *dli;
+		dli = &dli_copy;
+		
+		dli->pos.x = SDL_SwapFloatLE(dli->pos.x);
+		dli->pos.y = SDL_SwapFloatLE(dli->pos.y);
+		dli->pos.z = SDL_SwapFloatLE(dli->pos.z);
+		dli->angle.a = SDL_SwapFloatLE(dli->angle.a);
+		dli->angle.b = SDL_SwapFloatLE(dli->angle.b);
+		dli->angle.g = SDL_SwapFloatLE(dli->angle.g);
+		dli->ident = SDL_SwapLE32(dli->ident);
+		dli->flags = SDL_SwapLE32(dli->flags);
+#else
 		const DANAE_LS_INTER * dli = reinterpret_cast<const DANAE_LS_INTER *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_INTER);
 		
 		if(loadEntities) {
@@ -788,7 +856,17 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	
 	if(dlh.lighting) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_LIGHTINGHEADER *dll = reinterpret_cast<DANAE_LS_LIGHTINGHEADER *>(dat + pos);
+		DANAE_LS_LIGHTINGHEADER dll_copy = *dll;
+		dll = &dll_copy;
+		
+		dll->nb_values = SDL_SwapLE32(dll->nb_values);
+		dll->ViewMode = SDL_SwapLE32(dll->ViewMode);
+		dll->ModeLight = SDL_SwapLE32(dll->ModeLight);
+#else
 		const DANAE_LS_LIGHTINGHEADER * dll = reinterpret_cast<const DANAE_LS_LIGHTINGHEADER *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_LIGHTINGHEADER);
 		long bcount = dll->nb_values;
 		
@@ -802,10 +880,25 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 			
 			if(dlh.version > 1.001f) {
 				std::copy((u32*)(dat + pos), (u32*)(dat + pos) + bcount, LastLoadedLightning);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				for (int i = 0; i < bcount; i++) {
+					ll[i] = SDL_SwapLE32(ll[i]);
+				}
+#endif
 				pos += sizeof(u32) * bcount;
 			} else {
 				while(bcount) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+					DANAE_LS_VLIGHTING *dlv = reinterpret_cast<DANAE_LS_VLIGHTING *>(dat + pos);
+					DANAE_LS_VLIGHTING dlv_copy = *dlv;
+					dlv = &dlv_copy;
+					
+					dlv->r = SDL_SwapLE32(dlv->r);
+					dlv->g = SDL_SwapLE32(dlv->g);
+					dlv->b = SDL_SwapLE32(dlv->b);
+#else
 					const DANAE_LS_VLIGHTING * dlv = reinterpret_cast<const DANAE_LS_VLIGHTING *>(dat + pos);
+#endif
 					pos += sizeof(DANAE_LS_VLIGHTING);
 					*ll = 0xff000000L | ((dlv->r & 255) << 16) | ((dlv->g & 255) << 8) | (dlv->b & 255);
 					ll++;
@@ -835,7 +928,36 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 		
 		for(long i = 0; i < nb_lights; i++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			DANAE_LS_LIGHT *dlight = reinterpret_cast<DANAE_LS_LIGHT *>(dat + pos);
+			DANAE_LS_LIGHT dlight_copy = *dlight;
+			dlight = &dlight_copy;
+			
+			dlight->pos.x = SDL_SwapFloatLE(dlight->pos.x);
+			dlight->pos.y = SDL_SwapFloatLE(dlight->pos.y);
+			dlight->pos.z = SDL_SwapFloatLE(dlight->pos.z);
+			dlight->rgb.r = SDL_SwapFloatLE(dlight->rgb.r);
+			dlight->rgb.g = SDL_SwapFloatLE(dlight->rgb.g);
+			dlight->rgb.b = SDL_SwapFloatLE(dlight->rgb.b);
+
+			dlight->fallstart = SDL_SwapFloatLE(dlight->fallstart);
+			dlight->fallend = SDL_SwapFloatLE(dlight->fallend);
+			dlight->intensity = SDL_SwapFloatLE(dlight->intensity);
+			dlight->i = SDL_SwapFloatLE(dlight->i);
+			dlight->ex_flicker.r = SDL_SwapFloatLE(dlight->ex_flicker.r);
+			dlight->ex_flicker.g = SDL_SwapFloatLE(dlight->ex_flicker.g);
+			dlight->ex_flicker.b = SDL_SwapFloatLE(dlight->ex_flicker.b);
+			dlight->ex_radius = SDL_SwapFloatLE(dlight->ex_radius);
+			dlight->ex_frequency = SDL_SwapFloatLE(dlight->ex_frequency);
+			dlight->ex_size = SDL_SwapFloatLE(dlight->ex_size);
+			dlight->ex_speed = SDL_SwapFloatLE(dlight->ex_speed);
+			dlight->ex_flaresize = SDL_SwapFloatLE(dlight->ex_flaresize);
+			//f32 fpadd[24];
+			dlight->extras = SDL_SwapLE32(dlight->extras);
+			//s32 lpadd[31];
+#else
 			const DANAE_LS_LIGHT * dlight = reinterpret_cast<const DANAE_LS_LIGHT *>(dat + pos);
+#endif
 			pos += sizeof(DANAE_LS_LIGHT);
 			
 			long j = EERIE_LIGHT_Create();
@@ -882,7 +1004,34 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	
 	for(long i = 0; i < dlh.nb_fogs; i++) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_FOG *dlf = reinterpret_cast<DANAE_LS_FOG *>(dat + pos);
+		DANAE_LS_FOG dlf_copy = *dlf;
+		dlf = &dlf_copy;
+		
+		dlf->pos.x = SDL_SwapFloatLE(dlf->pos.x);
+		dlf->pos.y = SDL_SwapFloatLE(dlf->pos.y);
+		dlf->pos.z = SDL_SwapFloatLE(dlf->pos.z);
+		dlf->rgb.r = SDL_SwapFloatLE(dlf->rgb.r);
+		dlf->rgb.g = SDL_SwapFloatLE(dlf->rgb.g);
+		dlf->rgb.b = SDL_SwapFloatLE(dlf->rgb.b);
+		dlf->size = SDL_SwapFloatLE(dlf->size);
+		dlf->special = SDL_SwapLE32(dlf->special);
+		dlf->scale = SDL_SwapFloatLE(dlf->scale);
+		dlf->move.x = SDL_SwapFloatLE(dlf->move.x);
+		dlf->move.y = SDL_SwapFloatLE(dlf->move.y);
+		dlf->move.z = SDL_SwapFloatLE(dlf->move.z);
+		dlf->angle.a = SDL_SwapFloatLE(dlf->angle.a);
+		dlf->angle.b = SDL_SwapFloatLE(dlf->angle.b);
+		dlf->angle.g = SDL_SwapFloatLE(dlf->angle.g);
+		dlf->speed = SDL_SwapFloatLE(dlf->speed);
+		dlf->rotatespeed = SDL_SwapFloatLE(dlf->rotatespeed);
+		dlf->tolive = SDL_SwapLE32(dlf->tolive);
+		dlf->blend = SDL_SwapLE32(dlf->blend);
+		dlf->frequency = SDL_SwapFloatLE(dlf->frequency);
+#else
 		const DANAE_LS_FOG * dlf = reinterpret_cast<const DANAE_LS_FOG *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_FOG);
 		
 		long n = ARX_FOGS_GetFree();
@@ -923,7 +1072,17 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 		
 		nodes.nodes[i].exist = 1;
 		nodes.nodes[i].selected = 0;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_NODE *dln = reinterpret_cast<DANAE_LS_NODE *>(dat + pos);
+		DANAE_LS_NODE dln_copy = *dln;
+		dln = &dln_copy;
+		
+		dln->pos.x = SDL_SwapFloatLE(dln->pos.x);
+		dln->pos.y = SDL_SwapFloatLE(dln->pos.y);
+		dln->pos.z = SDL_SwapFloatLE(dln->pos.z);
+#else
 		const DANAE_LS_NODE * dln = reinterpret_cast<const DANAE_LS_NODE *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_NODE);
 		
 		strcpy(nodes.nodes[i].name, boost::to_lower_copy(util::loadString(dln->name)).c_str());
@@ -949,7 +1108,30 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	
 	for(long i = 0; i < dlh.nb_paths; i++) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_PATH *dlp = reinterpret_cast<DANAE_LS_PATH *>(dat + pos);
+		DANAE_LS_PATH dlp_copy = *dlp;
+		dlp = &dlp_copy;
+		
+		dlp->idx = SDL_SwapLE16(dlp->idx);
+		dlp->flags = SDL_SwapLE16(dlp->flags);
+		dlp->initpos.x = SDL_SwapFloatLE(dlp->initpos.x);
+		dlp->initpos.y = SDL_SwapFloatLE(dlp->initpos.y);
+		dlp->initpos.z = SDL_SwapFloatLE(dlp->initpos.z);
+		dlp->pos.x = SDL_SwapFloatLE(dlp->pos.x);
+		dlp->pos.y = SDL_SwapFloatLE(dlp->pos.y);
+		dlp->pos.z = SDL_SwapFloatLE(dlp->pos.z);
+		dlp->nb_pathways = SDL_SwapLE32(dlp->nb_pathways);
+		dlp->rgb.r = SDL_SwapFloatLE(dlp->rgb.r);
+		dlp->rgb.g = SDL_SwapFloatLE(dlp->rgb.g);
+		dlp->rgb.b = SDL_SwapFloatLE(dlp->rgb.b);
+		dlp->farclip = SDL_SwapFloatLE(dlp->farclip);
+		dlp->reverb = SDL_SwapFloatLE(dlp->reverb);
+		dlp->amb_max_vol = SDL_SwapFloatLE(dlp->amb_max_vol);
+		dlp->height = SDL_SwapLE32(dlp->height);
+#else
 		const DANAE_LS_PATH * dlp = reinterpret_cast<const DANAE_LS_PATH *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_PATH);
 		
 		Vec3f ppos = Vec3f(dlp->initpos) + trans;
@@ -975,7 +1157,19 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 		
 		for(long j = 0; j < dlp->nb_pathways; j++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			DANAE_LS_PATHWAYS *dlpw = reinterpret_cast<DANAE_LS_PATHWAYS *>(dat + pos);
+			DANAE_LS_PATHWAYS dlpw_copy = *dlpw;
+			dlpw = &dlpw_copy;
+			
+			dlpw->rpos.x = SDL_SwapFloatLE(dlpw->rpos.x);
+			dlpw->rpos.y = SDL_SwapFloatLE(dlpw->rpos.y);
+			dlpw->rpos.z = SDL_SwapFloatLE(dlpw->rpos.z);
+			dlpw->flag = SDL_SwapLE32(dlpw->flag);
+			dlpw->time = SDL_SwapLE32(dlpw->time);
+#else
 			const DANAE_LS_PATHWAYS * dlpw = reinterpret_cast<const DANAE_LS_PATHWAYS *>(dat + pos);
+#endif
 			pos += sizeof(DANAE_LS_PATHWAYS);
 			
 			app[j].flag = (PathwayType)dlpw->flag; // save/load enum
@@ -1019,7 +1213,20 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 		return 1;
 	}
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	DANAE_LLF_HEADER *llh = reinterpret_cast<DANAE_LLF_HEADER *>(dat + pos);
+	DANAE_LLF_HEADER llh_copy = *llh;
+	llh = &llh_copy;
+	
+	llh->version = SDL_SwapFloatLE(llh->version);
+	llh->time = SDL_SwapLE32(llh->time);
+	llh->nb_lights = SDL_SwapLE32(llh->nb_lights);
+	llh->nb_Shadow_Polys = SDL_SwapLE32(llh->nb_Shadow_Polys);
+	llh->nb_IGNORED_Polys = SDL_SwapLE32(llh->nb_IGNORED_Polys);
+	llh->nb_bkgpolys = SDL_SwapLE32(llh->nb_bkgpolys);
+#else
 	const DANAE_LLF_HEADER * llh = reinterpret_cast<DANAE_LLF_HEADER *>(dat + pos);
+#endif
 	pos += sizeof(DANAE_LLF_HEADER);
 	
 	PROGRESS_BAR_COUNT += 4.f;
@@ -1031,7 +1238,33 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	
 	for(int i = 0; i < llh->nb_lights; i++) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		DANAE_LS_LIGHT *dlight = reinterpret_cast<DANAE_LS_LIGHT *>(dat + pos);
+		DANAE_LS_LIGHT dlight_copy = *dlight;
+		dlight = &dlight_copy;
+		
+		dlight->pos.x = SDL_SwapFloatLE(dlight->pos.x);
+		dlight->pos.y = SDL_SwapFloatLE(dlight->pos.y);
+		dlight->pos.z = SDL_SwapFloatLE(dlight->pos.z);
+		dlight->rgb.r = SDL_SwapFloatLE(dlight->rgb.r);
+		dlight->rgb.g = SDL_SwapFloatLE(dlight->rgb.g);
+		dlight->rgb.b = SDL_SwapFloatLE(dlight->rgb.b);
+		dlight->fallstart = SDL_SwapFloatLE(dlight->fallstart);
+		dlight->fallend = SDL_SwapFloatLE(dlight->fallend);
+		dlight->intensity = SDL_SwapFloatLE(dlight->intensity);
+		dlight->i = SDL_SwapFloatLE(dlight->i);
+		dlight->ex_flicker.r = SDL_SwapFloatLE(dlight->ex_flicker.r);
+		dlight->ex_flicker.g = SDL_SwapFloatLE(dlight->ex_flicker.g);
+		dlight->ex_flicker.b = SDL_SwapFloatLE(dlight->ex_flicker.b);
+		dlight->ex_radius = SDL_SwapFloatLE(dlight->ex_radius);
+		dlight->ex_frequency = SDL_SwapFloatLE(dlight->ex_frequency);
+		dlight->ex_size = SDL_SwapFloatLE(dlight->ex_size);
+		dlight->ex_speed = SDL_SwapFloatLE(dlight->ex_speed);
+		dlight->ex_flaresize = SDL_SwapFloatLE(dlight->ex_flaresize);
+		dlight->extras = SDL_SwapLE32(dlight->extras);
+#else
 		const DANAE_LS_LIGHT * dlight = reinterpret_cast<const DANAE_LS_LIGHT *>(dat + pos);
+#endif
 		pos += sizeof(DANAE_LS_LIGHT);
 		
 		long j = EERIE_LIGHT_Create();
@@ -1082,7 +1315,17 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	PROGRESS_BAR_COUNT += 2.f;
 	LoadLevelScreen();
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	DANAE_LS_LIGHTINGHEADER *dll = reinterpret_cast<DANAE_LS_LIGHTINGHEADER *>(dat + pos);
+	DANAE_LS_LIGHTINGHEADER dll_copy = *dll;
+	dll = &dll_copy;
+	
+	dll->nb_values = SDL_SwapLE32(dll->nb_values);
+	dll->ViewMode = SDL_SwapLE32(dll->ViewMode);
+	dll->ModeLight = SDL_SwapLE32(dll->ModeLight);
+#else
 	const DANAE_LS_LIGHTINGHEADER * dll = reinterpret_cast<const DANAE_LS_LIGHTINGHEADER *>(dat + pos);
+#endif
 	pos += sizeof(DANAE_LS_LIGHTINGHEADER);
 	
 	long bcount = dll->nb_values;
@@ -1093,10 +1336,25 @@ long DanaeLoadLevel(const res::path & file, bool loadEntities) {
 	u32 * ll = LastLoadedLightning = (u32 *)malloc(sizeof(u32) * bcount);
 	if(dlh.version > 1.001f) {
 		std::copy((u32*)(dat + pos), (u32*)(dat + pos) + bcount, LastLoadedLightning);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		for (int i = 0; i < bcount; i++) {
+			ll[i] = SDL_SwapLE32(ll[i]);
+		}
+#endif
 		pos += sizeof(u32) * bcount;
 	} else {
 		while(bcount) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			DANAE_LS_VLIGHTING *dlv = reinterpret_cast<DANAE_LS_VLIGHTING *>(dat + pos);
+			DANAE_LS_VLIGHTING dlv_copy = *dlv;
+			dlv = &dlv_copy;
+			
+			dlv->r = SDL_SwapLE32(dlv->r);
+			dlv->g = SDL_SwapLE32(dlv->g);
+			dlv->b = SDL_SwapLE32(dlv->b);
+#else
 			const DANAE_LS_VLIGHTING * dlv = reinterpret_cast<const DANAE_LS_VLIGHTING *>(dat + pos);
+#endif
 			pos += sizeof(DANAE_LS_VLIGHTING);
 			*ll = 0xff000000L | ((dlv->r & 255) << 16) | ((dlv->g & 255) << 8) | (dlv->b & 255);
 			ll++;

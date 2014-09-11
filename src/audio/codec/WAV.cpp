@@ -46,6 +46,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <cstring>
 #include <cstdlib>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "audio/codec/ADPCM.h"
 #include "audio/codec/Codec.h"
 #include "audio/codec/RAW.h"
@@ -115,7 +119,11 @@ bool ChunkFile::find(const char * id) {
 		if(!file->read(&_offset, 4)) {
 			return false;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		offset = SDL_SwapLE32(_offset);
+#else
 		offset = _offset;
+#endif
 		if(!memcmp(cc, id, 4)) {
 			return true;
 		}
@@ -194,6 +202,15 @@ aalError StreamWAV::setStream(PakFileHandle * _stream) {
 		return AAL_ERROR_FORMAT;
 	}
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	AS_FORMAT_PCM(header)->formatTag = SDL_SwapLE16(AS_FORMAT_PCM(header)->formatTag);
+	AS_FORMAT_PCM(header)->channels = SDL_SwapLE16(AS_FORMAT_PCM(header)->channels);
+	AS_FORMAT_PCM(header)->samplesPerSec = SDL_SwapLE32(AS_FORMAT_PCM(header)->samplesPerSec);
+	AS_FORMAT_PCM(header)->avgBytesPerSec = SDL_SwapLE32(AS_FORMAT_PCM(header)->avgBytesPerSec);
+	AS_FORMAT_PCM(header)->blockAlign = SDL_SwapLE16(AS_FORMAT_PCM(header)->blockAlign);
+	AS_FORMAT_PCM(header)->bitsPerSample = SDL_SwapLE16(AS_FORMAT_PCM(header)->bitsPerSample);
+#endif
+	
 	// Get codec specific infos from header for non-PCM format
 	if(AS_FORMAT_PCM(header)->formatTag != WAV_FORMAT_PCM) {
 		
@@ -201,6 +218,9 @@ aalError StreamWAV::setStream(PakFileHandle * _stream) {
 		if(!wave.read(&AS_FORMAT_PCM(header)->size, 2)) {
 			return AAL_ERROR_FORMAT;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		AS_FORMAT_PCM(header)->size = SDL_SwapLE16(AS_FORMAT_PCM(header)->size);
+#endif
 		
 		void * ptr = realloc(header, sizeof(WaveHeader) + AS_FORMAT_PCM(header)->size);
 		if(!ptr) {
@@ -212,6 +232,9 @@ aalError StreamWAV::setStream(PakFileHandle * _stream) {
 		// Get sample count from the 'fact' chunk
 		wave.find("fact");
 		wave.read(&outsize, 4);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		outsize = SDL_SwapLE32(outsize);
+#endif
 	}
 	
 	// Create codec

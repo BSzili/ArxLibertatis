@@ -57,6 +57,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/static_assert.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "graphics/data/FTLFormat.h"
 #include "graphics/data/TextureContainer.h"
 
@@ -76,6 +80,23 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 using std::string;
 using std::vector;
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
 
 #ifdef BUILD_EDIT_LOADSAVE
 
@@ -470,7 +491,11 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 	}
 	
 	// Verify FTL file version
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	if(SDL_SwapFloatLE(afph->version) != CURRENT_FTL_VERSION) {
+#else
 	if(afph->version != CURRENT_FTL_VERSION) {
+#endif
 		LogError << "ARX_FTL_Load: wring version " << afph->version << ", expected "
 		         << CURRENT_FTL_VERSION << " in " << filename;
 		free(dat);
@@ -481,8 +506,21 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 	pos += 512;
 	
 	// Pointer to Secondary Header
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	ARX_FTL_SECONDARY_HEADER *afsh = reinterpret_cast<ARX_FTL_SECONDARY_HEADER *>(dat + pos);
+	ARX_FTL_SECONDARY_HEADER afsh_copy = *afsh;
+	afsh = &afsh_copy;
+
+	afsh->offset_3Ddata = SDL_SwapLE32(afsh->offset_3Ddata);
+	afsh->offset_cylinder = SDL_SwapLE32(afsh->offset_cylinder);
+	afsh->offset_progressive_data = SDL_SwapLE32(afsh->offset_progressive_data);
+	afsh->offset_clothes_data = SDL_SwapLE32(afsh->offset_clothes_data);
+	afsh->offset_collision_spheres = SDL_SwapLE32(afsh->offset_collision_spheres);
+	afsh->offset_physics_box = SDL_SwapLE32(afsh->offset_physics_box);
+#else
 	const ARX_FTL_SECONDARY_HEADER * afsh;
 	afsh = reinterpret_cast<const ARX_FTL_SECONDARY_HEADER *>(dat + pos);
+#endif
 	if(afsh->offset_3Ddata == -1) {
 		LogError << "ARX_FTL_Load: error loading data from " << filename;
 		free(dat);
@@ -493,8 +531,22 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 	// Available from here in whole function
 	EERIE_3DOBJ * obj = new EERIE_3DOBJ();
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	ARX_FTL_3D_DATA_HEADER *af3Ddh = reinterpret_cast<ARX_FTL_3D_DATA_HEADER *>(dat + pos);
+	ARX_FTL_3D_DATA_HEADER af3Ddh_copy = *af3Ddh;
+	af3Ddh = &af3Ddh_copy;
+
+	af3Ddh->nb_vertex = SDL_SwapLE32(af3Ddh->nb_vertex);
+	af3Ddh->nb_faces = SDL_SwapLE32(af3Ddh->nb_faces);
+	af3Ddh->nb_maps = SDL_SwapLE32(af3Ddh->nb_maps);
+	af3Ddh->nb_groups = SDL_SwapLE32(af3Ddh->nb_groups);
+	af3Ddh->nb_action = SDL_SwapLE32(af3Ddh->nb_action);
+	af3Ddh->nb_selections = SDL_SwapLE32(af3Ddh->nb_selections);
+	af3Ddh->origin = SDL_SwapLE32(af3Ddh->origin);
+#else
 	const ARX_FTL_3D_DATA_HEADER * af3Ddh;
 	af3Ddh = reinterpret_cast<const ARX_FTL_3D_DATA_HEADER *>(dat + pos);
+#endif
 	pos += sizeof(ARX_FTL_3D_DATA_HEADER);
 	
 	obj->vertexlist.resize(af3Ddh->nb_vertex);
@@ -513,7 +565,29 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		for(size_t ii = 0; ii < obj->vertexlist.size(); ii++) {
 			
 			// Vertices stored as EERIE_OLD_VERTEX, copy in to new one
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			EERIE_OLD_VERTEX *eow = reinterpret_cast<EERIE_OLD_VERTEX *>(dat + pos);
+			EERIE_OLD_VERTEX eow_copy = *eow;
+			eow = &eow_copy;
+			
+			eow->vert.pos.x = SDL_SwapFloatLE(eow->vert.pos.x);
+			eow->vert.pos.y = SDL_SwapFloatLE(eow->vert.pos.y);
+			eow->vert.pos.z = SDL_SwapFloatLE(eow->vert.pos.z);
+			eow->vert.rhw = SDL_SwapFloatLE(eow->vert.rhw);
+			eow->vert.color = SDL_SwapLE32(eow->vert.color);
+			eow->vert.specular = SDL_SwapLE32(eow->vert.specular);
+			eow->vert.tu = SDL_SwapFloatLE(eow->vert.tu);
+			eow->vert.tv = SDL_SwapFloatLE(eow->vert.tv);
+			eow->v.x = SDL_SwapFloatLE(eow->v.x);
+			eow->v.y = SDL_SwapFloatLE(eow->v.y);
+			eow->v.z = SDL_SwapFloatLE(eow->v.z);
+			eow->norm.x = SDL_SwapFloatLE(eow->norm.x);
+			eow->norm.y = SDL_SwapFloatLE(eow->norm.y);
+			eow->norm.z = SDL_SwapFloatLE(eow->norm.z);
+			obj->vertexlist[ii] = *eow;
+#else
 			obj->vertexlist[ii] = *reinterpret_cast<const EERIE_OLD_VERTEX *>(dat + pos);
+#endif
 			pos += sizeof(EERIE_OLD_VERTEX);
 			
 			obj->vertexlist[ii].vert.color = 0xFF000000;
@@ -531,7 +605,33 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		// Copy the face data in
 		for(long ii = 0; ii < af3Ddh->nb_faces; ii++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			EERIE_FACE_FTL *eff = reinterpret_cast<EERIE_FACE_FTL *>(dat + pos);
+			EERIE_FACE_FTL eff_copy = *eff;
+			eff = &eff_copy;
+			
+			eff->facetype = SDL_SwapLE32(eff->facetype);
+			eff->texid = SDL_SwapLE16(eff->texid);
+			eff->transval = SDL_SwapFloatLE(eff->transval);
+			eff->norm.x = SDL_SwapFloatLE(eff->norm.x);
+			eff->norm.y = SDL_SwapFloatLE(eff->norm.y);
+			eff->norm.z = SDL_SwapFloatLE(eff->norm.z);
+			eff->temp = SDL_SwapFloatLE(eff->temp);
+			
+			for (size_t j = 0; j < IOPOLYVERT_FTL; j++) {
+				eff->rgb[j] = SDL_SwapLE32(eff->rgb[j]);
+				eff->vid[j] = SDL_SwapLE16(eff->vid[j]);
+				eff->u[j] = SDL_SwapFloatLE(eff->u[j]);
+				eff->v[j] = SDL_SwapFloatLE(eff->v[j]);
+				eff->ou[j] = SDL_SwapLE16(eff->ou[j]);
+				eff->ov[j] = SDL_SwapLE16(eff->ov[j]);
+				eff->nrmls[j].x = SDL_SwapFloatLE(eff->nrmls[j].x);
+				eff->nrmls[j].y = SDL_SwapFloatLE(eff->nrmls[j].y);
+				eff->nrmls[j].z = SDL_SwapFloatLE(eff->nrmls[j].z);
+			}
+#else
 			const EERIE_FACE_FTL * eff = reinterpret_cast<const EERIE_FACE_FTL*>(dat + pos);
+#endif
 			pos += sizeof(EERIE_FACE_FTL); 
 			
 			obj->facelist[ii].facetype = PolyType::load(eff->facetype);
@@ -585,7 +685,18 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		// Copy in the grouplist data
 		for(long i = 0 ; i < obj->nbgroups ; i++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			EERIE_GROUPLIST_FTL *group = reinterpret_cast<EERIE_GROUPLIST_FTL *>(dat + pos);
+			EERIE_GROUPLIST_FTL group_copy = *group;
+			group = &group_copy;
+
+			group->origin = SDL_SwapLE32(group->origin);
+			group->nb_index = SDL_SwapLE32(group->nb_index);
+			group->indexes = SDL_SwapLE32(group->indexes); // unused?
+			group->siz = SDL_SwapFloatLE(group->siz);
+#else
 			const EERIE_GROUPLIST_FTL* group = reinterpret_cast<const EERIE_GROUPLIST_FTL *>(dat + pos);
+#endif
 			pos += sizeof(EERIE_GROUPLIST_FTL);
 			
 			obj->grouplist[i].name = boost::to_lower_copy(util::loadString(group->name));
@@ -601,20 +712,46 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 				size_t oldpos = pos;
 				pos += sizeof(s32) * obj->grouplist[i].indexes.size(); // Advance to the next index block
 				std::copy((const s32 *)(dat+oldpos), (const s32 *)(dat + pos), obj->grouplist[i].indexes.begin());
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				for(size_t j = 0; j < obj->grouplist[i].indexes.size(); j++) {
+					obj->grouplist[i].indexes[j] = SDL_SwapLE32(obj->grouplist[i].indexes[j]);
+				}
+#endif
 			}
 		}
 	}
 	
 	// Copy in the action points data
 	for(size_t i = 0 ; i < obj->actionlist.size(); i++) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		EERIE_ACTIONLIST_FTL *eaf = reinterpret_cast<EERIE_ACTIONLIST_FTL *>(dat + pos);
+		EERIE_ACTIONLIST_FTL eaf_copy = *eaf;
+		eaf = &eaf_copy;
+
+		eaf->idx = SDL_SwapLE32(eaf->idx);
+		eaf->action = SDL_SwapLE32(eaf->action);
+		eaf->sfx = SDL_SwapLE32(eaf->sfx);
+
+		obj->actionlist[i] = *eaf;
+#else
 		obj->actionlist[i] = *reinterpret_cast<const EERIE_ACTIONLIST_FTL *>(dat + pos);
+#endif
 		pos += sizeof(EERIE_ACTIONLIST_FTL);
 	}
 	
 	// Copy in the selections data
 	for(size_t i = 0 ; i < obj->selections.size(); i++) {
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		EERIE_SELECTIONS_FTL *selection = reinterpret_cast<EERIE_SELECTIONS_FTL *>(dat + pos);
+		EERIE_SELECTIONS_FTL selection_copy = *selection;
+		selection = &selection_copy;
+
+		selection->nb_selected = SDL_SwapLE32(selection->nb_selected);
+		selection->selected = SDL_SwapLE32(selection->selected);
+#else
 		const EERIE_SELECTIONS_FTL * selection = reinterpret_cast<const EERIE_SELECTIONS_FTL *>(dat + pos);
+#endif
 		pos += sizeof(EERIE_SELECTIONS_FTL);
 		
 		obj->selections[i].name = boost::to_lower_copy(util::loadString(selection->name));
@@ -624,6 +761,11 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 	// Copy in the selections selected data
 	for(long i = 0; i < af3Ddh->nb_selections; i++) {
 		std::copy((const s32 *)(dat + pos), (const s32 *)(dat + pos) + obj->selections[i].selected.size(), obj->selections[i].selected.begin() );
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		for(size_t j = 0; j < obj->selections[i].selected.size(); j++) {
+			obj->selections[i].selected[j] = SDL_SwapLE32(obj->selections[i].selected[j]);
+		}
+#endif
 		pos += sizeof(s32) * obj->selections[i].selected.size(); // Advance to the next selection data block
 	}
 	
@@ -634,8 +776,16 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		
 		// Cast to header
 		pos = afsh->offset_collision_spheres;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		ARX_FTL_COLLISION_SPHERES_DATA_HEADER *afcsdh = reinterpret_cast<ARX_FTL_COLLISION_SPHERES_DATA_HEADER*>(dat + pos);
+		ARX_FTL_COLLISION_SPHERES_DATA_HEADER afcsdh_copy = *afcsdh;
+		afcsdh = &afcsdh_copy;
+
+		afcsdh->nb_spheres = SDL_SwapLE32(afcsdh->nb_spheres);
+#else
 		const ARX_FTL_COLLISION_SPHERES_DATA_HEADER * afcsdh;
 		afcsdh = reinterpret_cast<const ARX_FTL_COLLISION_SPHERES_DATA_HEADER*>(dat + pos);
+#endif
 		pos += sizeof(ARX_FTL_COLLISION_SPHERES_DATA_HEADER);
 		
 		// Alloc the collision sphere data object
@@ -647,6 +797,13 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		pos += sizeof(COLLISION_SPHERE_FTL) * obj->sdata->spheres.size();
 		const COLLISION_SPHERE_FTL * end = reinterpret_cast<const COLLISION_SPHERE_FTL *>(dat + pos);
 		std::copy(begin, end, obj->sdata->spheres.begin());
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		for(int j = 0; j < afcsdh->nb_spheres; j++) {
+			obj->sdata->spheres[j].idx = SDL_SwapLE16(obj->sdata->spheres[j].idx);
+			obj->sdata->spheres[j].flags = SDL_SwapLE16(obj->sdata->spheres[j].flags);
+			obj->sdata->spheres[j].radius = SDL_SwapLE32(obj->sdata->spheres[j].radius);
+		}
+#endif
 	}
 	
 	// Alloc'n'Copy Progressive DATA
@@ -659,8 +816,17 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		
 		obj->cdata = new CLOTHES_DATA();
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		ARX_FTL_CLOTHES_DATA_HEADER *afcdh = reinterpret_cast<ARX_FTL_CLOTHES_DATA_HEADER*>(dat + afsh->offset_clothes_data);
+		ARX_FTL_CLOTHES_DATA_HEADER afcdh_copy = *afcdh;
+		afcdh = &afcdh_copy;
+		
+		afcdh->nb_cvert = SDL_SwapLE32(afcdh->nb_cvert);
+		afcdh->nb_springs = SDL_SwapLE32(afcdh->nb_springs);
+#else
 		const ARX_FTL_CLOTHES_DATA_HEADER * afcdh;
 		afcdh = reinterpret_cast<const ARX_FTL_CLOTHES_DATA_HEADER*>(dat + afsh->offset_clothes_data);
+#endif
 		obj->cdata->nb_cvert = (short)afcdh->nb_cvert;
 		obj->cdata->springs.resize(afcdh->nb_springs);
 		size_t pos = afsh->offset_clothes_data;
@@ -670,6 +836,33 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		obj->cdata->cvert = new CLOTHESVERTEX[obj->cdata->nb_cvert];
 		obj->cdata->backup = new CLOTHESVERTEX[obj->cdata->nb_cvert];
 		std::copy(reinterpret_cast<const CLOTHESVERTEX_FTL *>(dat + pos), reinterpret_cast<const CLOTHESVERTEX_FTL *>(dat + pos) + obj->cdata->nb_cvert, obj->cdata->cvert);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		for(int j = 0; j < obj->cdata->nb_cvert; j++) {
+			obj->cdata->cvert[j].idx = SDL_SwapLE16(obj->cdata->cvert[j].idx);
+			obj->cdata->cvert[j].pos.x = SDL_SwapFloatLE(obj->cdata->cvert[j].pos.x);
+			obj->cdata->cvert[j].pos.y = SDL_SwapFloatLE(obj->cdata->cvert[j].pos.y);
+			obj->cdata->cvert[j].pos.z = SDL_SwapFloatLE(obj->cdata->cvert[j].pos.z);
+			obj->cdata->cvert[j].velocity.x = SDL_SwapFloatLE(obj->cdata->cvert[j].velocity.x);
+			obj->cdata->cvert[j].velocity.y = SDL_SwapFloatLE(obj->cdata->cvert[j].velocity.y);
+			obj->cdata->cvert[j].velocity.z = SDL_SwapFloatLE(obj->cdata->cvert[j].velocity.z);
+			obj->cdata->cvert[j].force.x = SDL_SwapFloatLE(obj->cdata->cvert[j].force.x);
+			obj->cdata->cvert[j].force.y = SDL_SwapFloatLE(obj->cdata->cvert[j].force.y);
+			obj->cdata->cvert[j].force.z = SDL_SwapFloatLE(obj->cdata->cvert[j].force.z);
+			obj->cdata->cvert[j].mass = SDL_SwapFloatLE(obj->cdata->cvert[j].mass);
+			obj->cdata->cvert[j].t_pos.x = SDL_SwapFloatLE(obj->cdata->cvert[j].t_pos.x);
+			obj->cdata->cvert[j].t_pos.y = SDL_SwapFloatLE(obj->cdata->cvert[j].t_pos.y);
+			obj->cdata->cvert[j].t_pos.z = SDL_SwapFloatLE(obj->cdata->cvert[j].t_pos.z);
+			obj->cdata->cvert[j].t_velocity.x = SDL_SwapFloatLE(obj->cdata->cvert[j].t_velocity.x);
+			obj->cdata->cvert[j].t_velocity.y = SDL_SwapFloatLE(obj->cdata->cvert[j].t_velocity.y);
+			obj->cdata->cvert[j].t_velocity.z = SDL_SwapFloatLE(obj->cdata->cvert[j].t_velocity.z);
+			obj->cdata->cvert[j].t_force.x = SDL_SwapFloatLE(obj->cdata->cvert[j].t_force.x);
+			obj->cdata->cvert[j].t_force.y = SDL_SwapFloatLE(obj->cdata->cvert[j].t_force.y);
+			obj->cdata->cvert[j].t_force.z = SDL_SwapFloatLE(obj->cdata->cvert[j].t_force.z);
+			obj->cdata->cvert[j].lastpos.x = SDL_SwapFloatLE(obj->cdata->cvert[j].lastpos.x);
+			obj->cdata->cvert[j].lastpos.y = SDL_SwapFloatLE(obj->cdata->cvert[j].lastpos.y);
+			obj->cdata->cvert[j].lastpos.z = SDL_SwapFloatLE(obj->cdata->cvert[j].lastpos.z);
+		}
+#endif
 		memcpy(obj->cdata->backup, obj->cdata->cvert, sizeof(CLOTHESVERTEX)*obj->cdata->nb_cvert);
 		pos += sizeof(CLOTHESVERTEX_FTL) * obj->cdata->nb_cvert;
 		
@@ -678,6 +871,16 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 		pos += sizeof(EERIE_SPRINGS_FTL) * obj->cdata->springs.size();
 		const EERIE_SPRINGS_FTL * end = reinterpret_cast<const EERIE_SPRINGS_FTL *>(dat + pos);
 		std::copy(begin, end, obj->cdata->springs.begin());
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		for(int j = 0; j < afcdh->nb_springs; j++) {
+			obj->cdata->springs[j].startidx = SDL_SwapLE16(obj->cdata->springs[j].startidx);
+			obj->cdata->springs[j].endidx = SDL_SwapLE16(obj->cdata->springs[j].endidx);
+			obj->cdata->springs[j].restlength = SDL_SwapFloatLE(obj->cdata->springs[j].restlength);
+			obj->cdata->springs[j].constant = SDL_SwapFloatLE(obj->cdata->springs[j].constant);
+			obj->cdata->springs[j].damping = SDL_SwapFloatLE(obj->cdata->springs[j].damping);
+			obj->cdata->springs[j].type = SDL_SwapLE32(obj->cdata->springs[j].type);
+		}
+#endif
 	}
 	
 	// Free the loaded file memory

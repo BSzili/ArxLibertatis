@@ -53,6 +53,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <boost/scoped_array.hpp>
 #include <boost/unordered_map.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "ai/PathFinder.h"
 #include "ai/PathFinderManager.h"
 
@@ -95,6 +99,23 @@ using std::max;
 using std::copy;
 using std::string;
 using std::vector;
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
 
 void ComputeFastBkgData(EERIE_BACKGROUND * eb);
 
@@ -2518,7 +2539,17 @@ bool FastSceneLoad(const res::path & partial_path) {
 		
 		
 		// Read the file header
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		const UNIQUE_HEADER *uh_const = fts_read<UNIQUE_HEADER>(data, end);
+		UNIQUE_HEADER uh_copy = *uh_const;
+		UNIQUE_HEADER *uh = &uh_copy;
+		
+		uh->count = SDL_SwapLE32(uh->count);
+		uh->version = SDL_SwapFloatLE(uh->version);
+		uh->uncompressedsize = SDL_SwapLE32(uh->uncompressedsize);
+#else
 		const UNIQUE_HEADER * uh = fts_read<UNIQUE_HEADER>(data, end);
+#endif
 		if(uh->version != FTS_VERSION) {
 			LogError << "FTS version mismatch: got " << uh->version << ", expected "
 			         << FTS_VERSION << " in " << file;
@@ -2572,7 +2603,28 @@ static bool loadFastScene(const res::path & file, const char * data,
                           const char * end) {
 	
 	// Read the scene header
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	const FAST_SCENE_HEADER *fsh_const = fts_read<FAST_SCENE_HEADER>(data, end);
+	FAST_SCENE_HEADER fsh_copy = *fsh_const;
+	FAST_SCENE_HEADER *fsh = &fsh_copy;
+	
+	fsh->version = SDL_SwapFloatLE(fsh->version);
+	fsh->sizex = SDL_SwapLE32(fsh->sizex);
+	fsh->sizez = SDL_SwapLE32(fsh->sizez);
+	fsh->nb_textures = SDL_SwapLE32(fsh->nb_textures);
+	fsh->nb_polys = SDL_SwapLE32(fsh->nb_polys);
+	fsh->nb_anchors = SDL_SwapLE32(fsh->nb_anchors);
+	fsh->playerpos.x = SDL_SwapFloatLE(fsh->playerpos.x);
+	fsh->playerpos.y = SDL_SwapFloatLE(fsh->playerpos.y);
+	fsh->playerpos.z = SDL_SwapFloatLE(fsh->playerpos.z);
+	fsh->Mscenepos.x = SDL_SwapFloatLE(fsh->Mscenepos.x);
+	fsh->Mscenepos.y = SDL_SwapFloatLE(fsh->Mscenepos.y);
+	fsh->Mscenepos.z = SDL_SwapFloatLE(fsh->Mscenepos.z);
+	fsh->nb_portals = SDL_SwapLE32(fsh->nb_portals);
+	fsh->nb_rooms = SDL_SwapLE32(fsh->nb_rooms);
+#else
 	const FAST_SCENE_HEADER * fsh = fts_read<FAST_SCENE_HEADER>(data, end);
+#endif
 	if(fsh->version != FTS_VERSION) {
 		LogError << "FTS: version mismatch: got " << fsh->version << ", expected "
 		         << FTS_VERSION << " in " << file;
@@ -2596,7 +2648,12 @@ static bool loadFastScene(const res::path & file, const char * data,
 		TextureContainer * tmpTC;
 		tmpTC = TextureContainer::Load(file, TextureContainer::Level);
 		if(tmpTC) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			textures[SDL_SwapLE32(ftc[k].tc)] = tmpTC;
+			// temp ?!
+#else
 			textures[ftc[k].tc] = tmpTC;
+#endif
 		}
 	}
 	PROGRESS_BAR_COUNT += 4.f, LoadLevelScreen();
@@ -2608,7 +2665,16 @@ static bool loadFastScene(const res::path & file, const char * data,
 	for(long j = 0; j < fsh->sizez; j++) {
 		for(long i = 0; i < fsh->sizex; i++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const FAST_SCENE_INFO *fsi_const = fts_read<FAST_SCENE_INFO>(data, end);
+			FAST_SCENE_INFO fsi_copy = *fsi_const;
+			FAST_SCENE_INFO *fsi = &fsi_copy;
+			
+			fsi->nbpoly = SDL_SwapLE32(fsi->nbpoly);
+			fsi->nbianchors = SDL_SwapLE32(fsi->nbianchors);
+#else
 			const FAST_SCENE_INFO * fsi = fts_read<FAST_SCENE_INFO>(data, end);
+#endif
 			
 			EERIE_BKG_INFO & bkg = ACTIVEBKG->Backg[i + (j * fsh->sizex)];
 			
@@ -2631,7 +2697,35 @@ static bool loadFastScene(const res::path & file, const char * data,
 			eps = fts_read<FAST_EERIEPOLY>(data, end, fsi->nbpoly);
 			for(long k = 0; k < fsi->nbpoly; k++) {
 				
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				FAST_EERIEPOLY epo_copy = eps[k];
+				FAST_EERIEPOLY *ep = &epo_copy;
+				
+				for(int kk = 0; kk < 4; kk++) {
+					ep->v[kk].ssx = SDL_SwapFloatLE(ep->v[kk].ssx);
+					ep->v[kk].sy = SDL_SwapFloatLE(ep->v[kk].sy);
+					ep->v[kk].ssz = SDL_SwapFloatLE(ep->v[kk].ssz);
+					ep->v[kk].stu = SDL_SwapFloatLE(ep->v[kk].stu);
+					ep->v[kk].stv = SDL_SwapFloatLE(ep->v[kk].stv);
+					ep->nrml[kk].x = SDL_SwapFloatLE(ep->nrml[kk].x);
+					ep->nrml[kk].y = SDL_SwapFloatLE(ep->nrml[kk].y);
+					ep->nrml[kk].z = SDL_SwapFloatLE(ep->nrml[kk].z);
+				}
+				ep->tex = SDL_SwapLE32(ep->tex);
+				ep->norm.x = SDL_SwapFloatLE(ep->norm.x);
+				ep->norm.y = SDL_SwapFloatLE(ep->norm.y);
+				ep->norm.z = SDL_SwapFloatLE(ep->norm.z);
+				ep->norm2.x = SDL_SwapFloatLE(ep->norm2.x);
+				ep->norm2.y = SDL_SwapFloatLE(ep->norm2.y);
+				ep->norm2.z = SDL_SwapFloatLE(ep->norm2.z);
+				ep->transval = SDL_SwapFloatLE(ep->transval);
+				ep->area = SDL_SwapFloatLE(ep->area);
+				ep->type = SDL_SwapLE32(ep->type);
+				ep->room = SDL_SwapLE16(ep->room);
+				ep->paddy = SDL_SwapLE16(ep->paddy);
+#else
 				const FAST_EERIEPOLY * ep = &eps[k];
+#endif
 				EERIEPOLY * ep2 = &bkg.polydata[k];
 				
 				memset(ep2, 0, sizeof(EERIEPOLY));
@@ -2716,6 +2810,11 @@ static bool loadFastScene(const res::path & file, const char * data,
 				bkg.ianchors = (long *)malloc(sizeof(long) * fsi->nbianchors);
 				const s32 * anchors = fts_read<s32>(data, end, fsi->nbianchors);
 				std::copy(anchors, anchors + fsi->nbianchors, bkg.ianchors);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				for(int i = 0; i < fsi->nbianchors; i++) {
+					bkg.ianchors[i] = SDL_SwapLE32(bkg.ianchors[i]);
+				}
+#endif
 			}
 			
 		}
@@ -2734,8 +2833,21 @@ static bool loadFastScene(const res::path & file, const char * data,
 		ACTIVEBKG->anchors = NULL;
 	}
 	for(long i = 0; i < fsh->nb_anchors; i++) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		const FAST_ANCHOR_DATA *fad_const = fts_read<FAST_ANCHOR_DATA>(data, end);
+		FAST_ANCHOR_DATA fad_copy = *fad_const;
+		FAST_ANCHOR_DATA *fad = &fad_copy;
 		
+		fad->pos.x = SDL_SwapFloatLE(fad->pos.x);
+		fad->pos.y = SDL_SwapFloatLE(fad->pos.y);
+		fad->pos.z = SDL_SwapFloatLE(fad->pos.z);
+		fad->radius = SDL_SwapFloatLE(fad->radius);
+		fad->height = SDL_SwapFloatLE(fad->height);
+		fad->nb_linked = SDL_SwapLE16(fad->nb_linked);
+		fad->flags = SDL_SwapLE16(fad->flags);
+#else
 		const FAST_ANCHOR_DATA * fad = fts_read<FAST_ANCHOR_DATA>(data, end);
+#endif
 		
 		ANCHOR_DATA & anchor = ACTIVEBKG->anchors[i];
 		anchor.flags = AnchorFlags::load(fad->flags); // TODO save/load flags
@@ -2750,6 +2862,11 @@ static bool loadFastScene(const res::path & file, const char * data,
 			anchor.linked = (long *)malloc(sizeof(long) * fad->nb_linked);
 			const s32 * links = fts_read<s32>(data, end, fad->nb_linked);
 			std::copy(links, links + fad->nb_linked, anchor.linked);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			for(int i = 0; i < fad->nb_linked; i++) {
+				anchor.linked[i] = SDL_SwapLE32(anchor.linked[i]);
+			}
+#endif
 		}
 	}
 	PROGRESS_BAR_COUNT += 1.f, LoadLevelScreen();
@@ -2776,7 +2893,66 @@ static bool loadFastScene(const res::path & file, const char * data,
 		epos = fts_read<EERIE_SAVE_PORTALS>(data, end, portals->nb_total);
 		for(long i = 0; i < portals->nb_total; i++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			EERIE_SAVE_PORTALS epo_copy = epos[i];
+			EERIE_SAVE_PORTALS *epo = &epo_copy;
+			
+			epo->poly.type = SDL_SwapLE32(epo->poly.type);
+			epo->poly.min.x = SDL_SwapFloatLE(epo->poly.min.x);
+			epo->poly.min.y = SDL_SwapFloatLE(epo->poly.min.y);
+			epo->poly.min.z = SDL_SwapFloatLE(epo->poly.min.z);
+			epo->poly.max.x = SDL_SwapFloatLE(epo->poly.max.x);
+			epo->poly.max.y = SDL_SwapFloatLE(epo->poly.max.y);
+			epo->poly.max.z = SDL_SwapFloatLE(epo->poly.max.z);
+			epo->poly.norm.x = SDL_SwapFloatLE(epo->poly.norm.x);
+			epo->poly.norm.y = SDL_SwapFloatLE(epo->poly.norm.y);
+			epo->poly.norm.z = SDL_SwapFloatLE(epo->poly.norm.z);
+			epo->poly.norm2.x = SDL_SwapFloatLE(epo->poly.norm2.x);
+			epo->poly.norm2.y = SDL_SwapFloatLE(epo->poly.norm2.y);
+			epo->poly.norm2.z = SDL_SwapFloatLE(epo->poly.norm2.z);
+			
+			for(int j = 0; j < 4; j++) {
+				epo->poly.v[j].pos.x = SDL_SwapFloatLE(epo->poly.v[j].pos.x);
+				epo->poly.v[j].pos.y = SDL_SwapFloatLE(epo->poly.v[j].pos.y);
+				epo->poly.v[j].pos.z = SDL_SwapFloatLE(epo->poly.v[j].pos.z);
+				epo->poly.v[j].rhw = SDL_SwapFloatLE(epo->poly.v[j].rhw);
+				epo->poly.v[j].color = SDL_SwapLE32(epo->poly.v[j].color);
+				epo->poly.v[j].specular = SDL_SwapLE32(epo->poly.v[j].specular);
+				epo->poly.v[j].tu = SDL_SwapFloatLE(epo->poly.v[j].tu);
+				epo->poly.v[j].tv = SDL_SwapFloatLE(epo->poly.v[j].tv);
+
+				epo->poly.tv[j].pos.x = SDL_SwapFloatLE(epo->poly.tv[j].pos.x);
+				epo->poly.tv[j].pos.y = SDL_SwapFloatLE(epo->poly.tv[j].pos.y);
+				epo->poly.tv[j].pos.z = SDL_SwapFloatLE(epo->poly.tv[j].pos.z);
+				epo->poly.tv[j].rhw = SDL_SwapFloatLE(epo->poly.tv[j].rhw);
+				epo->poly.tv[j].color = SDL_SwapLE32(epo->poly.tv[j].color);
+				epo->poly.tv[j].specular = SDL_SwapLE32(epo->poly.tv[j].specular);
+				epo->poly.tv[j].tu = SDL_SwapFloatLE(epo->poly.tv[j].tu);
+				epo->poly.tv[j].tv = SDL_SwapFloatLE(epo->poly.tv[j].tv);
+
+				epo->poly.nrml[j].x = SDL_SwapFloatLE(epo->poly.nrml[j].x);
+				epo->poly.nrml[j].y = SDL_SwapFloatLE(epo->poly.nrml[j].y);
+				epo->poly.nrml[j].z = SDL_SwapFloatLE(epo->poly.nrml[j].z);
+			}
+			
+			epo->poly.tex = SDL_SwapLE32(epo->poly.tex); // unused
+
+			epo->poly.center.x = SDL_SwapFloatLE(epo->poly.center.x);
+			epo->poly.center.y = SDL_SwapFloatLE(epo->poly.center.y);
+			epo->poly.center.z = SDL_SwapFloatLE(epo->poly.center.z);
+			
+			epo->poly.transval = SDL_SwapFloatLE(epo->poly.transval);
+			epo->poly.area = SDL_SwapFloatLE(epo->poly.area);
+			epo->poly.room = SDL_SwapLE16(epo->poly.room);
+			epo->poly.misc = SDL_SwapLE16(epo->poly.misc);
+			
+			epo->room_1 = SDL_SwapLE32(epo->room_1);
+			epo->room_2 = SDL_SwapLE32(epo->room_2);
+			epo->useportal = SDL_SwapLE16(epo->useportal);
+			epo->paddy = SDL_SwapLE16(epo->paddy);
+#else
 			const EERIE_SAVE_PORTALS * epo = &epos[i];
+#endif
 			EERIE_PORTALS & portal = portals->portals[i];
 			
 			memset(&portal, 0, sizeof(EERIE_PORTALS));
@@ -2805,8 +2981,17 @@ static bool loadFastScene(const res::path & file, const char * data,
 		LogDebug("FTS: loading " << (portals->nb_rooms + 1) << " rooms ...");
 		for(long i = 0; i < portals->nb_rooms + 1; i++) {
 			
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			const EERIE_SAVE_ROOM_DATA *erd_const = fts_read<EERIE_SAVE_ROOM_DATA>(data, end);
+			EERIE_SAVE_ROOM_DATA erd_copy = *erd_const;
+			EERIE_SAVE_ROOM_DATA *erd = &erd_copy;
+			
+			erd->nb_portals = SDL_SwapLE32(erd->nb_portals);
+			erd->nb_polys = SDL_SwapLE32(erd->nb_polys);
+#else
 			const EERIE_SAVE_ROOM_DATA * erd;
 			erd = fts_read<EERIE_SAVE_ROOM_DATA>(data, end);
+#endif
 			
 			EERIE_ROOM_DATA & room = portals->room[i];
 			
@@ -2821,6 +3006,11 @@ static bool loadFastScene(const res::path & file, const char * data,
 				room.portals = (long *)malloc(sizeof(long) * room.nb_portals);
 				const s32 * start = fts_read<s32>(data, end, room.nb_portals);
 				std::copy(start, start + room.nb_portals, room.portals);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				for(int i = 0; i < room.nb_portals; i++) {
+					room.portals[i] = SDL_SwapLE32(room.portals[i]);
+				}
+#endif
 			} else {
 				room.portals = NULL;
 			}
@@ -2830,6 +3020,14 @@ static bool loadFastScene(const res::path & file, const char * data,
 				const FAST_EP_DATA * ed;
 				ed = fts_read<FAST_EP_DATA>(data, end, room.nb_polys);
 				std::copy(ed, ed + room.nb_polys, room.epdata);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				for(int i = 0; i < room.nb_polys; i++) {
+					room.epdata[i].px = SDL_SwapLE16(room.epdata[i].px);
+					room.epdata[i].py = SDL_SwapLE16(room.epdata[i].py);
+					room.epdata[i].idx = SDL_SwapLE16(room.epdata[i].idx);
+					room.epdata[i].padd = SDL_SwapLE16(room.epdata[i].padd);
+				}
+#endif
 			} else {
 				portals->room[i].epdata = NULL;
 			}
@@ -2851,8 +3049,22 @@ static bool loadFastScene(const res::path & file, const char * data,
 		         << " room distances ...");
 		for(long n = 0; n < NbRoomDistance; n++) {
 			for(long m = 0; m < NbRoomDistance; m++) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+				const ROOM_DIST_DATA_SAVE *rdds_const = fts_read<ROOM_DIST_DATA_SAVE>(data, end);
+				ROOM_DIST_DATA_SAVE rdds_copy = *rdds_const;
+				ROOM_DIST_DATA_SAVE *rdds = &rdds_copy;
+
+				rdds->distance = SDL_SwapFloatLE(rdds->distance);
+				rdds->startpos.x = SDL_SwapFloatLE(rdds->startpos.x);
+				rdds->startpos.y = SDL_SwapFloatLE(rdds->startpos.y);
+				rdds->startpos.z = SDL_SwapFloatLE(rdds->startpos.z);
+				rdds->endpos.x = SDL_SwapFloatLE(rdds->endpos.x);
+				rdds->endpos.y = SDL_SwapFloatLE(rdds->endpos.y);
+				rdds->endpos.z = SDL_SwapFloatLE(rdds->endpos.z);
+#else
 				const ROOM_DIST_DATA_SAVE * rdds;
 				rdds = fts_read<ROOM_DIST_DATA_SAVE>(data, end);
+#endif
 				Vec3f start = rdds->startpos;
 				Vec3f end = rdds->endpos;
 				SetRoomDistance(m, n, rdds->distance, &start, &end);

@@ -41,11 +41,33 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 ===========================================================================
 */
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "audio/AudioEnvironment.h"
 
 #include "audio/AudioResource.h"
 #include "audio/AudioGlobal.h"
 #include "io/resource/PakReader.h"
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
+#endif
+
 
 namespace audio {
 
@@ -82,6 +104,17 @@ aalError Environment::load() {
 		return AAL_ERROR_FILEIO;
 	}
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	size = SDL_SwapFloatLE(size);
+	absorption = SDL_SwapFloatLE(absorption);
+	reflect_volume = SDL_SwapFloatLE(reflect_volume);
+	reflect_delay = SDL_SwapFloatLE(reflect_delay);
+	reverb_volume = SDL_SwapFloatLE(reverb_volume);
+	reverb_delay = SDL_SwapFloatLE(reverb_delay);
+	reverb_delay = SDL_SwapFloatLE(reverb_delay);
+	reverb_hf_decay = SDL_SwapFloatLE(reverb_hf_decay);
+#endif
+
 	delete file;
 	
 	return AAL_OK;

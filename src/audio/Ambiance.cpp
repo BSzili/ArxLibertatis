@@ -49,6 +49,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <boost/smart_ptr/scoped_ptr.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "audio/AudioBackend.h"
 #include "audio/AudioGlobal.h"
 #include "audio/AudioResource.h"
@@ -76,6 +80,23 @@ using std::string;
 #define ANONYMOUS_NAMESPACE extern "C++"
 #else
 #define ANONYMOUS_NAMESPACE namespace
+#endif
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+// SDL 2.x compatibility
+typedef union
+{
+	float f;
+	int i;
+} floatint_t;
+
+static inline float SDL_SwapFloatLE(float f)
+{
+	floatint_t out;
+	out.f  = f;
+	out.i = SDL_SwapLE32(out.i);
+	return out.f;
+}
 #endif
 
 ANONYMOUS_NAMESPACE {
@@ -115,6 +136,12 @@ struct KeySetting {
 		   !file->read(&_flags, 4)) {
 			return false;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		_min = SDL_SwapFloatLE(_min);
+		_max = SDL_SwapFloatLE(_max);
+		_interval = SDL_SwapLE32(_interval);
+		_flags = SDL_SwapLE32(_flags);
+#endif
 		min = _min, max = _max, interval = _interval;
 		flags = KeyFlags::load(_flags); // TODO save/load flags
 		
@@ -197,6 +224,13 @@ struct TrackKey {
 		   !z.load(file)) {
 			return false;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		_flags = SDL_SwapLE32(_flags);
+		_start = SDL_SwapLE32(_start);
+		_loop = SDL_SwapLE32(_loop);
+		_delay_min = SDL_SwapLE32(_delay_min);
+		_delay_max = SDL_SwapLE32(_delay_max);
+#endif
 		start = _start, loop = _loop + 1;
 		delay_min = _delay_min, delay_max = _delay_max;
 		
@@ -570,6 +604,11 @@ aalError Ambiance::Track::load(PakFileHandle * file, u32 version) {
 			return AAL_ERROR_FILEIO;
 	}
 	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	iflags = SDL_SwapLE32(iflags);
+	key_c = SDL_SwapLE32(key_c);
+#endif
+	
 	flags = Ambiance::Track::TrackFlags::load(iflags); // TODO save/load flags
 	flags &= ~(Ambiance::Track::MUTED | Ambiance::Track::PAUSED
 	           | Ambiance::Track::PREFETCHED);
@@ -622,6 +661,10 @@ aalError Ambiance::load() {
 	if(!file->read(&magic, 4) || !file->read(&version, 4)) {
 		return AAL_ERROR_FILEIO;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		magic = SDL_SwapLE32(magic);
+		version = SDL_SwapLE32(version);
+#endif
 	
 	// Check file signature
 	if(magic != AMBIANCE_FILE_SIGNATURE || version > AMBIANCE_FILE_VERSION) {
@@ -631,6 +674,9 @@ aalError Ambiance::load() {
 	// Read track count and initialize track structures
 	u32 nbtracks;
 	file->read(&nbtracks, 4);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	nbtracks = SDL_SwapLE32(nbtracks);
+#endif
 	tracks.resize(nbtracks, Track(this));
 	
 	Ambiance::TrackList::iterator track = tracks.begin();

@@ -27,6 +27,10 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/foreach.hpp>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "io/log/Logger.h"
 #include "io/Blast.h"
 #include "io/resource/PakEntry.h"
@@ -39,6 +43,9 @@ namespace {
 const size_t PAK_READ_BUF_SIZE = 1024;
 
 static PakReader::ReleaseType guessReleaseType(u32 first_bytes) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	first_bytes = SDL_SwapLE32(first_bytes);
+#endif
 	switch(first_bytes) {
 		case 0x46515641:
 			return PakReader::FullGame;
@@ -456,6 +463,9 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 		delete ifs;
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	fat_offset = SDL_SwapLE32(fat_offset);
+#endif
 	if(ifs->seekg(fat_offset).fail()) {
 		LogError << pakfile << ": error seeking to FAT offset " << fat_offset;
 		delete ifs;
@@ -466,6 +476,9 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 		delete ifs;
 		return false;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	fat_size = SDL_SwapLE32(fat_size);
+#endif
 	
 	// Read the whole FAT.
 	char * fat = new char[fat_size];
@@ -506,6 +519,9 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 			LogError << pakfile << ": error reading file count from FAT, wrong key?";
 			goto error;
 		}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		nfiles = SDL_SwapLE32(nfiles);
+#endif
 		
 		while(nfiles--) {
 			
@@ -527,6 +543,12 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 				LogError << pakfile << ": error reading file attributes from FAT, wrong key?";
 				goto error;
 			}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			offset = SDL_SwapLE32(offset);
+			flags = SDL_SwapLE32(flags);
+			uncompressedSize = SDL_SwapLE32(uncompressedSize);
+			size = SDL_SwapLE32(size);
+#endif
 			
 			const u32 PAK_FILE_COMPRESSED = 1;
 			PakFile * file;

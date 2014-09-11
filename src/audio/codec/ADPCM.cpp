@@ -45,6 +45,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <algorithm>
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#endif
+
 #include "audio/AudioTypes.h"
 #include "audio/codec/WAVFormat.h"
 #include "io/resource/PakReader.h"
@@ -87,6 +91,15 @@ aalError CodecADPCM::setHeader(void * _header) {
 	if(header->wfx.channels != 1 && header->wfx.channels != 2) {
 		return AAL_ERROR_FORMAT;
 	}
+	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	header->samplesPerBlock = SDL_SwapLE16(header->samplesPerBlock);
+	header->coefficientCount = SDL_SwapLE16(header->coefficientCount);
+	for (int i = 0; i < header->coefficientCount; i++) {
+		header->coefficients[i].coef1 = SDL_SwapLE16(header->coefficients[i].coef1);
+		header->coefficients[i].coef2 = SDL_SwapLE16(header->coefficients[i].coef2);
+	}
+#endif
 	
 	shift = header->wfx.channels - 1;
 	padding = 0;
@@ -272,6 +285,14 @@ aalError CodecADPCM::getNextBlock() {
 	if(!stream->read(samp2, sizeof(*samp2) << shift)) {
 		return AAL_ERROR_FILEIO;
 	}
+	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	for (size_t i = 0; i < sizeof(*samp1) << shift; i++) {
+		delta[i] = SDL_SwapLE16(delta[i]);
+		samp1[i] = SDL_SwapLE16(samp1[i]);
+		samp2[i] = SDL_SwapLE16(samp2[i]);
+	}
+#endif
 	
 	odd = false;
 	sample_i = 0;
