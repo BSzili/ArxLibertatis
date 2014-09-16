@@ -70,7 +70,7 @@ CORE_SOURCES = \
 	src/core/Localisation.cpp \
 	src/core/SaveGame.cpp \
 	src/core/Startup.cpp \
-	src/core/Version.cpp
+	amiga/core/Version.cpp
 
 GAME_SOURCES = \
 	src/game/Camera.cpp \
