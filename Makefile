@@ -25,11 +25,8 @@ CXXFLAGS += -D__USE_INLINE__ -D__USE_BASETYPE__ -Wno-deprecated-declarations -fs
 # -fno-strict-aliasing
 # optimizing this file breaks the saving/loading
 src/scene/ChangeLevel.o: CXXFLAGS += -O0
-LDFLAGS += -lpthread
 endif
-ifeq ($(OSTYPE), AROS)
 LDFLAGS += -lpthread
-endif
 
 
 AI_SOURCES = \
