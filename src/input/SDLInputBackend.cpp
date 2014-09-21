@@ -57,7 +57,9 @@ bool SDLInputBackend::init() {
 	
 	SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
 	SDL_EventState(SDL_KEYUP, SDL_ENABLE);
+#ifndef __AROS__
 	SDL_EventState(SDL_MOUSEMOTION, SDL_ENABLE);
+#endif
 	SDL_EventState(SDL_MOUSEBUTTONDOWN, SDL_ENABLE);
 	SDL_EventState(SDL_MOUSEBUTTONUP, SDL_ENABLE);
 	SDL_EventState(SDL_JOYAXISMOTION, SDL_ENABLE);
@@ -234,6 +236,10 @@ bool SDLInputBackend::init() {
 	std::fill_n(clickCount, ARRAY_SIZE(clickCount), 0);
 	std::fill_n(unclickCount, ARRAY_SIZE(unclickCount), 0);
 	
+#ifdef __AROS__
+	SDL_WM_GrabInput(SDL_GRAB_ON);
+#endif
+	
 	LogInfo << "Using SDL input";
 	
 	return true;
@@ -270,8 +276,16 @@ void SDLInputBackend::unacquireDevices() {
 }
 
 bool SDLInputBackend::getAbsoluteMouseCoords(int & absX, int & absY) const {
+#ifdef __AROS__
+	int cursorPosX, cursorPosY;
+	SDL_GetMouseState(&cursorPosX, &cursorPosY);
+	absX = cursorPosX;
+	absY = cursorPosY;
+	return true; // the mouse is always grabbed
+#else
 	absX = cursorAbs.x, absY = cursorAbs.y;
 	return cursorInWindow;
+#endif
 }
 
 void SDLInputBackend::setAbsoluteMouseCoords(int absX, int absY) {
@@ -280,7 +294,15 @@ void SDLInputBackend::setAbsoluteMouseCoords(int absX, int absY) {
 }
 
 void SDLInputBackend::getRelativeMouseCoords(int & relX, int & relY, int & wheelDir) const {
+#ifdef __AROS__
+	int cursorPosX, cursorPosY;
+	SDL_GetRelativeMouseState(&cursorPosX, &cursorPosY);
+	relX = cursorPosX;
+	relY = cursorPosY;
+	wheelDir = currentWheel;
+#else
 	relX = cursorRel.x, relY = cursorRel.y, wheelDir = currentWheel;
+#endif
 }
 
 bool SDLInputBackend::isMouseButtonPressed(int buttonId, int & deltaTime) const  {
