@@ -63,7 +63,11 @@ void Thread::start() {
 	param.sched_priority = priority;
 	pthread_attr_setschedparam(&attr, &param);
 	
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+	pthread_create(&thread, &attr, entryPoint, this);
+#else
 	pthread_create(&thread, NULL, entryPoint, this);
+#endif
 	
 	pthread_attr_destroy(&attr);
 	
