@@ -1,8 +1,16 @@
 Failat 21
 
-SetEnv patch_file "ArxFatalis_1.21_MULTILANG.exe"
+SetEnv patch_file "ArxFatalis_1.21_EN.exe"
 
-If Not Exists "Arx Fatalis:setup1.cab"
+; retail CD
+SetEnv install_path "Arx Fatalis:"
+
+; RPG Compilation DVD
+If Not Exists "${install_path}setup1.cab"
+  SetEnv install_path "RPGCompilation:arx/"
+EndIf
+
+If Not Exists "${install_path}setup1.cab"
   RequestChoice >ENV:Choicex Title="Error" Body="Can't find the Arx Fatalis CD" Gadgets=OK
   Quit
 EndIf
@@ -13,11 +21,11 @@ If Not Exists ${patch_file}
 EndIf
 
 ; copy data from the CD
-xadUnFile "Arx Fatalis:setup1.cab" "" OVERWRITE
-xadUnFile "Arx Fatalis:setup2.cab" "" OVERWRITE
-xadUnFile "Arx Fatalis:setup3.cab" "" OVERWRITE
-copy "Arx Fatalis:bin/data2.pak" "" NOPRO
-copy "Arx Fatalis:bin/LOC.pak" "" NOPRO
+xadUnFile "${install_path}setup1.cab" "" OVERWRITE
+xadUnFile "${install_path}setup2.cab" "" OVERWRITE
+xadUnFile "${install_path}setup3.cab" "" OVERWRITE
+copy "${install_path}bin/data2.pak" "" NOPRO
+copy "${install_path}bin/LOC.pak" "" NOPRO
 
 ; extract patch
 innoextract ${patch_file}
