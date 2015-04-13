@@ -24,6 +24,14 @@
 
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 #include <GL/gl.h>
+#ifdef __amigaos4__
+#include <GL/glext.h>
+#endif
+#ifdef __MORPHOS__
+#define glMultiTexCoord2f glMultiTexCoord2fARB
+#define glActiveTexture glActiveTextureARB
+#define GL_MAX_TEXTURE_UNITS GL_MAX_TEXTURE_UNITS_ARB
+#endif
 #else
 #include <GL/glew.h>
 #endif

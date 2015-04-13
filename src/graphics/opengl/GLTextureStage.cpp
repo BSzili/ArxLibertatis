@@ -22,13 +22,6 @@
 #include "graphics/opengl/GLTexture2D.h"
 #include "graphics/opengl/OpenGLRenderer.h"
 
-#ifdef __MORPHOS__
-#define glActiveTexture glActiveTextureARB
-#endif
-#ifdef __amigaos4__
-#include <GL/glext.h>
-#endif
-
 GLTextureStage::GLTextureStage(OpenGLRenderer * _renderer, unsigned stage) : TextureStage(stage), renderer(_renderer), tex(NULL), current(NULL) {
 	
 	// Set default state

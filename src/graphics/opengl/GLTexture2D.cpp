@@ -66,17 +66,9 @@ void GLTexture2D::Upload() {
 	if(mFormat == Image::Format_L8) {
 		internal = GL_LUMINANCE8, format = GL_LUMINANCE;
 	} else if(mFormat == Image::Format_A8) {
-#ifdef __amigaos4__
-		internal = GL_ALPHA, format = GL_ALPHA;
-#else
 		internal = GL_ALPHA8, format = GL_ALPHA;
-#endif
 	} else if(mFormat == Image::Format_L8A8) {
-#ifdef __amigaos4__
-		internal = GL_LUMINANCE_ALPHA, format = GL_LUMINANCE_ALPHA;
-#else
 		internal = GL_LUMINANCE8_ALPHA8, format = GL_LUMINANCE_ALPHA;
-#endif
 	} else if(mFormat == Image::Format_R8G8B8) {
 		internal = GL_RGB8, format = GL_RGB;
 	} else if(mFormat == Image::Format_B8G8R8) {
@@ -109,11 +101,9 @@ void GLTexture2D::Upload() {
 		glTexImage2D(GL_TEXTURE_2D, 0, internal, size.x, size.y, 0, format, GL_UNSIGNED_BYTE, mImage.GetData());
 	}
 	
-#ifndef __amigaos4__
 	if(renderer->GetMaxAnisotropy() != 1.f) {
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, renderer->GetMaxAnisotropy());
 	}
-#endif
 	
 	CHECK_GL;
 }

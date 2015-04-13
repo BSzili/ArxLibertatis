@@ -25,13 +25,6 @@
 #include "graphics/opengl/OpenGLRenderer.h"
 #include "graphics/opengl/OpenGLUtil.h"
 
-#ifdef __MORPHOS__
-#define glMultiTexCoord2f glMultiTexCoord2fARB
-#endif
-#ifdef __amigaos4__
-#include <GL/glext.h>
-#endif
-
 template <class Vertex>
 static void renderVertex(const Vertex & vertex);
 

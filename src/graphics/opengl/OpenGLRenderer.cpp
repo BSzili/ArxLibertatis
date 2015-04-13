@@ -25,9 +25,6 @@
 #include "graphics/opengl/GLTextureStage.h"
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 #include "graphics/Math.h"
-#ifndef GL_MAX_TEXTURE_UNITS
-#define GL_MAX_TEXTURE_UNITS GL_MAX_TEXTURE_UNITS_ARB
-#endif
 #else
 #include "graphics/opengl/GLVertexBuffer.h"
 #endif
@@ -452,11 +449,6 @@ static const GLenum arxToGlBlendFactor[] = {
 };
 
 void OpenGLRenderer::SetBlendFunc(PixelBlendingFactor srcFactor, PixelBlendingFactor dstFactor) {
-#ifdef __amigaos4__
-	// used for uslNbIndiceCull_TNormalTrans, should be substituted with something else
-	if (srcFactor == Renderer::BlendSrcColor)
-		return;
-#endif
 	glBlendFunc(arxToGlBlendFactor[srcFactor], arxToGlBlendFactor[dstFactor]);
 	CHECK_GL;
 }
