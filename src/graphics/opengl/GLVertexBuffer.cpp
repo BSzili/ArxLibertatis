@@ -17,6 +17,10 @@
 * along with Arx Libertatis.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#ifdef __amigaos4__
+#include <GL/gl.h>
+#include "graphics/image/Image.h"
+#endif
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 #include "graphics/opengl/GLVertexArray.h"
 #else

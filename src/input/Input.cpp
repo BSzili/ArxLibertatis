@@ -44,6 +44,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 //
 // Copyright (c) 1999-2001 ARKANE Studios SA. All rights reserved
 
+#ifdef __amigaos4__
+#include "window/Window.h"
+#endif
 #include "input/Input.h"
 
 #include <string>

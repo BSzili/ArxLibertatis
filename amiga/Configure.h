@@ -10,7 +10,7 @@
 #define ARX_HAVE_ALIGNED_FREE 0
 // POSIX
 #define ARX_HAVE_POSIX_MEMALIGN 0
-#ifdef __AROS__
+#if defined(__AROS__) || defined(__amigaos4__)
 // TODO remove this
 #define aligned_alloc(alignment, size) malloc((size))
 #endif
@@ -18,7 +18,11 @@
 // Thread & process control
 #define ARX_HAVE_PTHREADS 1
 #define ARX_HAVE_PRCTL 0
+#ifdef __amigaos4__
+#define ARX_HAVE_PTHREAD_SETNAME_NP 0
+#else
 #define ARX_HAVE_PTHREAD_SETNAME_NP 1
+#endif
 #define ARX_HAVE_PTHREAD_SET_NAME_NP 0
 #define ARX_HAVE_SCHED_GETSCHEDULER 0
 #define ARX_HAVE_NANOSLEEP 0

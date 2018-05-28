@@ -193,9 +193,9 @@ public:
 		}
 		
 		if(m_renderer->hasDrawRangeElements()) {
-			glDrawRangeElements(mode, offset, offset + count - 1, nbindices, type, data);
+			glDrawRangeElements(mode, offset, offset + count - 1, nbindices, type, (GLvoid*)data);
 		} else {
-			glDrawElements(mode, nbindices, type, data);
+			glDrawElements(mode, nbindices, type, (GLvoid*)data);
 		}
 		
 	}

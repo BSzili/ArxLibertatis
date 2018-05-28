@@ -23,6 +23,9 @@
 #include <limits>
 #include <cmath>
 
+#ifdef __amigaos4__
+#undef log2
+#endif
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 

@@ -56,7 +56,12 @@ void Thread::setThreadName(const std::string & threadName) {
 
 #if ARX_HAVE_PTHREADS
 
+#ifdef __amigaos4__
+#define sched_get_priority_min(policy) Lowest
+#define sched_get_priority_max(policy) Highest
+#else
 #include <sched.h>
+#endif
 #include <unistd.h>
 
 #if !ARX_HAVE_PTHREAD_SETNAME_NP && !ARX_HAVE_PTHREAD_SET_NAME_NP && ARX_HAVE_PRCTL

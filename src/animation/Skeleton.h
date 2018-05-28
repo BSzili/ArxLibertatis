@@ -23,6 +23,9 @@
 #include <string>
 #include <vector>
 
+#ifdef __amigaos4__
+#undef log2
+#endif
 #include "glm/gtc/quaternion.hpp"
 
 #include "math/Types.h"

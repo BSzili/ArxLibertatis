@@ -102,6 +102,10 @@ enum AutoReadyWeapon {
 	AlwaysAutoReadyWeapon = 2,
 };
 
+#ifdef __amigaos4__
+#undef UNUSED
+#endif
+
 struct ActionKey {
 	
 	explicit ActionKey(InputKeyId key_0 = UNUSED,
