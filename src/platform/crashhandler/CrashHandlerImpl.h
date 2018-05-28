@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -26,7 +26,7 @@
 
 #include "platform/Platform.h"
 
-#if ARX_PLATFORM == ARX_PLATFORM_BSD || ARX_PLATFORM == ARX_PLATFORM_MACOSX
+#if ARX_PLATFORM == ARX_PLATFORM_BSD || ARX_PLATFORM == ARX_PLATFORM_MACOS
 // Some versions of boost/interprocess/shared_memory_object.hpp are
 // missing includes needed for BSD-kernel-specific code:
 #include <sys/types.h>
@@ -34,37 +34,32 @@
 #endif
 
 // BOOST
-#define BOOST_DATE_TIME_NO_LIB
-#include <boost/version.hpp>
-#if BOOST_VERSION < 104500
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-fpermissive"
-#endif
 #include <boost/interprocess/mapped_region.hpp>
 #include <boost/interprocess/shared_memory_object.hpp>
-#if BOOST_VERSION < 104500
-#pragma GCC diagnostic pop
-#endif
 #include <boost/lexical_cast.hpp>
 
-#include "io/log/Logger.h"
 #include "io/fs/FilePath.h"
 #include "platform/CrashHandler.h"
 #include "platform/crashhandler/CrashInfo.h"
 #include "platform/Lock.h"
 
 class CrashHandlerImpl {
+	
 public:
+	
 	CrashHandlerImpl();
 	virtual ~CrashHandlerImpl();
 
 	virtual bool initialize();
 	virtual void shutdown();
 
-	bool addAttachedFile(const fs::path& file);
-	bool setNamedVariable(const std::string& name, const std::string& value);
+	bool addAttachedFile(const fs::path & file);
+	bool setVariable(const std::string & name, const std::string & value);
+	void setWindow(u64 window);
+	
+	bool addText(const char * text);
 
-	bool setReportLocation(const fs::path& location);
+	bool setReportLocation(const fs::path & location);
 	bool deleteOldReports(size_t nbReportsToKeep);
 
 	void registerCrashCallback(CrashHandler::CrashCallback crashCallback);
@@ -72,19 +67,31 @@ public:
 
 	virtual bool registerThreadCrashHandlers() = 0;
 	virtual void unregisterThreadCrashHandlers() = 0;
-
+	
+	void processCrash(const std::string & sharedMemoryName);
+	
 private:
+	
 	virtual bool registerCrashHandlers() = 0;
 	virtual void unregisterCrashHandlers() = 0;
 	
 	bool createSharedMemory();
 	void destroySharedMemory();
+	void fillBasicCrashInfo();
+	
+	virtual void processCrashInfo() { }
+	virtual void processCrashSignal() { }
+	void processCrashRegisters();
+	virtual void processCrashTrace() { }
+	virtual void processCrashDump() { }
 	
 protected:
-	virtual void fillBasicCrashInfo();
 	
-	std::string m_CrashHandlerApp;
-	fs::path m_CrashHandlerPath;
+	void processCrash();
+	
+	fs::path m_executable;
+	
+	fs::path m_crashReportDir;
 	
 	// Memory shared to the crash reporter.
 	boost::interprocess::shared_memory_object m_SharedMemory;
@@ -92,15 +99,17 @@ protected:
 	
 	// Name of the shared memory.
 	std::string m_SharedMemoryName;
-
+	
 	// Crash information (pointer to shared memory)
-	CrashInfo* m_pCrashInfo;
-
+	CrashInfo * m_pCrashInfo;
+	size_t m_textLength;
+	
 	// Protect against multiple accesses.
 	Lock m_Lock;
-
+	
 	// Crash callbacks
 	std::vector<CrashHandler::CrashCallback> m_crashCallbacks;
+	
 };
 
 #endif // ARX_PLATFORM_CRASHHANDLER_CRASHHANDLERIMPL_H

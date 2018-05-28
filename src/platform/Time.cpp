@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -23,21 +23,21 @@
 
 #include "io/log/Logger.h"
 
-namespace Time {
+namespace platform {
 
-#if defined(ARX_HAVE_CLOCK_GETTIME)
+#if ARX_HAVE_CLOCK_GETTIME
 
 #include <time.h>
 
-static clock_t clock_id = CLOCK_REALTIME;
+static clockid_t g_clockId = CLOCK_REALTIME;
 
-void init() {
+void initializeTime() {
 	
 #ifdef CLOCK_MONOTONIC
 	struct timespec ts;
 	if(!clock_gettime(CLOCK_MONOTONIC, &ts)) {
 		LogDebug("using CLOCK_MONOTONIC");
-		clock_id = CLOCK_MONOTONIC;
+		g_clockId = CLOCK_MONOTONIC;
 		return;
 	}
 #endif
@@ -45,71 +45,50 @@ void init() {
 	LogWarning << "Falling back to CLOCK_REALTIME, time will jump if adjusted by other processes";
 }
 
-u32 getMs() {
+PlatformInstant getTime() {
 	struct timespec ts;
-	clock_gettime(clock_id, &ts);
-	return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+	clock_gettime(g_clockId, &ts);
+	return PlatformInstantUs(ts.tv_sec * 1000000ll + ts.tv_nsec / 1000ll);
 }
 
-u64 getUs() {
-	struct timespec ts;
-	clock_gettime(clock_id, &ts);
-	return (ts.tv_sec * 1000000ull) + (ts.tv_nsec / 1000);
-}
-
-#elif defined(ARX_HAVE_WINAPI)
+#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 
 #include <windows.h>
 
 // Avoid costly calls to QueryPerformanceFrequency... cache its result
-static u64 frequency_hz;
+static s64 g_clockFrequency;
 
-void init() {
+void initializeTime() {
 	LARGE_INTEGER frequency;
 	QueryPerformanceFrequency(&frequency);
-	frequency_hz = frequency.QuadPart;
+	g_clockFrequency = frequency.QuadPart;
 }
 
-u32 getMs() {
+PlatformInstant getTime() {
 	LARGE_INTEGER counter;
 	QueryPerformanceCounter(&counter);
 	// Ugly trick to avoid losing precision...
-	u32 valMs = (counter.QuadPart * 10) / (frequency_hz / 100);
-	return valMs;
+	return PlatformInstantUs(counter.QuadPart * 1000ll / (g_clockFrequency / 1000ll));
 }
 
-u64 getUs() {
-	LARGE_INTEGER counter;
-	QueryPerformanceCounter(&counter);
-	// Ugly trick to avoid losing precision...
-	u64 valUs = (counter.QuadPart * 1000) / (frequency_hz / 1000);
-	return valUs;
-}
-
-#elif defined(ARX_HAVE_MACH_CLOCK)
+#elif ARX_HAVE_MACH_CLOCK
 
 #include <mach/clock.h>
 #include <mach/clock_types.h>
 #include <mach/mach_host.h>
 
-static clock_serv_t clock_ref;
+static clock_serv_t g_clockRef;
 
-void init() {
-	if(host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &clock_ref) != KERN_SUCCESS) {
+void initializeTime() {
+	if(host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &g_clockRef) != KERN_SUCCESS) {
 		LogWarning << "Error getting system clock";
 	}
 }
 
-u32 getMs() {
+PlatformInstant getTime() {
 	mach_timespec_t ts;
-	clock_get_time(clock_ref, &ts);
-	return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
-u64 getUs() {
-	mach_timespec_t ts;
-	clock_get_time(clock_ref, &ts);
-	return (ts.tv_sec * 1000000ull) + (ts.tv_nsec / 1000);
+	clock_get_time(g_clockRef, &ts);
+	return PlatformInstantUs(ts.tv_sec * 1000000ll + ts.tv_nsec / 1000ll);
 }
 
 #elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
@@ -147,7 +126,7 @@ u64 getUs() {
 }
 
 #else
-#error "Time not supported: need either ARX_HAVE_CLOCK_GETTIME or ARX_HAVE_WINAPI or ARX_HAVE_MACH_CLOCK"
+#error "Time not supported: need ARX_HAVE_CLOCK_GETTIME or ARX_HAVE_MACH_CLOCK on non-Windows systems"
 #endif
 
-} // namespace Time
+} // namespace platform

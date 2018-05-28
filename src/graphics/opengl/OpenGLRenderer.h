@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -26,7 +26,8 @@
 #include <intuition/intuition.h> // struct Image
 #endif
 #include "graphics/Renderer.h"
-#include "graphics/opengl/GLTexture2D.h"
+#include "graphics/opengl/GLTexture.h"
+#include "graphics/opengl/OpenGLUtil.h"
 #include "math/Rectangle.h"
 
 class GLTextureStage;
@@ -38,60 +39,44 @@ public:
 	OpenGLRenderer();
 	~OpenGLRenderer();
 	
-	void Initialize();
+	void initialize();
 	
-	void shutdown();
-	void reinit();
-	
-	// Scene begin/end...
-	void BeginScene();
-	void EndScene();
+	void beforeResize(bool wasOrIsFullscreen);
+	void afterResize();
 	
 	// Matrices
-	void SetViewMatrix(const EERIEMATRIX & matView);
-	void GetViewMatrix(EERIEMATRIX & matView) const;
-	void SetProjectionMatrix(const EERIEMATRIX & matProj);
-	void GetProjectionMatrix(EERIEMATRIX & matProj) const;
+	void SetViewMatrix(const glm::mat4x4 & matView);
+	void SetProjectionMatrix(const glm::mat4x4 & matProj);
 	
 	// Texture management
 	void ReleaseAllTextures();
 	void RestoreAllTextures();
-
+	void reloadColorKeyTextures();
+	
 	// Factory
-	Texture2D * CreateTexture2D();
-	
-	// Render states
-	void SetRenderState(RenderState renderState, bool enable);
-	
-	// Alphablending & Transparency
-	void SetAlphaFunc(PixelCompareFunc func, float fef); // Ref = [0.0f, 1.0f]
-	void SetBlendFunc(PixelBlendingFactor srcFactor, PixelBlendingFactor dstFactor);
+	Texture * createTexture();
 	
 	// Viewport
 	void SetViewport(const Rect & viewport);
-	Rect GetViewport();
 	
-	// Projection
-	void Begin2DProjection(float left, float right, float bottom, float top, float zNear, float zFar);
-	void End2DProjection();
+	void SetScissor(const Rect & rect);
 	
 	// Render Target
 	void Clear(BufferFlags bufferFlags, Color clearColor = Color::none, float clearDepth = 1.f, size_t nrects = 0, Rect * rect = 0);
 	
 	// Fog
 	void SetFogColor(Color color);
-	void SetFogParams(FogMode fogMode, float fogStart, float fogEnd, float fogDensity = 1.0f);
+	void SetFogParams(float fogStart, float fogEnd);
 	
 	// Rasterizer
 	void SetAntialiasing(bool enable);
-	void SetCulling(CullingMode mode);
-	void SetDepthBias(int depthBias);
 	void SetFillMode(FillMode mode);
 	
-	inline float GetMaxAnisotropy() const { return maximumAnisotropy; }
+	float getMaxAnisotropy() const { return m_maximumAnisotropy; }
+	float getMaxSupportedAnisotropy() const { return m_maximumSupportedAnisotropy; }
+	void setMaxAnisotropy(float value);
 	
-	// Utilities...
-	void DrawTexturedRect(float x, float y, float w, float h, float uStart, float vStart, float uEnd, float vEnd, Color color);
+	AlphaCutoutAntialising getMaxSupportedAlphaCutoutAntialiasing() const;
 	
 	VertexBuffer<TexturedVertex> * createVertexBufferTL(size_t capacity, BufferUsage usage);
 	VertexBuffer<SMY_VERTEX> * createVertexBuffer(size_t capacity, BufferUsage usage);
@@ -102,22 +87,36 @@ public:
 	bool getSnapshot(Image & image);
 	bool getSnapshot(Image & image, size_t width, size_t height);
 	
-	bool isFogInEyeCoordinates();
-	
-	inline GLTextureStage * GetTextureStage(unsigned int textureStage) {
+	GLTextureStage * GetTextureStage(size_t textureStage) {
 		return reinterpret_cast<GLTextureStage *>(Renderer::GetTextureStage(textureStage));
 	}
 	
-	inline bool isInitialized() { return initialized; }
+	template <class Vertex>
+	void beforeDraw() { flushState(); selectTrasform<Vertex>(); }
+	
+	bool hasTextureNPOT() { return m_hasTextureNPOT; }
+	bool hasSizedTextureFormats() const { return m_hasSizedTextureFormats; }
+	bool hasIntensityTextures() const { return m_hasIntensityTextures; }
+	bool hasBGRTextureTransfer() const { return m_hasBGRTextureTransfer; }
+	
+	bool hasMapBuffer() const { return m_hasMapBuffer; }
+	bool hasMapBufferRange() const { return m_hasMapBufferRange; }
+	bool hasBufferStorage() const { return m_hasBufferStorage; }
+	bool hasBufferUsageStream() const { return m_hasBufferUsageStream; }
+	bool hasDrawRangeElements() const { return m_hasDrawRangeElements; }
+	bool hasDrawElementsBaseVertex() const { return m_hasDrawElementsBaseVertex; }
+	bool hasClearDepthf() const { return m_hasClearDepthf; }
+	bool hasVertexFogCoordinate() const { return m_hasVertexFogCoordinate; }
+	bool hasSampleShading() const { return m_hasSampleShading; }
 	
 private:
 	
-	bool useVertexArrays;
-	bool useVBOs;
+	void shutdown();
+	void reinit();
 	
 	Rect viewport;
 	
-	void applyTextureStages();
+	void flushState();
 	
 	template <class Vertex>
 	void selectTrasform();
@@ -125,31 +124,44 @@ private:
 	void enableTransform();
 	void disableTransform();
 	
-	template <class Vertex>
-	inline void beforeDraw() { applyTextureStages(); selectTrasform<Vertex>(); }
-	
-	template <class Vertex>
-	friend class GLNoVertexBuffer;
-	template <class Vertex>
-	friend class GLVertexBuffer;
-	
 	friend class GLTextureStage;
 	
 	size_t maxTextureStage; // the highest active texture stage
 	
-	GLuint shader;
+	float m_maximumAnisotropy;
+	float m_maximumSupportedAnisotropy;
 	
-	float maximumAnisotropy;
-	
-	typedef boost::intrusive::list<GLTexture2D, boost::intrusive::constant_time_size<false> > TextureList;
+	typedef boost::intrusive::list<GLTexture, boost::intrusive::constant_time_size<false> > TextureList;
 	TextureList textures;
-
-	bool initialized;
+	
+	RenderState m_glstate;
+	GLenum m_glcull;
+	
+	bool m_glscissor;
+	bool m_scissor;
+	
+	int m_MSAALevel;
+	bool m_hasMSAA;
+	
+	bool m_hasTextureNPOT;
+	bool m_hasSizedTextureFormats;
+	bool m_hasIntensityTextures;
+	bool m_hasBGRTextureTransfer;
+	
+	bool m_hasMapBuffer;
+	bool m_hasMapBufferRange;
+	bool m_hasBufferStorage;
+	bool m_hasBufferUsageStream;
+	bool m_hasDrawRangeElements;
+	bool m_hasDrawElementsBaseVertex;
+	bool m_hasClearDepthf;
+	bool m_hasVertexFogCoordinate;
+	bool m_hasSampleShading;
 	
 };
 
 template <class Vertex>
-inline void OpenGLRenderer::selectTrasform() { enableTransform(); }
+void OpenGLRenderer::selectTrasform() { enableTransform(); }
 
 template <>
 inline void OpenGLRenderer::selectTrasform<TexturedVertex>() { disableTransform(); }

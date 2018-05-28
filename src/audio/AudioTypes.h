@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,9 +44,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_AUDIO_AUDIOTYPES_H
 #define ARX_AUDIO_AUDIOTYPES_H
 
+#include "math/Vector.h"
 #include "platform/Platform.h"
-#include "platform/Flags.h"
-#include "math/Vector3.h"
+#include "util/Flags.h"
+#include "util/HandleType.h"
 
 namespace audio {
 
@@ -67,8 +68,6 @@ const float DEFAULT_VOLUME = 1.f; // Original gain
 
 // Flags
 enum ChannelFlag {
-	FLAG_RESTART       = 0x00000001, // Force restart sample if already playing
-	FLAG_ENQUEUE       = 0x00000002, // Enqueue sample if already playing
 	FLAG_VOLUME        = 0x00000004, // Enable volume control
 	FLAG_PITCH         = 0x00000008, // Enable pitch control
 	FLAG_PAN           = 0x00000010, // Enable pan control
@@ -84,13 +83,6 @@ enum ChannelFlag {
 DECLARE_FLAGS(ChannelFlag, ChannelFlags)
 DECLARE_FLAGS_OPERATORS(ChannelFlags)
 
-// Length units
-enum TimeUnit {
-	UNIT_MS,
-	UNIT_SAMPLES,
-	UNIT_BYTES
-};
-
 // Errors
 enum aalError {
 	AAL_OK = 0,
@@ -101,6 +93,26 @@ enum aalError {
 	AAL_ERROR_FORMAT, // Invalid or corrupted file format
 	AAL_ERROR_SYSTEM, // Internal system error
 	AAL_ERROR_HANDLE // Invalid resource handle
+};
+
+enum HRTFAttribute {
+	HRTFDisable = 0,
+	HRTFEnable = 1,
+	HRTFDefault = -1,
+};
+
+enum HRTFStatus {
+	HRTFDisabled,
+	HRTFEnabled,
+	HRTFRequired,
+	HRTFForbidden,
+	HRTFUnavailable
+};
+
+enum PlayingAmbianceType {
+	PLAYING_AMBIANCE_MENU,
+	PLAYING_AMBIANCE_SCRIPT,
+	PLAYING_AMBIANCE_ZONE
 };
 
 // Output format
@@ -130,9 +142,10 @@ const s32 INVALID_ID = -1;
 
 typedef s32 SourceId;
 typedef s32 SampleId;
-typedef s32 MixerId;
-typedef s32 EnvId;
-typedef s32 AmbianceId;
+
+typedef HandleType<struct MixerIdTag,    s32, -1> MixerId;
+typedef HandleType<struct EnvIdTag,      s32, -1> EnvId;
+typedef HandleType<struct AmbianceIdTag, s32, -1> AmbianceId;
 
 // Play channel initialization parameters
 struct Channel {

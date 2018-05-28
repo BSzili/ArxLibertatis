@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -33,7 +33,7 @@
 
 #ifdef BOOST_PP_IS_ITERATING
 
-template<
+template <
 	typename Function,
 	typename T,
 	typename R

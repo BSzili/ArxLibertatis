@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -19,6 +19,8 @@
 
 #include "io/log/CriticalLogger.h"
 
+#include <sstream>
+
 #include "core/Version.h"
 #include "io/fs/Filesystem.h"
 #include "io/fs/SystemPaths.h"
@@ -27,18 +29,47 @@
 
 namespace logger {
 
+static const char * g_exitQuestion = NULL;
+static CriticalErrorDialog::ExitCommand g_exitCommand = NULL;
+
 CriticalErrorDialog::~CriticalErrorDialog() {
 	
+	bool runExitCommand = false;
+	
 	if(!errorString.empty()) {
-		std::string fullText = errorString;
 		
-		fs::path logfile = fs::paths.user / "arx.log";
+		std::ostringstream message;
+		message << errorString;
+		fs::path logfile = fs::getUserDir() / "arx.log";
 		if(fs::exists(logfile)) {
-			fullText += "\n\nYou might want to take a look at the log for more details:\n";
-			fullText += logfile.string();
+			message << "\n\nYou might want to look at the log for more details:\n";
+			message << logfile.string();
+			if(g_exitQuestion && g_exitCommand) {
+				message << "\n";
+			}
 		}
 		
-		dialog::showError(fullText, "Critical Error - " + arx_version);
+		if(g_exitQuestion && g_exitCommand) {
+			message << "\n\n-> " << g_exitQuestion;
+			runExitCommand = platform::askYesNoWarning(message.str(), "Error - " + arx_name);
+		} else {
+			platform::showErrorDialog(message.str(), "Critical Error - " + arx_name);
+		}
+		
+	} else if(g_exitQuestion && g_exitCommand) {
+		runExitCommand = platform::askYesNo(g_exitQuestion, arx_name);
+	}
+	
+	if(runExitCommand) {
+		g_exitCommand();
+	}
+	
+}
+
+void CriticalErrorDialog::setExitQuestion(const char * question, ExitCommand command) {
+	if(!g_exitQuestion || !g_exitCommand) {
+		g_exitQuestion = question;
+		g_exitCommand = command;
 	}
 }
 

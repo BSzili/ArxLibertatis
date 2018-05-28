@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -48,17 +48,18 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 class SnapShot {
 	
-private:
-	
-	fs::path file;
-	
 public:
 	
-	SnapShot(const fs::path & name, bool replace = false);
+	explicit SnapShot(const fs::path & name);
 	~SnapShot();
 	
+	fs::path getNextFilePath();
+	
 	bool GetSnapShot();
-	bool GetSnapShotDim(int width, int height);
+	
+private:
+	
+	fs::path m_basePath;
 	
 };
 

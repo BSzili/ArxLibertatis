@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -55,12 +55,12 @@ struct type_cast;
  * This provides convenient interface for adding new option (the add) method,
  * and executing option handlers by name.
  *
- * @param StringType type of string
+ * \tparam StringType type of string
  *
- * @param TypeCast type of class that is used to convertation StringType to
+ * \tparam TypeCast type of class that is used to convertation StringType to
  *   expected type by option handler.
  */
-template<typename StringType, typename TypeCast = type_cast>
+template <typename StringType, typename TypeCast = type_cast>
 class interpreter : detail::interpreter<key_type<StringType>, TypeCast> {
 	typedef detail::interpreter<key_type<StringType>, TypeCast> super_t;
 	
@@ -76,17 +76,15 @@ public:
 	 * The option parameters count and their types will be obtained
 	 * automatically from the handler signature.
 	 *
-	 * @param handler This one can either be a pointer to a function or an
+	 * \param handler This one can either be a pointer to a function or an
 	 *                object whose class contains only one operator().
 	 *
-	 * @param option_name "Name" of this option.
+	 * \param option_name "Name" of this option.
 	 *
-	 * @returns none.
-	 *
-	 * @throws If an option with one of the names that are contained in op_name_t
+	 * \throws If an option with one of the names that are contained in op_name_t
 	 *            already exists an exception will be thrown.
 	 *
-	 * @code
+	 * \code
 	 *  interpreter<> l;
 	 *
 	 *  l.add(&some_fn, op_name_t("option_name").description("some info"));
@@ -95,9 +93,9 @@ public:
 	 *  l.add(object, op_name_t("op_name_2").description("some info"));
 	 *    //object whose class contains a single operator(), except for template one.
 	 *
-	 * @endcode
+	 * \endcode
 	 */
-	template<typename Handler>
+	template <typename Handler>
 	void add(const Handler & handler, const op_name_t & option_name) {
 		super_t::add(handler, option_name);
 	}
@@ -107,22 +105,20 @@ public:
 	 *
 	 * This function registrates command options.
 	 *
-	 * @param handler This one can either be a pointer to a function or an
+	 * \param handler This one can either be a pointer to a function or an
 	 *                object whose class contains only one operator().
 	 *
-	 * @param option_name "Name" of this option.
+	 * \param option_name "Name" of this option.
 	 *
-	 * @returns none.
-	 *
-	 * @throws If an option with one of the names that are contained in op_name_t
+	 * \throws If an option with one of the names that are contained in op_name_t
 	 *            already exists an exception will be thrown.
 	 *
-	 * @code
+	 * \code
 	 *  interpreter<> l;
 	 *  l.add<void (A1,...,An)> (object, op_name_t("option_name").description("some info"));
-	 * @endcode
+	 * \endcode
 	 */
-	template<typename HndlSign, typename Handler>
+	template <typename HndlSign, typename Handler>
 	void add(const Handler & handler, const op_name_t & option_name) {
 		super_t::template add<HndlSign>(handler, option_name);
 	}
@@ -131,7 +127,7 @@ public:
 	 * Removes an option in an interpreter with name.
 	 *
 	 * This function removes an option by name.
-	 * @param option_name Name of the option.
+	 * \param option_name Name of the option.
 	 */
 	void erase(const string_type & option_name) {
 		super_t::erase(option_name);
@@ -140,10 +136,10 @@ public:
 	/*!
 	 * Visits all options.
 	 *
-	 * @param visitor An object or pointer to a function.
-	 * @note The visitor has to support call semantic : operator(const op_name_t &).
+	 * \param visitor An object or pointer to a function.
+	 * \note The visitor has to support call semantic : operator(const op_name_t &).
 	 */
-	template<typename Visitor>
+	template <typename Visitor>
 	void visit(Visitor & visitor) const {
 		super_t::visit(visitor);
 	}
@@ -151,17 +147,17 @@ public:
 	/*!
 	 * Invokes handler by option name with parameters [args_begin, args_end).
 	 *
-	 * @param option_name Name of an option
+	 * \param option_name Name of an option
 	 *
-	 * @param args_begin  Iterator referring to the first argument for the option.
-	 * @param args_optend Iterator referring to the end of arguments to be consumed by \ref optional.
-	 * @param args_end    Iterator referring to the past-the-end argument for the option.
+	 * \param args_begin Iterator referring to the first argument for the option.
+	 * \param args_opend Iterator referring to the end of arguments to be consumed by \ref optional.
+	 * \param args_end   Iterator referring to the past-the-end argument for the option.
 	 *
-	 * @throws If option isn't found or the handler of this options takes more
+	 * \throws If option isn't found or the handler of this options takes more
 	 *            than required arguments or they can't be converted, an exception
 	 *            will be thrown.
 	 */
-	template<typename It>
+	template <typename It>
 	void invoke(const string_type & option_name, It & args_begin, It args_opend, It args_end,
 	            type_cast_t & type_cast) const {
 		super_t::invoke(option_name, args_begin, args_opend, args_end, type_cast);
@@ -170,16 +166,16 @@ public:
 	/*!
 	 * Invokes handler by option name with parameters [args_begin, args_end).
 	 *
-	 * @param option_name Name of an option
+	 * \param option_name Name of an option
 	 *
-	 * @param args_begin Iterator referring to the first argument for the option.
-	 * @param args_end   Iterator referring to the past-the-end argument for the option.
+	 * \param args_begin Iterator referring to the first argument for the option.
+	 * \param args_end   Iterator referring to the past-the-end argument for the option.
 	 *
-	 * @throws If option isn't found or the handler of this options takes more
+	 * \throws If option isn't found or the handler of this options takes more
 	 *            than required arguments or they can't be converted, an exception
 	 *            will be thrown.
 	 */
-	template<typename It>
+	template <typename It>
 	void invoke(const string_type & option_name, It & args_begin, It args_end,
 	            type_cast_t & type_cast) const {
 		invoke(option_name, args_begin, args_end, args_end, type_cast);
@@ -202,19 +198,13 @@ public:
 namespace detail {
 // visitor for command_line::interpreter.
 
-template<typename Interpreter>
 struct opname_size {
-	
-	Interpreter const * interpreter;
 	
 	size_t value;
 	
-	explicit opname_size(const Interpreter & interpreter)
-		: interpreter(&interpreter)
-		, value(0)
-	{ }
+	opname_size() : value(0) { }
 	
-	template<typename Key>
+	template <typename Key>
 	void operator()(Key & key) {
 		typename Key::const_iterator it(key.begin()) , end(key.end());
 		
@@ -233,6 +223,9 @@ struct opname_size {
 			} else {
 				cur_size += 4 * key.get_arg_count();
 			}
+			if(key.get_arg_count() == 1 && key.is_arg_optional()) {
+				cur_size += 2;
+			}
 		}
 		
 		value = std::max(cur_size, value);
@@ -240,30 +233,28 @@ struct opname_size {
 	
 };
 
-template<typename Stream, typename Interpreter>
+template <typename Stream>
 struct print_op_t {
 	
-	Stream * stream_;
-	Interpreter const* interpreter;
+	Stream * m_stream;
 	
-	size_t offset;
+	size_t m_offset;
 	
-	print_op_t(Stream & stream, const Interpreter & interpreter, size_t offset)
-		: stream_(&stream)
-		, interpreter(&interpreter)
-		, offset(offset)
+	print_op_t(Stream & stream, size_t offset)
+		: m_stream(&stream)
+		, m_offset(offset)
 	{ }
 	
-	template<typename Key>
+	template <typename Key>
 	void align(Key & key) const {
-		opname_size<Interpreter> tmp(*interpreter);
+		opname_size tmp;
 		tmp(key);
 		
-		for(size_t i(tmp.value); i < offset; ++i)
-			(*stream_) << " ";
+		for(size_t i(tmp.value); i < m_offset; ++i)
+			(*m_stream) << " ";
 	}
 	
-	template<typename Key>
+	template <typename Key>
 	void operator()(Key & key) const {
 		typename Key::const_iterator it(key.begin()) , end(key.end());
 		
@@ -271,41 +262,52 @@ struct print_op_t {
 			return;
 		}
 		
-		(*stream_) << " ";
+		(*m_stream) << " ";
 		
 		for(; it != end; ++it) {
-			(*stream_) << " " << *it;
+			(*m_stream) << " " << *it;
 		}
 		
 		if(key.has_args()) {
+			if(key.get_arg_count() == 1 && key.is_arg_optional()) {
+				(*m_stream) << "[=";
+			} else {
+				(*m_stream) << ' ';
+			}
 			if(key.has_arg_names()) {
-				(*stream_) << ' ' << key.get_arg_names();
+				(*m_stream) << key.get_arg_names();
 			} else {
 				for(size_t i = 0; i < key.get_arg_count(); i++) {
-					(*stream_) << " ARG";
+					if(i != 0) {
+						(*m_stream) << ' ';
+					}
+					(*m_stream) << "ARG";
 				}
+			}
+			if(key.get_arg_count() == 1 && key.is_arg_optional()) {
+				(*m_stream) << "]";
 			}
 		}
 		
 		align(key);
-		(*stream_) << "  " << key.get_description() << std::endl;
+		(*m_stream) << "  " << key.get_description() << std::endl;
 	}
 };
 
-template<typename OStream, typename Interpreter>
+template <typename OStream, typename Interpreter>
 void print_op(OStream & os, const Interpreter & interpreter) {
-	opname_size<Interpreter> calc_size(interpreter);
+	opname_size calc_size;
 	interpreter.visit(calc_size);
 	
-	print_op_t<OStream, Interpreter> op(os, interpreter, calc_size.value);
+	print_op_t<OStream> op(os, calc_size.value);
 	interpreter.visit(op);
 }
 
 } // namespace detail
 
-template<typename CharType, typename StringType, typename TypeCast>
+template <typename CharType, typename StringType, typename TypeCast>
 std::basic_ostream<CharType> & operator<<(std::basic_ostream<CharType> & os,
-                                          const interpreter<StringType,TypeCast> & l) {
+                                          const interpreter<StringType, TypeCast> & l) {
 	return detail::print_op(os, l), os;
 }
 

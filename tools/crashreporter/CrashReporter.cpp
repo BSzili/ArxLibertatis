@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,48 +20,48 @@
 #include <QApplication>
 
 #include <string>
+#include <cstdlib>
 
 #include "crashreporter/ui/ErrorReportDialog.h"
 #include "crashreporter/ErrorReport.h"
 
+#include "core/Version.h"
 #include "io/log/Logger.h"
-#include "io/log/FileLogger.h"
+#include "platform/Platform.h"
 
-#if defined(_WIN32) || defined(_WIN64)
-
-INT WINAPI WinMain(HINSTANCE, HINSTANCE, PSTR, INT) {
+int main(int argc, char * argv[]) {
 	
 	Q_INIT_RESOURCE(CrashReporter);
 	
-	QApplication app(__argc, __argv);
-	
-#else
-
-int main(int argc, char **argv) {
-	
-	Q_INIT_RESOURCE(CrashReporter);
+	#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
+	QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+	#endif
 	
 	QApplication app(argc, argv);
 	
-#endif
+	#if ARX_PLATFORM != ARX_PLATFORM_WIN32 && ARX_PLATFORM != ARX_PLATFORM_MACOS
+	QIcon icon = QIcon::fromTheme(arx_icon_name.c_str(), QIcon::fromTheme("dialog-error"));
+	app.setWindowIcon(icon);
+	#endif
 	
 	Logger::initialize();
 	
-	LogWarning << "Arx Crash Reporter starting!";
+	LogWarning << arx_name + " Crash Reporter starting!";
 	
 	QString sharedMemoryName;
 	const QStringList args = app.arguments();
 	QStringList::const_iterator itArgs;
 	for (itArgs = args.constBegin(); itArgs != args.constEnd(); ++itArgs) {
-		if((*itArgs).startsWith("-crashinfo=")) {
+		if((*itArgs).startsWith("--crashinfo=")) {
 			QString crashInfo = (*itArgs);
-			crashInfo.remove("-crashinfo=");
+			crashInfo.remove("--crashinfo=");
 			sharedMemoryName = crashInfo;
 		}
 	}
 	
 	if(sharedMemoryName.isEmpty()) {
-		return -1;
+		LogError << "Missing --crashinfo parameter!";
+		return EXIT_FAILURE;
 	}
 	
 	ErrorReport errorReport(sharedMemoryName);

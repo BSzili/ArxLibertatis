@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,27 +20,36 @@
 #ifndef ARX_INPUT_INPUTBACKEND_H
 #define ARX_INPUT_INPUTBACKEND_H
 
+class Window;
+
+#include "input/Mouse.h"
+#include "math/Types.h"
+
+class TextInputHandler;
+
 class InputBackend {
+	
 public:
-	virtual ~InputBackend() {}
-
-	virtual bool init() = 0;
-	virtual void acquireDevices() = 0;
-	virtual void unacquireDevices() = 0;
-
-	virtual bool update() = 0;	
-
-	// Mouse 
+	
+	virtual bool update() = 0;
+	
+	// Mouse
+	virtual bool setMouseMode(Mouse::Mode mode) = 0;
 	//! return true if the mouse position is currently being updated
 	virtual bool getAbsoluteMouseCoords(int & absX, int & absY) const = 0;
 	virtual void setAbsoluteMouseCoords(int absX, int absY) = 0;
 	virtual void getRelativeMouseCoords(int & relX, int & relY, int & wheelDir) const = 0;
-	virtual bool isMouseButtonPressed(int buttonId, int & _iDeltaTime) const = 0;
 	virtual void getMouseButtonClickCount(int buttonId, int & _iNumClick, int & _iNumUnClick) const = 0;
-
+	
 	// Keyboard
 	virtual bool isKeyboardKeyPressed(int keyId) const = 0;
-	virtual bool getKeyAsText(int keyId, char& result) const = 0;
+	virtual void startTextInput(const Rect & box, TextInputHandler * handler) = 0;
+	virtual void stopTextInput() = 0;
+	
+protected:
+	
+	virtual ~InputBackend() { }
+	
 };
 
 #endif // ARX_INPUT_INPUTBACKEND_H

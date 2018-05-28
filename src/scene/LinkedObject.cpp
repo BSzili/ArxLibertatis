@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,121 +51,56 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "scene/Object.h"
 
-using std::free;
-using std::realloc;
-using std::memcpy;
-
-// Releases Data for linked objects
+/*!
+ * \brief Releases Data for linked objects
+ */
 void EERIE_LINKEDOBJ_ReleaseData(EERIE_3DOBJ * obj) {
 	
-	if(!obj) {
+	if(!obj)
 		return;
-	}
 	
-	free(obj->linked), obj->linked = NULL;
-	obj->nblinked = 0;
+	obj->linked.clear();
 }
-
-//*************************************************************************************
-//*************************************************************************************
-// Init Data for linked objects
-void EERIE_LINKEDOBJ_InitData(EERIE_3DOBJ * obj)
-{
-	if (obj == NULL) return;
-
-	obj->nblinked = 0;
-	obj->linked = NULL;
-}
-
-//*************************************************************************************
-//*************************************************************************************
-// Add New Data field for a linked object to an object
-static long EERIE_LINKEDOBJ_Create(EERIE_3DOBJ * obj)
-{
-	if (obj == NULL) return -1;
-
-	obj->linked = (EERIE_LINKED *)realloc(obj->linked, sizeof(EERIE_LINKED) * (obj->nblinked + 1));
-	obj->linked[obj->nblinked].lgroup = -1;
-	obj->linked[obj->nblinked].lidx = -1;
-	obj->linked[obj->nblinked].obj = NULL;
-	obj->linked[obj->nblinked].io = NULL;
-	obj->nblinked++;
-
-	return (obj->nblinked - 1);
-}
-
-//*************************************************************************************
-//*************************************************************************************
-// Removes a linked object Data field from an object
-static void EERIE_LINKEDOBJ_Remove(EERIE_3DOBJ * obj, long num)
-{
-	if (obj == NULL) return;
-
-	if (obj->linked == NULL) return;
-
-	if (num < 0) return;
-
-	if (num >= obj->nblinked) return;
-
-	if (obj->nblinked == 1)
-	{
-		free(obj->linked);
-		obj->linked = NULL;
-		obj->nblinked = 0;
-		return;
-	}
-
-	memcpy(&obj->linked[num], &obj->linked[num+1], sizeof(EERIE_LINKED)*(obj->nblinked - num - 1));
-	obj->linked = (EERIE_LINKED *)realloc(obj->linked, sizeof(EERIE_LINKED) * (obj->nblinked - 1));
-	obj->nblinked--;
-}
-
 
 void EERIE_LINKEDOBJ_UnLinkObjectFromObject(EERIE_3DOBJ * obj, EERIE_3DOBJ * tounlink) {
 	
-	if(!obj || !tounlink) {
+	if(!obj || !tounlink)
 		return;
-	}
 	
-	for (long k = 0; k < obj->nblinked; k++) {
-		if(obj->linked[k].lgroup != -1 && obj->linked[k].obj == tounlink) {
-			for(size_t i = 0; i < tounlink->vertexlist.size(); i++) {
-				tounlink->vertexlist[i].vert.p = tounlink->vertexlist[i].v;
-			}
-			EERIE_LINKEDOBJ_Remove(obj, k);
+	for(size_t k = 0; k < obj->linked.size(); k++) {
+		if(obj->linked[k].lgroup != ObjVertGroup() && obj->linked[k].obj == tounlink) {
+			obj->linked.erase(obj->linked.begin() + k);
 			return;
 		}
 	}
 }
 
-bool EERIE_LINKEDOBJ_LinkObjectToObject(EERIE_3DOBJ * obj, EERIE_3DOBJ * tolink, const std::string& actiontext, const std::string& actiontext2, Entity * io)
-{
-	long group = -1;
+bool EERIE_LINKEDOBJ_LinkObjectToObject(EERIE_3DOBJ * obj, EERIE_3DOBJ * tolink, const std::string & actiontext,
+                                        const std::string & actiontext2, Entity * io) {
+	
+	if(!obj || !tolink)
+		return false;
+	
+	ActionPoint ni = GetActionPointIdx(obj, actiontext);
+	if(ni == ActionPoint())
+		return false;
+	
+	ObjVertGroup group = GetActionPointGroup(obj, ni);
+	if(group == ObjVertGroup())
+		return false;
 
-	long ni = GetActionPointIdx(obj, actiontext);
+	ActionPoint ni2 = GetActionPointIdx(tolink, actiontext2);
+	if(ni2 == ActionPoint())
+		return false;
 
-	if (ni < 0)
-	{
-		return false; 
-	}
-
-	long n = EERIE_LINKEDOBJ_Create(obj);
-
-	if (n == -1) return false;
-
-	group = GetActionPointGroup(obj, ni);
-
-	if (group < 0) return false; 
-
-	long ni2 = GetActionPointIdx(tolink, actiontext2);
-
-	if (ni2 < 0) return false; 
-
-	obj->linked[n].lidx2 = ni2;
-	obj->linked[n].lidx = ni;
-	obj->linked[n].lgroup = group;
-	obj->linked[n].obj = tolink;
-	obj->linked[n].io = io;
+	EERIE_LINKED link;
+	link.lidx2 = ni2;
+	link.lidx = ni;
+	link.lgroup = group;
+	link.obj = tolink;
+	link.io = io;
+	
+	obj->linked.push_back(link);
+	
 	return true;
-
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -19,23 +19,33 @@
 
 #include "platform/crashhandler/CrashHandlerImpl.h"
 
+#include <algorithm>
 #include <sstream>
+#include <cstring>
+#include <ctime>
+
+#include <boost/range/size.hpp>
 
 #include "core/Version.h"
 
 #include "io/fs/Filesystem.h"
 #include "io/fs/FilePath.h"
-#include "io/fs/PathConstants.h"
+#include "io/log/Logger.h"
 
 #include "math/Random.h"
 
 #include "platform/Architecture.h"
 #include "platform/Environment.h"
+#include "platform/Process.h"
 
+#include "util/String.h"
+
+namespace bip = boost::interprocess;
 
 CrashHandlerImpl::CrashHandlerImpl()
-	: m_pCrashInfo(0) {
-}
+	: m_pCrashInfo(0)
+	, m_textLength(0)
+{ }
 
 CrashHandlerImpl::~CrashHandlerImpl() {
 }
@@ -45,25 +55,7 @@ bool CrashHandlerImpl::initialize() {
 	
 	bool initialized = true;
 	
-	fs::path local_path = fs::path(getExecutablePath());
-	if(!local_path.empty()) {
-		local_path = local_path.parent() / m_CrashHandlerApp;
-		if(fs::exists(local_path)) {
-			m_CrashHandlerPath = local_path;
-		}
-	}
-	if(m_CrashHandlerPath.empty()) {
-		local_path = m_CrashHandlerApp;
-		if(fs::exists(local_path)) {
-			m_CrashHandlerPath = local_path;
-		}
-	}
-	if(fs::libexec_dir && m_CrashHandlerPath.empty()) {
-		local_path = fs::path(fs::libexec_dir) / m_CrashHandlerApp;
-		if(fs::exists(local_path)) {
-			m_CrashHandlerPath = local_path;
-		}
-	}
+	m_executable = platform::getExecutablePath();
 	
 	if(!createSharedMemory()) {
 		return false;
@@ -92,22 +84,23 @@ bool CrashHandlerImpl::createSharedMemory() {
 		
 		// Generate a random name for our shared memory object
 		std::ostringstream oss;
-		oss << "arxcrash-" << getProcessId() << "-" << Random::get<u32>();
+		oss << "arxcrash-" << platform::getProcessId() << "-" << Random::get<u32>();
 		m_SharedMemoryName = oss.str();
 		
 		// Create a shared memory object.
-		m_SharedMemory = boost::interprocess::shared_memory_object(boost::interprocess::create_only, m_SharedMemoryName.c_str(), boost::interprocess::read_write);
+		m_SharedMemory = bip::shared_memory_object(bip::create_only, m_SharedMemoryName.c_str(), bip::read_write);
 		
 		// Resize to fit the CrashInfo structure
 		m_SharedMemory.truncate(sizeof(CrashInfo));
 		
 		// Map the whole shared memory in this process
-		m_MemoryMappedRegion = boost::interprocess::mapped_region(m_SharedMemory, boost::interprocess::read_write);
+		m_MemoryMappedRegion = bip::mapped_region(m_SharedMemory, bip::read_write);
 		
 		// Our CrashInfo will be stored in this shared memory.
 		m_pCrashInfo = new (m_MemoryMappedRegion.get_address()) CrashInfo;
+		m_textLength = 0;
 		
-	} catch(boost::interprocess::interprocess_exception) {
+	} catch(const bip::interprocess_exception &) {
 		return false;
 	}
 	
@@ -115,26 +108,58 @@ bool CrashHandlerImpl::createSharedMemory() {
 }
 
 void CrashHandlerImpl::destroySharedMemory() {
-	m_MemoryMappedRegion = boost::interprocess::mapped_region();
-	m_SharedMemory = boost::interprocess::shared_memory_object();
+	m_MemoryMappedRegion = bip::mapped_region();
+	m_SharedMemory = bip::shared_memory_object();
 	m_pCrashInfo = 0;
 }
 
 void CrashHandlerImpl::fillBasicCrashInfo() {
+	
 	m_pCrashInfo->architecture = ARX_ARCH;
-	m_pCrashInfo->processId = getProcessId();
+	m_pCrashInfo->processId = platform::getProcessId();
+	m_pCrashInfo->memoryUsage = 0;
+	m_pCrashInfo->runningTime = 0.0;
 
-	strcpy(m_pCrashInfo->crashReportFolder, "crashes");
-
-	strncpy(m_pCrashInfo->executablePath, getExecutablePath().c_str(), sizeof(m_pCrashInfo->executablePath));
-	m_pCrashInfo->executablePath[sizeof(m_pCrashInfo->executablePath)-1] = 0; // Make sure our string is null terminated
-
-	strncpy(m_pCrashInfo->executableVersion, arx_version.c_str(), sizeof(m_pCrashInfo->executableVersion));
-	m_pCrashInfo->executableVersion[sizeof(m_pCrashInfo->executableVersion)-1] = 0; // Make sure our string is null terminated
+	util::storeStringTerminated(m_pCrashInfo->crashReportFolder, "crashes");
+	
+	std::string exe = platform::getExecutablePath().string();
+	util::storeStringTerminated(m_pCrashInfo->executablePath, exe);
+	util::storeStringTerminated(m_pCrashInfo->executableVersion, arx_name + " " + arx_version);
+	
+	m_pCrashInfo->window = 0;
+	
+	m_pCrashInfo->title[0] = '\0';
+	
+	m_pCrashInfo->description[0] = '\0';
+	
+	m_pCrashInfo->crashId = 0;
+	
+	m_pCrashInfo->signal = 0;
+	m_pCrashInfo->code = 0;
+	
+	m_pCrashInfo->hasAddress = false;
+	m_pCrashInfo->address = 0;
+	m_pCrashInfo->hasMemory = false;
+	m_pCrashInfo->memory = 0;
+	m_pCrashInfo->hasStack = false;
+	m_pCrashInfo->stack = 0;
+	m_pCrashInfo->hasFrame = false;
+	m_pCrashInfo->frame = 0;
+	
+	m_pCrashInfo->processorProcessId = 0;
 	
 }
 
-bool CrashHandlerImpl::addAttachedFile(const fs::path& file) {
+bool CrashHandlerImpl::addAttachedFile(const fs::path & file) {
+	
+	if(file.is_relative()) {
+		fs::path absolute = fs::current_path() / file;
+		if(absolute.is_relative()) {
+			return false;
+		}
+		return addAttachedFile(absolute);
+	}
+	
 	Autolock autoLock(&m_Lock);
 
 	if(m_pCrashInfo->nbFilesAttached == CrashInfo::MaxNbFiles) {
@@ -147,20 +172,20 @@ bool CrashHandlerImpl::addAttachedFile(const fs::path& file) {
 		return false;
 	}
 
-	for(int i = 0; i < m_pCrashInfo->nbFilesAttached; i++) {
+	for(u32 i = 0; i < m_pCrashInfo->nbFilesAttached; i++) {
 		if(strcmp(m_pCrashInfo->attachedFiles[i], file.string().c_str()) == 0) {
 			LogWarning << "File \"" << file << "\" is already attached.";
 			return false;
 		}
 	}
-
-	strcpy(m_pCrashInfo->attachedFiles[m_pCrashInfo->nbFilesAttached], file.string().c_str());
+	
+	util::storeStringTerminated(m_pCrashInfo->attachedFiles[m_pCrashInfo->nbFilesAttached], file.string());
 	m_pCrashInfo->nbFilesAttached++;
 
 	return true;
 }
 
-bool CrashHandlerImpl::setNamedVariable(const std::string& name, const std::string& value) {
+bool CrashHandlerImpl::setVariable(const std::string & name, const std::string & value) {
 	Autolock autoLock(&m_Lock);
 
 	if(name.size() >= CrashInfo::MaxVariableNameLen) {
@@ -174,9 +199,9 @@ bool CrashHandlerImpl::setNamedVariable(const std::string& name, const std::stri
 	}
 
 	// Check if our array already contains this variable.
-	for(int i = 0; i < m_pCrashInfo->nbVariables; i++) {
+	for(u32 i = 0; i < m_pCrashInfo->nbVariables; i++) {
 		if(strcmp(m_pCrashInfo->variables[i].name, name.c_str()) == 0) {
-			strcpy(m_pCrashInfo->variables[i].value, value.c_str());
+			util::storeStringTerminated(m_pCrashInfo->variables[i].value, value);
 			return true;
 		}
 	}
@@ -187,61 +212,97 @@ bool CrashHandlerImpl::setNamedVariable(const std::string& name, const std::stri
 		return false;
 	}
 
-	strcpy(m_pCrashInfo->variables[m_pCrashInfo->nbVariables].name, name.c_str());
-	strcpy(m_pCrashInfo->variables[m_pCrashInfo->nbVariables].value, value.c_str());
+	util::storeStringTerminated(m_pCrashInfo->variables[m_pCrashInfo->nbVariables].name, name);
+	util::storeStringTerminated(m_pCrashInfo->variables[m_pCrashInfo->nbVariables].value, value);
 	m_pCrashInfo->nbVariables++;
 
 	return true;
 }
 
-bool CrashHandlerImpl::setReportLocation(const fs::path& location) {
+void CrashHandlerImpl::setWindow(u64 window) {
+	Autolock autoLock(&m_Lock);
+	
+	m_pCrashInfo->window = window;
+}
+
+bool CrashHandlerImpl::addText(const char * text) {
+	
+	Autolock autoLock(&m_Lock);
+	
+	if(!m_pCrashInfo) {
+		return false;
+	}
+	
+	size_t length = std::strlen(text);
+	size_t remaining = boost::size(m_pCrashInfo->description) - m_textLength - 1;
+	
+	size_t n = std::min(length, remaining);
+	std::memcpy(&m_pCrashInfo->description[m_textLength], text, n);
+	m_textLength += n;
+	
+	m_pCrashInfo->description[m_textLength] = '\0';
+	
+	return n == length;
+}
+
+bool CrashHandlerImpl::setReportLocation(const fs::path & location) {
+	
+	if(location.is_relative()) {
+		fs::path absolute = fs::current_path() / location;
+		if(absolute.is_relative()) {
+			return false;
+		}
+		return setReportLocation(absolute);
+	}
+	
 	Autolock autoLock(&m_Lock);
 
 	if(location.string().size() >= CrashInfo::MaxFilenameLen) {
 		LogError << "Report location path is too long.";
 		return false;
 	}
-
-	strcpy(m_pCrashInfo->crashReportFolder, location.string().c_str());
-
+	
+	fs::create_directories(location);
+	
+	util::storeStringTerminated(m_pCrashInfo->crashReportFolder, location.string());
+	
 	return true;
 }
 
-bool CrashHandlerImpl::deleteOldReports(size_t nbReportsToKeep)
-{
+bool CrashHandlerImpl::deleteOldReports(size_t nbReportsToKeep) {
+	
 	Autolock autoLock(&m_Lock);
-
-    if(strlen(m_pCrashInfo->crashReportFolder) == 0) {
+	
+	if(strlen(m_pCrashInfo->crashReportFolder) == 0) {
 		LogError << "Report location has not been specified";
 		return false;
 	}
 	
 	// Exit if there is no crash report folder yet...
 	fs::path location(m_pCrashInfo->crashReportFolder);
-	if(!fs::is_directory(location))
+	if(!fs::is_directory(location)) {
 		return true;
-
-	typedef std::map<std::string, fs::path> CrashReportMap;
+	}
+	
+	typedef std::multimap<std::time_t, fs::path> CrashReportMap;
 	CrashReportMap oldCrashes;
-
+	
 	for(fs::directory_iterator it(location); !it.end(); ++it) {
-		fs::path folderPath = location / it.name();
-		if(fs::is_directory(folderPath)) {
-			// Ensure this directory really contains a crash report...
-			fs::path crashManifestPath = folderPath / "crash.xml";
-			if(fs::is_regular_file(crashManifestPath)) {
-				oldCrashes[it.name()] = folderPath;
-			}
+		fs::path path = location / it.name();
+		if(fs::is_directory(path)) {
+			oldCrashes.insert(CrashReportMap::value_type(fs::last_write_time(path), path));
+		} else {
+			fs::remove(path);
 		}
 	}
-
+	
 	// Nothing to delete
-	if(nbReportsToKeep >= oldCrashes.size())
+	if(nbReportsToKeep >= oldCrashes.size()) {
 		return true;
-
-	int nbReportsToDelete = oldCrashes.size() - nbReportsToKeep; 
-
-	// std::map will return the oldest reports first as folders are named "yyyy.MM.dd hh.mm.ss"
+	}
+	
+	int nbReportsToDelete = oldCrashes.size() - nbReportsToKeep;
+	
 	CrashReportMap::const_iterator it = oldCrashes.begin();
 	for(int i = 0; i < nbReportsToDelete; ++i, ++it) {
 		fs::remove_all(it->second);

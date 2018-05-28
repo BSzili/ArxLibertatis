@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -45,6 +45,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <cstdio>
 #include <cstring>
+#include <sstream>
+#include <iomanip>
 
 #include <boost/foreach.hpp>
 
@@ -58,15 +60,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/particle/ParticleParams.h"
 #include "graphics/particle/Particle.h"
 
-#include "scene/Light.h"
+#include "math/Random.h"
+#include "math/RandomVector.h"
 
-using std::list;
-
-void ParticleSystem::RecomputeDirection() {
-	Vec3f eVect = p3ParticleDirection;
-	eVect.y = -eVect.y;
-	GenerateMatrixUsingVector(&eMat, &eVect, 0);
-}
 
 ParticleSystem::ParticleSystem() {
 	
@@ -75,66 +71,45 @@ ParticleSystem::ParticleSystem() {
 		tex_tab[i] = NULL;
 	}
 	
-	lLightId = -1;
+	m_parameters.m_nbMax = 50;
 	
-	iParticleNbMax = 50;
-	
-	ulTime = 0;
-	ulNbParticleGen = 10;
 	iParticleNbAlive = 0;
 	iNbTex = 0;
 	iTexTime = 500;
-	fParticleRotation = 0;
+	bTexLoop = true;
+	m_parameters.m_rotation = 0;
 	
-	fParticleFreq = -1;
-	iSrcBlend = Renderer::BlendOne;
-	iDstBlend = Renderer::BlendOne;
-	ulParticleSpawn = 0;
+	m_parameters.m_freq = -1;
+	m_parameters.m_spawnFlags = 0;
 	
 	// default settings for EDITOR MODE only
-	Vec3f eVect = p3ParticleDirection = -Vec3f::Y_AXIS;
+	Vec3f eVect = m_parameters.m_direction = -Vec3f_Y_AXIS;
 	eVect.y = -eVect.y;
-	GenerateMatrixUsingVector(&eMat, &eVect, 0);
+	GenerateMatrixUsingVector(eMat, eVect, 0);
 	
-	fParticleStartSize = 1;
-	fParticleEndSize = 1;
-	fParticleStartColor[0] = 0.1f;
-	fParticleStartColor[1] = 0.1f;
-	fParticleStartColor[2] = 0.1f;
-	fParticleStartColor[3] = 0.1f;
-	fParticleEndColor[0] = 0.1f;
-	fParticleEndColor[1] = 0.1f;
-	fParticleEndColor[2] = 0.1f;
-	fParticleEndColor[3] = 0.1f;
-	fParticleSpeed = 10;
-	fParticleLife = 1000;
-	p3ParticlePos = Vec3f::ZERO;
-	bParticleFollow = true;
-	fParticleFlash = 0;
-	fParticleRotation = 0;
-	bParticleRotationRandomDirection = false;
-	bParticleRotationRandomStart = false;
-	p3ParticleGravity = Vec3f::ZERO;
-	fParticleLifeRandom = 1000;
-	fParticleAngle = 0;
-	fParticleSpeedRandom = 10;
+	m_parameters.m_startSegment.m_size = 1;
+	m_parameters.m_endSegment.m_size = 1;
+	m_parameters.m_startSegment.m_color = Color4f(0.1f, 0.1f, 0.1f, 0.1f);
+	m_parameters.m_endSegment.m_color = Color4f(0.1f, 0.1f, 0.1f, 0.1f);
+	m_parameters.m_speed = 10;
+	m_parameters.m_life = 1000;
+	m_parameters.m_pos = Vec3f_ZERO;
+	m_parameters.m_flash = 0;
+	m_parameters.m_rotation = 0;
+	m_parameters.m_rotationRandomDirection = false;
+	m_parameters.m_rotationRandomStart = false;
+	m_parameters.m_gravity = Vec3f_ZERO;
+	m_parameters.m_lifeRandom = 1000;
+	m_parameters.m_angle = 0;
+	m_parameters.m_speedRandom = 10;
 
-	bParticleStartColorRandomLock = false;
-	fParticleStartSizeRandom = 1;
-	fParticleStartColorRandom[0] = 0.1f;
-	fParticleStartColorRandom[1] = 0.1f;
-	fParticleStartColorRandom[2] = 0.1f;
-	fParticleStartColorRandom[3] = 0.1f;
+	m_parameters.m_startSegment.m_sizeRandom = 1;
+	m_parameters.m_startSegment.m_colorRandom = Color4f(0.1f, 0.1f, 0.1f, 0.1f);
 
-	bParticleEndColorRandomLock = false;
-	fParticleEndSizeRandom = 1;
-	fParticleEndColorRandom[0] = 0.1f;
-	fParticleEndColorRandom[1] = 0.1f;
-	fParticleEndColorRandom[2] = 0.1f;
-	fParticleEndColorRandom[3] = 0.1f;
+	m_parameters.m_endSegment.m_sizeRandom = 1;
+	m_parameters.m_endSegment.m_colorRandom = Color4f(0.1f, 0.1f, 0.1f, 0.1f);
 
-	iSrcBlend = Renderer::BlendOne;
-	iDstBlend = Renderer::BlendOne;
+	m_parameters.m_blendMode = RenderMaterial::Additive;
 }
 
 ParticleSystem::~ParticleSystem() {
@@ -146,400 +121,226 @@ ParticleSystem::~ParticleSystem() {
 	listParticle.clear();
 }
 
-void ParticleSystem::SetPos(const Vec3f & _p3) {
+void ParticleSystem::SetPos(const Vec3f & pos) {
 	
-	p3Pos = _p3;
-	if(lLightId != -1) {
-		DynLight[lLightId].pos = p3Pos;
-	}
-}
-
-void ParticleSystem::SetColor(float _fR, float _fG, float _fB) {
-	if(lLightId != -1) {
-		DynLight[lLightId].rgb = Color3f(_fR, _fG, _fB);
-	}
+	m_nextPosition = pos;
 }
 
 void ParticleSystem::SetParams(const ParticleParams & _pp) {
 	
-	iParticleNbMax		= _pp.iNbMax;
-	fParticleLife		= _pp.fLife;
-	fParticleLifeRandom = _pp.fLifeRandom;
+	m_parameters = _pp;
 	
-	p3ParticlePos = _pp.p3Pos;
-	p3ParticleDirection = _pp.p3Direction * 0.1f;
-	fParticleAngle = _pp.fAngle;
-	fParticleSpeed = _pp.fSpeed;
-	fParticleSpeedRandom = _pp.fSpeedRandom;
-	p3ParticleGravity = _pp.p3Gravity;
+	m_parameters.m_direction = glm::normalize(m_parameters.m_direction);
+	Vec3f eVect(m_parameters.m_direction.x, -m_parameters.m_direction.y, m_parameters.m_direction.z);
+	GenerateMatrixUsingVector(eMat, eVect, 0);
 	
-	fParticleFlash = _pp.fFlash * ( 1.0f / 100 );
-	
-	if (_pp.fRotation >= 2)
 	{
-		fParticleRotation = 1.0f / (101 - _pp.fRotation);
-	}
-	else
-	{
-		fParticleRotation = 0.0f;
-	}
-
-	bParticleRotationRandomDirection = _pp.bRotationRandomDirection;
-	bParticleRotationRandomStart = _pp.bRotationRandomStart;
-
-	fParticleStartSize = _pp.fStartSize;
-	fParticleStartSizeRandom = _pp.fStartSizeRandom;
-
-	for (int i = 0; i < 4; i++)
-	{
-		fParticleStartColor[i] = _pp.fStartColor[i] / 255.0f;
-		fParticleStartColorRandom[i] = _pp.fStartColorRandom[i] / 255.0f;
-	}
-
-	bParticleStartColorRandomLock = _pp.bStartLock;
-
-	fParticleEndSize = _pp.fEndSize;
-	fParticleEndSizeRandom = _pp.fEndSizeRandom;
-
-	for (int i = 0; i < 4; i++)
-	{
-		fParticleEndColor[i] = _pp.fEndColor[i] / 255.0f;
-		fParticleEndColorRandom[i] = _pp.fEndColorRandom[i] / 255.0f;
-	}
-
-	bParticleEndColorRandomLock = _pp.bEndLock;
-
-	p3ParticleDirection.normalize();
-	Vec3f eVect(p3ParticleDirection.x, -p3ParticleDirection.y, p3ParticleDirection.z);
-	GenerateMatrixUsingVector(&eMat, &eVect, 0);
-
-	float r = (fParticleStartColor[0]  + fParticleEndColor[0] ) * 0.5f;
-	float g = (fParticleStartColor[1]  + fParticleEndColor[1] ) * 0.5f;
-	float b = (fParticleStartColor[2]  + fParticleEndColor[2] ) * 0.5f;
-	SetColor(r, g, b);
-
-	switch (_pp.iBlendMode)
-	{
-		case 0:
-			iSrcBlend = Renderer::BlendOne;
-			iDstBlend = Renderer::BlendOne;
-			break;
-		case 1:
-			iSrcBlend = Renderer::BlendZero;
-			iDstBlend = Renderer::BlendInvSrcColor;
-			break;
-		case 2:
-			iSrcBlend = Renderer::BlendSrcColor;
-			iDstBlend = Renderer::BlendDstColor;
-			break;
-		case 3:
-			iSrcBlend = Renderer::BlendSrcAlpha;
-			iDstBlend = Renderer::BlendOne;
-			break;
-		case 5:
-			iSrcBlend = Renderer::BlendInvDstColor;
-			iDstBlend = Renderer::BlendOne;
-			break;
-		default:
-			iSrcBlend = Renderer::BlendOne;
-			iDstBlend = Renderer::BlendOne;
-			break;
-
-	}
-
-	if (_pp.bTexInfo)
-	{
-		SetTexture(_pp.lpszTexName, _pp.iTexNb, _pp.iTexTime, _pp.bTexLoop);
+		ParticleParams::TextureInfo & texInfo = m_parameters.m_texture;
+		SetTexture(texInfo.m_texName, texInfo.m_texNb, texInfo.m_texTime);
 	}
 }
 
-//-----------------------------------------------------------------------------
-void ParticleSystem::SetTexture(const char * _pszTex, int _iNbTex, int _iTime, bool _bLoop)
-{
-	if (_iNbTex == 0)
-	{
+void ParticleSystem::SetTexture(const char * _pszTex, int _iNbTex, int _iTime) {
+
+	if(_iNbTex == 0) {
 		tex_tab[0] = TextureContainer::Load(_pszTex);
 		iNbTex = 0;
-	}
-	else
-	{
-		_iNbTex = min(_iNbTex, 20);
-		char cBuf[256];
-
-		for (int i = 0; i < _iNbTex; i++)
-		{
-			memset(cBuf, 0, 256);
-			sprintf(cBuf, "%s_%04d", _pszTex, i + 1);
-			tex_tab[i] = TextureContainer::Load(cBuf);
+	} else {
+		
+		_iNbTex = std::min(_iNbTex, 20);
+		
+		std::ostringstream oss;
+		for(int i = 0; i < _iNbTex; i++) {
+			oss.str(std::string());
+			oss << _pszTex << std::setfill('0') << std::setw(4) << (i + 1);
+			tex_tab[i] = TextureContainer::Load(oss.str());
 		}
-
+		
 		iNbTex = _iNbTex;
 		iTexTime = _iTime;
-		bTexLoop = _bLoop;
+		bTexLoop = true;
+		
 	}
+	
 }
 
-void ParticleSystem::SpawnParticle(Particle * pP) {
+void ParticleSystem::SetParticleParams(Particle * pP) {
+
+	pP->p3Pos = Vec3f_ZERO;
 	
-	pP->p3Pos = Vec3f::ZERO;
-	
-	if((ulParticleSpawn & PARTICLE_CIRCULAR) == PARTICLE_CIRCULAR
-	   && (ulParticleSpawn & PARTICLE_BORDER) == PARTICLE_BORDER) {
-		float randd = rnd() * 360.f;
-		pP->p3Pos.x = EEsin(randd) * p3ParticlePos.x;
-		pP->p3Pos.y = rnd() * p3ParticlePos.y;
-		pP->p3Pos.z = EEcos(randd) * p3ParticlePos.z;
-	} else if((ulParticleSpawn & PARTICLE_CIRCULAR) == PARTICLE_CIRCULAR) {
-		float randd = rnd() * 360.f;
-		pP->p3Pos.x = EEsin(randd) * rnd() * p3ParticlePos.x;
-		pP->p3Pos.y = rnd() * p3ParticlePos.y;
-		pP->p3Pos.z = EEcos(randd) * rnd() * p3ParticlePos.z;
+	if((m_parameters.m_spawnFlags & PARTICLE_CIRCULAR) == PARTICLE_CIRCULAR) {
+		
+		Vec2f pos = arx::circularRand(1.f);
+		pP->p3Pos.x = pos.x;
+		pP->p3Pos.z = pos.y;
+		
+		pP->p3Pos.y = Random::getf();
+		
+		if((m_parameters.m_spawnFlags & PARTICLE_BORDER) != PARTICLE_BORDER) {
+			pP->p3Pos *= Vec3f(Random::getf(), 1.f, Random::getf());
+		}
 	} else {
-		pP->p3Pos = p3ParticlePos * randomVec(-1.f, 1.f);
+		pP->p3Pos = arx::randomVec(-1.f, 1.f);
 	}
 	
-	if(bParticleFollow == false) {
-		pP->p3Pos = p3Pos;
-	}
-}
-
-void VectorRotateY(Vec3f & _eIn, Vec3f & _eOut, float _fAngle) {
-	float c = EEcos(_fAngle);
-	float s = EEsin(_fAngle);
-	_eOut.x = (_eIn.x * c) + (_eIn.z * s);
-	_eOut.y =  _eIn.y;
-	_eOut.z = (_eIn.z * c) - (_eIn.x * s);
-}
-
-void VectorRotateZ(Vec3f & _eIn, Vec3f & _eOut, float _fAngle) {
-	float c = EEcos(_fAngle);
-	float s = EEsin(_fAngle);
-	_eOut.x = (_eIn.x * c) + (_eIn.y * s);
-	_eOut.y = (_eIn.y * c) - (_eIn.x * s);
-	_eOut.z =  _eIn.z;
-}
-
-//-----------------------------------------------------------------------------
-void ParticleSystem::SetParticleParams(Particle * pP)
-{
-	SpawnParticle(pP);
-
-	float fTTL = fParticleLife + rnd() * fParticleLifeRandom;
-	pP->ulTTL = checked_range_cast<long>(fTTL);
-	pP->fOneOnTTL = 1.0f / (float)pP->ulTTL;
-
-	float fAngleX = rnd() * fParticleAngle; //*0.5f;
- 
+	pP->p3Pos *= m_parameters.m_pos;
+	
+	float fTTL = m_parameters.m_life + Random::getf() * m_parameters.m_lifeRandom;
+	pP->m_timeToLive = GameDurationMsf(fTTL);
+	
+	float fAngleX = Random::getf() * m_parameters.m_angle; //*0.5f;
+	
 	Vec3f vv1, vvz;
-	vv1 = p3ParticleDirection;
 	
 	// ici modifs ----------------------------------
 	
-	vv1 = -Vec3f::Y_AXIS;
+	vv1 = -Vec3f_Y_AXIS;
 	
-	VectorRotateZ(vv1, vvz, fAngleX); 
-	VectorRotateY(vvz, vv1, radians(rnd() * 360.0f));
-	VectorMatrixMultiply(&vvz, &vv1, &eMat);
+	vvz = VRotateZ(vv1, glm::degrees(fAngleX));
+	vv1 = VRotateY(vvz, Random::getf(0.f, 360.0f));
+	
+	vvz = Vec3f(eMat * Vec4f(vv1, 1.f));
 
-	float fSpeed = fParticleSpeed + rnd() * fParticleSpeedRandom;
+	float fSpeed = m_parameters.m_speed + Random::getf() * m_parameters.m_speedRandom;
 
 	pP->p3Velocity = vvz * fSpeed;
-	pP->fSizeStart = fParticleStartSize + rnd() * fParticleStartSizeRandom;
+	pP->fSizeStart = m_parameters.m_startSegment.m_size + Random::getf() * m_parameters.m_startSegment.m_sizeRandom;
 
-	if (bParticleStartColorRandomLock)
 	{
-		float t = rnd() * fParticleStartColorRandom[0];
-		pP->fColorStart[0] = fParticleStartColor[0] + t;
-		pP->fColorStart[1] = fParticleStartColor[1] + t;
-		pP->fColorStart[2] = fParticleStartColor[2] + t;
-	}
-	else
-	{
-		pP->fColorStart[0] = fParticleStartColor[0] + rnd() * fParticleStartColorRandom[0];
-		pP->fColorStart[1] = fParticleStartColor[1] + rnd() * fParticleStartColorRandom[1];
-		pP->fColorStart[2] = fParticleStartColor[2] + rnd() * fParticleStartColorRandom[2];
+	Color4f rndColor = Color4f(Random::getf(), Random::getf(), Random::getf(), Random::getf());
+	pP->fColorStart = m_parameters.m_startSegment.m_color + rndColor * m_parameters.m_startSegment.m_colorRandom;
 	}
 
-	pP->fColorStart[3] = fParticleStartColor[3] + rnd() * fParticleStartColorRandom[3];
+	pP->fSizeEnd = m_parameters.m_endSegment.m_size + Random::getf() * m_parameters.m_endSegment.m_sizeRandom;
 
-	pP->fSizeEnd = fParticleEndSize + rnd() * fParticleEndSizeRandom;
-
-	if (bParticleEndColorRandomLock)
 	{
-		float t = rnd() * fParticleEndColorRandom[0];
-		pP->fColorEnd[0] = fParticleEndColor[0] + t;
-		pP->fColorEnd[1] = fParticleEndColor[1] + t;
-		pP->fColorEnd[2] = fParticleEndColor[2] + t;
+	Color4f rndColor = Color4f(Random::getf(), Random::getf(), Random::getf(), Random::getf());
+	pP->fColorEnd = m_parameters.m_endSegment.m_color + rndColor * m_parameters.m_endSegment.m_colorRandom;
 	}
-	else
-	{
-		pP->fColorEnd[0] = fParticleEndColor[0] + rnd() * fParticleEndColorRandom[0];
-		pP->fColorEnd[1] = fParticleEndColor[1] + rnd() * fParticleEndColorRandom[1];
-		pP->fColorEnd[2] = fParticleEndColor[2] + rnd() * fParticleEndColorRandom[2];
-	}
+	
+	if(m_parameters.m_rotationRandomDirection) {
+		pP->iRot = Random::get(-1, 1);
 
-	pP->fColorEnd[3] = fParticleEndColor[3] + rnd() * fParticleEndColorRandom[3];
-
-	if (bParticleRotationRandomDirection)
-	{
-
-
-		float fRandom	= frand2();
-
-		pP->iRot = checked_range_cast<int>(fRandom);
-
-		if (pP->iRot < 0)
+		if(pP->iRot < 0)
 			pP->iRot = -1;
 
-		if (pP->iRot >= 0)
+		if(pP->iRot >= 0)
 			pP->iRot = 1;
-	}
-	else
-	{
+	} else {
 		pP->iRot = 1;
 	}
 
-	if (bParticleRotationRandomStart)
-	{
-		pP->fRotStart = rnd() * 360.0f;
-	}
-	else
-	{
+	if(m_parameters.m_rotationRandomStart) {
+		pP->fRotStart = Random::getf(0.f, 360.0f);
+	} else {
 		pP->fRotStart = 0;
 	}
 }
 
-//-----------------------------------------------------------------------------
-bool ParticleSystem::IsAlive()
-{
-	if ((iParticleNbAlive == 0) && (iParticleNbMax == 0))
-		return false;
 
-	return true;
+void ParticleSystem::StopEmission() {
+	m_parameters.m_nbMax = 0;
 }
 
-//-----------------------------------------------------------------------------
-void ParticleSystem::Update(long _lTime)
-{
-	if (arxtime.is_paused()) return;
+bool ParticleSystem::IsAlive() {
+	return (iParticleNbAlive != 0 || m_parameters.m_nbMax != 0);
+}
 
-	ulTime += _lTime;
-	int nbtotal = 0;
-	int iNb;
-	float fTimeSec = _lTime * ( 1.0f / 1000 );
-	Particle * pP;
-
-	list<Particle *>::iterator i;
+void ParticleSystem::Update(GameDuration delta) {
+	
+	if(g_gameTime.isPaused()) {
+		return;
+	}
+	
+	float fTimeSec = delta / GameDurationMs(1000);
+	
 	iParticleNbAlive = 0;
-
-	i = listParticle.begin();
-
-	while (i != listParticle.end())
-	{
-		pP = *i;
-		++i;
-		nbtotal++;
-
-		if (pP->isAlive())
-		{
-			pP->Update(_lTime);
-			pP->p3Velocity += p3ParticleGravity * fTimeSec;
-			iParticleNbAlive ++;
-		}
-		else
-		{
-			if (iParticleNbAlive >= iParticleNbMax)
-			{
+	
+	std::list<Particle *>::iterator i;
+	for(i = listParticle.begin(); i != listParticle.end(); ) {
+		Particle * pP = *i;
+		
+		if(pP->isAlive()) {
+			pP->Update(delta);
+			pP->p3Velocity += m_parameters.m_gravity * fTimeSec;
+			iParticleNbAlive++;
+			++i;
+		} else {
+			if(iParticleNbAlive >= m_parameters.m_nbMax) {
 				delete pP;
-				listParticle.remove(pP);
-			}
-			else
-			{
+				i = listParticle.erase(i);
+			} else {
 				pP->Regen();
 				SetParticleParams(pP);
 				pP->Validate();
 				pP->Update(0);
-				ulNbParticleGen++;
 				iParticleNbAlive++;
+				++i;
 			}
 		}
 	}
 
 	// création de particules en fct de la fréquence
-	if (iParticleNbAlive < iParticleNbMax)
-	{
-		long t = iParticleNbMax - iParticleNbAlive;
-
-		if (fParticleFreq != -1) {
-			t = max(min(checked_range_cast<long>(fTimeSec * fParticleFreq), t), 1l);
+	if(iParticleNbAlive < m_parameters.m_nbMax) {
+		size_t t = m_parameters.m_nbMax - iParticleNbAlive;
+		
+		if(m_parameters.m_freq != -1.f) {
+			t = std::min(size_t(m_storedTime.update(fTimeSec * m_parameters.m_freq)), t);
 		}
-
-		for (iNb = 0; iNb < t; iNb++)
-		{
+		
+		for(size_t iNb = 0; iNb < t; iNb++) {
 			Particle * pP  = new Particle();
 			SetParticleParams(pP);
 			pP->Validate();
 			pP->Update(0);
 			listParticle.insert(listParticle.end(), pP);
-			ulNbParticleGen ++;
 			iParticleNbAlive++;
 		}
 	}
+	
+	if(!m_parameters.m_looping) {
+		StopEmission();
+	}
 }
 
-//-----------------------------------------------------------------------------
 void ParticleSystem::Render() {
 	
-	GRenderer->SetCulling(Renderer::CullNone);
-	GRenderer->SetRenderState(Renderer::DepthWrite, false);
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-	GRenderer->SetBlendFunc(iSrcBlend, iDstBlend);
+	RenderMaterial mat;
+	mat.setBlendType(m_parameters.m_blendMode);
+	mat.setDepthTest(true);
 
 	int inumtex = 0;
 
-	list<Particle *>::iterator i;
+	std::list<Particle *>::iterator i;
 
-	for (i = listParticle.begin(); i != listParticle.end(); ++i)
-	{
+	for(i = listParticle.begin(); i != listParticle.end(); ++i) {
 		Particle * p = *i;
 
-		if (p->isAlive())
-		{
-			if (fParticleFlash > 0)
-			{
-				if (rnd() < fParticleFlash)
+		if(p->isAlive()) {
+			if(m_parameters.m_flash > 0) {
+				if(Random::getf() < m_parameters.m_flash)
 					continue;
 			}
 
-			if (iNbTex > 0)
-			{
+			if(iNbTex > 0) {
 				inumtex = p->iTexNum;
 
-				if (iTexTime == 0)
-				{
-
-					float fNbTex	= (p->ulTime * p->fOneOnTTL) * (iNbTex);
+				if(iTexTime == 0) {
+					float fNbTex = (p->m_age / p->m_timeToLive) * (iNbTex);
 
 					inumtex = checked_range_cast<int>(fNbTex);
 					if(inumtex >= iNbTex) {
 						inumtex = iNbTex - 1;
 					}
-				}
-				else
-				{
-					if (p->iTexTime > iTexTime)
-					{
+				} else {
+					if(p->iTexTime > iTexTime) {
 						p->iTexTime -= iTexTime;
 						p->iTexNum++;
 
-						if (p->iTexNum > iNbTex - 1)
-						{
-							if (bTexLoop)
-							{
+						if(p->iTexNum > iNbTex - 1) {
+							if(bTexLoop) {
 								p->iTexNum = 0;
-							}
-							else
-							{
+							} else {
 								p->iTexNum = iNbTex - 1;
 							}
 						}
@@ -549,27 +350,26 @@ void ParticleSystem::Render() {
 				}
 			}
 			
-			TexturedVertex p3pos;
-			p3pos.p = p->p3Pos;
-			if(bParticleFollow) {
-				p3pos.p += p3Pos;
-			}
+			Vec3f p3pos;
+			p3pos = p->p3Pos;
+			p3pos += m_nextPosition;
 			
-			if (fParticleRotation != 0)
-			{
+			mat.setTexture(tex_tab[inumtex]);
+			
+			if(m_parameters.m_rotation != 0) {
 				float fRot;
-				if (p->iRot == 1)
-					fRot = (fParticleRotation) * p->ulTime + p->fRotStart;
+				if(p->iRot == 1)
+					fRot = (m_parameters.m_rotation) * toMsf(p->m_age) + p->fRotStart;
 				else
-					fRot = (-fParticleRotation) * p->ulTime + p->fRotStart;
+					fRot = (-m_parameters.m_rotation) * toMsf(p->m_age) + p->fRotStart;
 
-				if (tex_tab[inumtex])
-					EERIEDrawRotatedSprite(&p3pos, p->fSize, tex_tab[inumtex], p->ulColor, 2, fRot);
-			}
-			else
-			{
-				if (tex_tab[inumtex])
-					EERIEDrawSprite(&p3pos, p->fSize, tex_tab[inumtex], p->ulColor, 2);
+				float size = std::max(p->fSize, 0.f);
+				
+				if(tex_tab[inumtex])
+					EERIEAddSprite(mat, p3pos, size, p->ulColor, 2, fRot);
+			} else {
+				if(tex_tab[inumtex])
+					EERIEAddSprite(mat, p3pos, p->fSize, p->ulColor, 2);
 			}
 		}
 	}

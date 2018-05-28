@@ -53,7 +53,7 @@ public:
 	enum Cmd {insert, remove, replace};
 	
 	CharCommand(XByteArray * xData, Cmd cmd, int charPos, char newChar,
-	            QUndoCommand * parent=0);
+	            QUndoCommand * parent = 0);
 	
 	void undo();
 	void redo();
@@ -68,6 +68,7 @@ private:
 	char _newChar;
 	char _oldChar;
 	Cmd _cmd;
+	
 };
 
 /*!
@@ -93,6 +94,7 @@ private:
 	QByteArray _wasChanged;
 	QByteArray _newBa;
 	QByteArray _oldBa;
+	
 };
 
 //! \endcond docNever

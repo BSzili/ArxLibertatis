@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,6 +20,8 @@
 #ifndef ARX_AUDIO_AUDIOBACKEND_H
 #define ARX_AUDIO_AUDIOBACKEND_H
 
+#include <vector>
+
 #include "audio/AudioTypes.h"
 
 namespace audio {
@@ -38,22 +40,19 @@ public:
 	
 	virtual ~Backend() { }
 	
-	/*!
-	 * Calculate updated positional data if that has not been done already.
-	 */
-	virtual aalError updateDeferred() = 0;
+	virtual std::vector<std::string> getDevices() = 0;
 	
 	/*!
 	 * Create a new source for the given sample and channel properties.
 	 * The source is managed by the backend and should not be deleted directly.
 	 * Use deleteSource to remove sources.
-	 * @param sampleId The sample to be played by the new source.
+	 * \param sampleId The sample to be played by the new source.
 	 */
 	virtual Source * createSource(SampleId sampleId, const Channel & channel) = 0;
 	
 	/*!
 	 * Get the source for the given id.
-	 * @return the source for the given id or NULL if it doesn't exist.
+	 * \return the source for the given id or NULL if it doesn't exist.
 	 */
 	virtual Source * getSource(SourceId sourceId) = 0;
 	
@@ -63,8 +62,24 @@ public:
 	virtual aalError setReverbEnabled(bool enable) = 0;
 	
 	/*!
+	 * Check if the backend supports reverb.
+	 * \return true if \ref setReverbEnabled will always fail.
+	 */
+	virtual bool isReverbSupported() = 0;
+	
+	/*!
+	 * Enable or disable HRTF filter.
+	 */
+	virtual aalError setHRTFEnabled(HRTFAttribute enable) = 0;
+	
+	/*!
+	 * Check if HRTF is currently enabled.
+	 */
+	virtual HRTFStatus getHRTFStatus() = 0;
+	
+	/*!
 	 * Set a unit factor to scale all other distance or velocity parameters.
-	 * @param factor The unit factor in meters per unit.
+	 * \param factor The unit factor in meters per unit.
 	 */
 	virtual aalError setUnitFactor(float factor) = 0;
 	
@@ -74,15 +89,14 @@ public:
 	virtual aalError setListenerOrientation(const Vec3f & front, const Vec3f & up) = 0;
 	
 	virtual aalError setListenerEnvironment(const Environment & env) = 0;
-	virtual aalError setRoomRolloffFactor(float factor) = 0;
 	
 	typedef Source * const * source_iterator;
 	virtual source_iterator sourcesBegin() = 0;
 	virtual source_iterator sourcesEnd() = 0;
 	virtual source_iterator deleteSource(source_iterator it) = 0;
 	
-	static inline SampleId getSampleId(SourceId sourceId) { return sourceId & 0x0000ffff; }
-	static inline SourceId clearSource(SourceId sourceId) { return sourceId | 0xffff0000; }
+	static SampleId getSampleId(SourceId sourceId) { return sourceId & 0x0000ffff; }
+	static SourceId clearSource(SourceId sourceId) { return sourceId | 0xffff0000; }
 	
 };
 

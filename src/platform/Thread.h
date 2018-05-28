@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -21,43 +21,42 @@
 #define ARX_PLATFORM_THREAD_H
 
 #include "Configure.h"
+#include "platform/Platform.h"
 
 #include <string>
 
-#if defined(ARX_HAVE_PTHREADS)
+#if ARX_HAVE_PTHREADS
 #include <pthread.h>
 #include <sys/types.h>
 typedef pthread_t thread_id_type;
-typedef pid_t process_id_type;
-#elif defined(ARX_HAVE_WINAPI)
+#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 #include <windows.h>
 typedef DWORD thread_id_type;
-typedef DWORD process_id_type;
 #else
-#error "Threads not supported: need either ARX_HAVE_PTHREADS or ARX_HAVE_WINAPI"
+#error "Threads not supported: need ARX_HAVE_PTHREADS on non-Windows systems"
 #endif
+
+#include "core/TimeTypes.h"
 
 class Thread {
 	
-private:
+#if ARX_HAVE_PTHREADS
 	
-#if defined(ARX_HAVE_PTHREADS)
-	
-	pthread_t thread;
-	int priority;
-	bool started;
+	pthread_t m_thread;
+	int m_priority;
+	bool m_started;
 	
 	static void * entryPoint(void * param);
 	
-#elif defined(ARX_HAVE_WINAPI)
+#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 	
-	HANDLE thread;
+	HANDLE m_thread;
 
 	static DWORD WINAPI entryPoint(LPVOID param);
 	
 #endif
 	
-	std::string threadName;
+	std::string m_threadName;
 	
 public:
 	
@@ -74,66 +73,69 @@ public:
 	};
 	
 	/*!
-	 * Start the thread.
+	 * \brief Start the thread
 	 */
 	void start();
 	
 	/*!
-	 * Set the thread name (for easier debugging)
-	 * @note This should be called BEFORE starting the thread.
-	 * @param threadName The thread name.
+	 * \brief Set the thread name (for easier debugging)
+	 *
+	 * \note This should be called BEFORE starting the thread.
+	 *
+	 * \param threadName The thread name.
 	 */
 	void setThreadName(const std::string & threadName);
 
 	void setPriority(Priority priority);
 	
 	/*!
-	 * Suspend the current thread for a specific amount of time.
+	 * \brief Suspend the current thread for a specific amount of time
 	 */
-	static void sleep(unsigned milliseconds);
+	static void sleep(PlatformDuration time);
 	
 	/*!
-	 * Exit the current thread.
+	 * \brief Exit the current thread
 	 */
 	static void exit();
 	
 	/*!
-	 * Wait until the thread exists.
+	 * \brief Wait until the thread exists
 	 */
 	void waitForCompletion();
 	
 	static thread_id_type getCurrentThreadId();
 	
+	/*!
+	 * \brief Disable denormals for the current thread for faster floating point operations
+	 */
+	static void disableFloatDenormals();
+	
 protected:
 	
 	/*!
-	 * The threads main entry point, to be implemented by subclasses.
+	 * \brief The threads main entry point, to be implemented by subclasses
 	 */
 	virtual void run() = 0;
 };
 
 class StoppableThread : public Thread {
 	
-private:
-	
-	bool stopRequested;
+	volatile bool m_stopRequested;
 	
 public:
 	
-	StoppableThread() : stopRequested(false) { }
+	StoppableThread() : m_stopRequested(false) { }
 	
-	inline void stop(Priority priority = Highest) {
-		stopRequested = true;
+	void stop(Priority priority = Highest) {
+		m_stopRequested = true;
 		setPriority(priority);
 		waitForCompletion();
 	}
 	
-	inline bool isStopRequested() {
-		return stopRequested;
+	bool isStopRequested() {
+		return m_stopRequested;
 	}
 	
 };
-
-process_id_type getProcessId();
 
 #endif // ARX_PLATFORM_THREAD_H

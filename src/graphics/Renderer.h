@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,16 +20,17 @@
 #ifndef ARX_GRAPHICS_RENDERER_H
 #define ARX_GRAPHICS_RENDERER_H
 
+#include <stddef.h>
 #include <vector>
 
-#include "platform/Flags.h"
-#include "math/MathFwd.h"
 #include "graphics/Color.h"
+#include "math/Types.h"
+#include "platform/Platform.h"
+#include "util/Flags.h"
 #ifdef __amigaos4__
 #include "graphics/image/Image.h"
 #endif
 
-struct EERIEMATRIX;
 struct TexturedVertex;
 struct SMY_VERTEX;
 struct SMY_VERTEX3;
@@ -37,23 +38,230 @@ class TextureContainer;
 class TextureStage;
 class Image;
 class Texture;
-class Texture2D;
 template <class Vertex> class VertexBuffer;
+
+enum BlendingFactor {
+	BlendZero,              //!< Zero
+	BlendOne,               //!< One
+	BlendSrcColor,          //!< Source color
+	BlendSrcAlpha,          //!< Source alpha
+	BlendInvSrcColor,       //!< One minus source color
+	BlendInvSrcAlpha,       //!< One minus source alpha
+	BlendSrcAlphaSaturate,  //!< Source alpha saturate
+	BlendDstColor,          //!< Destination color
+	BlendDstAlpha,          //!< Destination alpha
+	BlendInvDstColor,       //!< One minus destination color
+	BlendInvDstAlpha        //!< One minus destination alpha
+};
+
+enum CullingMode {
+	CullNone,
+	CullCW,
+	CullCCW
+};
+
+class RenderState {
+	
+	enum Sizes {
+		CullSize = 2,
+		DepthOffsetSize = 5,
+		BlendSize = 4,
+	};
+	
+	enum Offsets {
+		Cull,
+		Fog = Cull + CullSize,
+		AlphaCutout,
+		DepthTest,
+		DepthWrite,
+		DepthOffset,
+		BlendSrc = DepthOffset + DepthOffsetSize,
+		BlendDst = BlendSrc + BlendSize,
+		End = BlendDst + BlendSize
+	};
+	
+	// We coul use bitfields here instead but they are missing (an efficient) operator==.
+	u32 m_state;
+	
+	template <size_t Offset, size_t Size>
+	u32 get() const {
+		return (m_state >> Offset) & ((u32(1) << Size) - 1);
+	}
+	
+	template <size_t Offset, size_t Size>
+	void set(u32 value) {
+		m_state = (m_state & ~(((u32(1) << Size) - 1) << Offset)) | (value << Offset);
+	}
+	
+public:
+	
+	RenderState()
+		: m_state(0)
+	{
+		ARX_STATIC_ASSERT(sizeof(m_state) * 8 >= End, "fields do not fit into m_state");
+		disableBlend();
+	}
+	
+	bool operator==(const RenderState & o) { return m_state == o.m_state; }
+	bool operator!=(const RenderState & o) { return m_state != o.m_state; }
+	
+	void setCull(CullingMode mode) {
+		arx_assert(mode >= 0 && unsigned(mode) < (1u << CullSize));
+		set<Cull, CullSize>(mode);
+	}
+	
+	RenderState cull(CullingMode mode = CullCCW) const {
+		RenderState copy = *this;
+		copy.setCull(mode);
+		return copy;
+	}
+	
+	CullingMode getCull() const {
+		return CullingMode(get<Cull, CullSize>());
+	}
+	
+	void setFog(bool enable) {
+		set<Fog, 1>(enable);
+	}
+	
+	RenderState fog(bool enable = true) const {
+		RenderState copy = *this;
+		copy.setFog(enable);
+		return copy;
+	}
+	
+	bool getFog() const {
+		return get<Fog, 1>() != 0;
+	}
+	
+	void setAlphaCutout(bool enable) {
+		set<AlphaCutout, 1>(enable);
+	}
+	
+	RenderState alphaCutout(bool enable = true) const {
+		RenderState copy = *this;
+		copy.setAlphaCutout(enable);
+		return copy;
+	}
+	
+	bool getAlphaCutout() const {
+		return get<AlphaCutout, 1>() != 0;
+	}
+	
+	void setDepthTest(bool enable) {
+		set<DepthTest, 1>(enable);
+	}
+	
+	RenderState depthTest(bool enable = true) const {
+		RenderState copy = *this;
+		copy.setDepthTest(enable);
+		return copy;
+	}
+	
+	bool getDepthTest() const {
+		return get<DepthTest, 1>() != 0;
+	}
+	
+	void setDepthWrite(bool enable) {
+		set<DepthWrite, 1>(enable);
+	}
+	
+	RenderState depthWrite(bool enable = true) const {
+		RenderState copy = *this;
+		copy.setDepthWrite(enable);
+		return copy;
+	}
+	
+	bool getDepthWrite() const {
+		return get<DepthWrite, 1>() != 0;
+	}
+	
+	void setDepthOffset(unsigned offset) {
+		arx_assert(offset < (1u << DepthOffsetSize));
+		set<DepthOffset, DepthOffsetSize>(offset);
+	}
+	
+	void disableDepthOffset() {
+		setDepthOffset(0);
+	}
+	
+	RenderState depthOffset(unsigned offset) const {
+		RenderState copy = *this;
+		copy.setDepthOffset(offset);
+		return copy;
+	}
+	
+	RenderState noDepthOffset() const {
+		RenderState copy = *this;
+		copy.disableDepthOffset();
+		return copy;
+	}
+	
+	unsigned getDepthOffset() const {
+		return get<DepthOffset, DepthOffsetSize>();
+	}
+	
+	void setBlend(BlendingFactor src, BlendingFactor dst) {
+		arx_assert(src >= 0 && unsigned(src) < (1u << BlendSize));
+		arx_assert(dst >= 0 && unsigned(dst) < (1u << BlendSize));
+		set<BlendSrc, BlendSize>(src);
+		set<BlendDst, BlendSize>(dst);
+	}
+	
+	void setBlendAdditive() {
+		setBlend(BlendSrcAlpha, BlendOne);
+	}
+	
+	void disableBlend() {
+		setBlend(BlendOne, BlendZero);
+	}
+	
+	RenderState blend(BlendingFactor src = BlendSrcAlpha,
+	                  BlendingFactor dst = BlendInvSrcAlpha) const {
+		RenderState copy = *this;
+		copy.setBlend(src, dst);
+		return copy;
+	}
+	
+	RenderState blendAdditive() const {
+		RenderState copy = *this;
+		copy.setBlendAdditive();
+		return copy;
+	}
+	
+	RenderState noBlend() const {
+		RenderState copy = *this;
+		copy.disableBlend();
+		return copy;
+	}
+	
+	BlendingFactor getBlendSrc() const {
+		return BlendingFactor(get<BlendSrc, BlendSize>());
+	}
+	
+	BlendingFactor getBlendDst() const {
+		return BlendingFactor(get<BlendDst, BlendSize>());
+	}
+	
+	bool isBlendEnabled() {
+		return getBlendSrc() != BlendOne || getBlendDst() != BlendZero;
+	}
+	
+};
 
 class Renderer {
 	
 public:
 	
-	//! Render states
-	enum RenderState {
-		AlphaBlending,
-		AlphaTest,
-		ColorKey,
-		DepthTest,
-		DepthWrite,
-		Fog,
-		Lighting,
-		ZBias
+	class Listener {
+		
+	public:
+		
+		virtual ~Listener() { }
+		
+		virtual void onRendererInit(Renderer & renderer) { ARX_UNUSED(renderer); }
+		virtual void onRendererShutdown(Renderer & renderer) { ARX_UNUSED(renderer); }
+		
 	};
 	
 	//! Pixel comparison functions
@@ -68,49 +276,17 @@ public:
 		CmpAlways               //!< Always
 	};
 	
-	//! Pixel blending factor
-	enum PixelBlendingFactor {
-		BlendZero,              //!< Zero
-		BlendOne,               //!< One
-		BlendSrcColor,          //!< Source color
-		BlendSrcAlpha,          //!< Source alpha
-		BlendInvSrcColor,       //!< Inverse source color
-		BlendInvSrcAlpha,       //!< Inverse source alpha
-		BlendSrcAlphaSaturate,  //!< Source alpha saturate
-		BlendDstColor,          //!< Destination color
-		BlendDstAlpha,          //!< Destination alpha
-		BlendInvDstColor,       //!< Inverse destination color
-		BlendInvDstAlpha        //!< Inverse destination alpha
-	};
-	
-	//! Culling 
-	enum CullingMode {
-		CullNone,
-		CullCW,
-		CullCCW
-	};
-	
 	enum FillMode {
-		FillPoint,
 		FillWireframe,
 		FillSolid
 	};
 	
-	//! Fog
-	enum FogMode {
-		FogNone,
-		FogExp,
-		FogExp2,
-		FogLinear
-	};
-	
 	//! Target surface
 	enum BufferType {
-		ColorBuffer   = (1<<0),
-		DepthBuffer   = (1<<1),
-		StencilBuffer = (1<<2)
+		ColorBuffer = 1 << 0,
+		DepthBuffer = 1 << 1
 	};
-	DECLARE_FLAGS(BufferType, BufferFlags);
+	DECLARE_FLAGS(BufferType, BufferFlags)
 	
 	enum Primitive {
 		TriangleList,
@@ -126,69 +302,84 @@ public:
 		Stream
 	};
 	
+	enum AlphaCutoutAntialising {
+		NoAlphaCutoutAA = 0,
+		FuzzyAlphaCutoutAA = 1,
+		CrispAlphaCutoutAA = 2
+	};
+	
 	Renderer();
 	virtual ~Renderer();
 	
-	virtual void Initialize() = 0;
+	/*!
+	 * Basic renderer initialization.
+	 * Renderer will not be fully initialized until calling \ref afterResize().
+	 * Does *not* notify any listeners.
+	 */
+	virtual void initialize() = 0;
 	
-	// Scene begin/end...
-	virtual void BeginScene() = 0;
-	virtual void EndScene() = 0;
+	//! * \return true if the renderer has been fully initialized and is ready for use.
+	bool isInitialized() { return m_initialized; }
+	
+	/*!
+	 * Indicate that the renderer's window will be resized and the renderer may need
+	 * to temporarily shutdown.
+	 * Will notify listeners if the renderer has been shut down.
+	 */
+	virtual void beforeResize(bool wasOrIsFullscreen) = 0;
+	
+	/*!
+	 * Indicate the renderer's window has been resized and the renderer may need to be
+	 * (re-)initialized.
+	 * Will notify listeners if the renderer wasn't already initialized.
+	 */
+	virtual void afterResize() = 0;
+	
+	void addListener(Listener * listener);
+	void removeListener(Listener * listener);
 	
 	// Matrices
-	virtual void SetViewMatrix(const EERIEMATRIX & matView) = 0;
-	void SetViewMatrix(const Vec3f & vPosition, const Vec3f & vDir, const Vec3f & vUp);
-	virtual void GetViewMatrix(EERIEMATRIX & matView) const = 0;
-	virtual void SetProjectionMatrix(const EERIEMATRIX & matProj) = 0;
-	virtual void GetProjectionMatrix(EERIEMATRIX & matProj) const = 0;
+	virtual void SetViewMatrix(const glm::mat4x4 & matView) = 0;
+	virtual void SetProjectionMatrix(const glm::mat4x4 & matProj) = 0;
 	
 	// Texture management
-	virtual void ReleaseAllTextures() {}
-	virtual void RestoreAllTextures() {}
+	virtual void ReleaseAllTextures() = 0;
+	virtual void RestoreAllTextures() = 0;
+	virtual void reloadColorKeyTextures() = 0;
 
 	// Factory
-	virtual Texture2D * CreateTexture2D() = 0;
-	
-	// Render states
-	virtual void SetRenderState(RenderState renderState, bool enable) = 0;
-	
-	// Alphablending & Transparency
-	virtual void SetAlphaFunc(PixelCompareFunc func, float fef) = 0; // Ref = [0.0f, 1.0f]
-	virtual void SetBlendFunc(PixelBlendingFactor srcFactor, PixelBlendingFactor dstFactor) = 0;
+	virtual Texture * createTexture() = 0;
 	
 	// Viewport
 	virtual void SetViewport(const Rect & viewport) = 0;
-	virtual Rect GetViewport() = 0;
 	
-	// Projection
-	virtual void Begin2DProjection(float left, float right, float bottom, float top, float zNear, float zFar) = 0;
-	virtual void End2DProjection() = 0;
+	// Scissor
+	virtual void SetScissor(const Rect & rect) = 0;
 	
 	// Render Target
 	virtual void Clear(BufferFlags bufferFlags, Color clearColor = Color::none, float clearDepth = 1.f, size_t nrects = 0, Rect * rect = 0) = 0;
 	
 	// Fog
 	virtual void SetFogColor(Color color) = 0;
-	virtual void SetFogParams(FogMode fogMode, float fogStart, float fogEnd, float fogDensity = 1.0f) = 0;
-	virtual bool isFogInEyeCoordinates() = 0;
+	virtual void SetFogParams(float fogStart, float fogEnd) = 0;
 	
 	// Rasterizer
 	virtual void SetAntialiasing(bool enable) = 0;
-	virtual void SetCulling(CullingMode mode) = 0;
-	virtual void SetDepthBias(int depthBias) = 0;
 	virtual void SetFillMode(FillMode mode) = 0;
 	
 	// Texturing
-	inline unsigned int GetTextureStageCount() const { return m_TextureStages.size(); }
-	TextureStage * GetTextureStage(unsigned int textureStage);
+	size_t getTextureStageCount() const { return m_TextureStages.size(); }
+	TextureStage * GetTextureStage(size_t textureStage);
+	const TextureStage * GetTextureStage(size_t textureStage) const;
 	void ResetTexture(unsigned int textureStage);
+	Texture * GetTexture(unsigned int textureStage) const;
 	void SetTexture(unsigned int textureStage, Texture * pTexture);
 	void SetTexture(unsigned int textureStage, TextureContainer * pTextureContainer);
 	
-	virtual float GetMaxAnisotropy() const = 0;
+	virtual float getMaxSupportedAnisotropy() const = 0;
+	virtual void setMaxAnisotropy(float value) = 0;
 	
-	// Utilities...
-	virtual void DrawTexturedRect(float x, float y, float w, float h, float uStart, float vStart, float uEnd, float vEnd, Color color) = 0;
+	virtual AlphaCutoutAntialising getMaxSupportedAlphaCutoutAntialiasing() const = 0;
 	
 	virtual VertexBuffer<TexturedVertex> * createVertexBufferTL(size_t capacity, BufferUsage usage) = 0;
 	virtual VertexBuffer<SMY_VERTEX> * createVertexBuffer(size_t capacity, BufferUsage usage) = 0;
@@ -199,14 +390,70 @@ public:
 	virtual bool getSnapshot(Image & image) = 0;
 	virtual bool getSnapshot(Image & image, size_t width, size_t height) = 0;
 	
+	void setRenderState(RenderState state) { m_state = state; }
+	RenderState getRenderState() const { return m_state; }
+	
 protected:
 	
 	std::vector<TextureStage *> m_TextureStages;
+	bool m_initialized;
+	RenderState m_state;
+	
+	void onRendererInit();
+	void onRendererShutdown();
+	
+private:
+	
+	typedef std::vector<Listener *> Listeners;
+	
+	Listeners m_listeners; //! Listeners for renderer events
 	
 };
 
 DECLARE_FLAGS_OPERATORS(Renderer::BufferFlags)
 
 extern Renderer * GRenderer;
+
+/*!
+ * RAII helper class to set a render state for the current scope
+ *
+ * Sets the requested render state on construction and restores the old render state
+ * on destruction.
+ *
+ * Example usage:
+ * \code
+ * {
+ *   UseRenderState state(RenderState().blendAdditive();
+ *   // render with additive blending
+ * }
+ * \endcode
+ */
+class UseRenderState {
+	
+	RenderState  m_old;
+	
+public:
+	
+	explicit UseRenderState(RenderState state)
+		: m_old(GRenderer->getRenderState())
+	{
+		GRenderer->setRenderState(state);
+	}
+	
+	~UseRenderState() {
+		GRenderer->setRenderState(m_old);
+	}
+	
+};
+
+//! Default render state for 2D compositing
+inline RenderState render2D() {
+	return RenderState().blend();
+}
+
+//! Default render state for 3D rendering
+inline RenderState render3D() {
+	return RenderState().depthTest().depthWrite().fog();
+}
 
 #endif // ARX_GRAPHICS_RENDERER_H

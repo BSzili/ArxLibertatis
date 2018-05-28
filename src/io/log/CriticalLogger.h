@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -34,6 +34,18 @@ class CriticalErrorDialog : public Backend {
 	std::string errorString;
 	
 public:
+	
+	typedef void(*ExitCommand)();
+	
+	/*!
+	 * \brief Set a question to ask and command to run on shutdown
+	 *
+	 * The question will be merged with the critical error if there was any.
+	 *
+	 * \param question the question string to ask. Must be statically allocated.
+	 * \param command  the command to execute.
+	 */
+	static void setExitQuestion(const char * question, ExitCommand command);
 	
 	~CriticalErrorDialog();
 	

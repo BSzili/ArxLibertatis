@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,47 +44,85 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_PARTICLE_PARTICLEPARAMS_H
 #define ARX_GRAPHICS_PARTICLE_PARTICLEPARAMS_H
 
-#include "math/Vector3.h"
+#include "graphics/Draw.h"
+#include "math/Vector.h"
+
+enum ParticleSpawnFlag {
+	PARTICLE_CIRCULAR = 1 << 0,
+	PARTICLE_BORDER   = 1 << 1
+};
+DECLARE_FLAGS(ParticleSpawnFlag, ParticleSpawn)
+DECLARE_FLAGS_OPERATORS(ParticleSpawn)
 
 class ParticleParams {
 	
 public:
 	
-	Vec3f p3Pos;
-	Vec3f p3Direction;
-	Vec3f p3Gravity;
-	int iNbMax;
-	int iFreq;
-	bool bRotationRandomDirection;
-	bool bRotationRandomStart;
-	float fLife;
-	float fLifeRandom;
-	float fAngle;
-	float fSpeed;
-	float fSpeedRandom;
-	float fFlash;
-	float fRotation;
+	Vec3f m_pos;
+	Vec3f m_direction;
+	Vec3f m_gravity;
+	bool  m_looping;
+	int   m_nbMax;
+	int   m_freq;
+	bool  m_rotationRandomDirection;
+	bool  m_rotationRandomStart;
+	float m_life;
+	float m_lifeRandom;
+	float m_angle;
+	float m_speed;
+	float m_speedRandom;
+	float m_flash;
+	float m_rotation;
 	
-	bool bTexInfo;
-	bool bTexLoop;
-	int iTexNb;
-	int iTexTime;
-	int iBlendMode;
-	char * lpszTexName;
+	struct TextureInfo {
+		bool  m_texLoop;
+		int   m_texNb;
+		int   m_texTime;
+		const char * m_texName;
+		
+		void set(const char * _pszTex, int _iNbTex, int _iTime) {
+			m_texLoop = true;
+			m_texName = _pszTex;
+			m_texNb = _iNbTex;
+			m_texTime = _iTime;
+		}
+	};
 	
-	bool bStartLock;
-	float fStartSize;
-	float fStartSizeRandom;
-	float fStartColor[4];
-	float fStartColorRandom[4];
+	TextureInfo m_texture;
 	
-	bool bEndLock;
-	float fEndSize;
-	float fEndSizeRandom;
-	float fEndColor[4];
-	float fEndColorRandom[4];
+	RenderMaterial::BlendType m_blendMode;
 	
-	ParticleParams() : bTexInfo(false) { }
+	struct SegmentParams {
+		float m_size;
+		float m_sizeRandom;
+		Color4f m_color;
+		Color4f m_colorRandom;
+	};
+	
+	SegmentParams m_startSegment;
+	SegmentParams m_endSegment;
+	
+	ParticleSpawn m_spawnFlags;
+	
+	ParticleParams()
+		: m_pos(Vec3f_ZERO)
+		, m_direction(Vec3f_ZERO)
+		, m_gravity(Vec3f_ZERO)
+		, m_looping(true)
+		, m_nbMax(0)
+		, m_freq(-1)
+		, m_rotationRandomDirection(false)
+		, m_rotationRandomStart(false)
+		, m_life(0)
+		, m_lifeRandom(0)
+		, m_angle(0)
+		, m_speed(0)
+		, m_speedRandom(0)
+		, m_flash(0)
+		, m_rotation(0)
+		, m_texture()
+		, m_blendMode(RenderMaterial::Additive)
+	{ }
 	
 };
 

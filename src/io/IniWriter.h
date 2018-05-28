@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -30,21 +30,19 @@
  */
 class IniWriter : private boost::noncopyable {
 	
-private:
-	
 	std::ostream & output;
 	
 public:
 	
 	/*!
 	 * Initialize this ini writer.
-	 * @param _output Reference to an ostream that mus remain valid while the writer is used.
+	 * \param _output Reference to an ostream that mus remain valid while the writer is used.
 	 */
 	explicit IniWriter(std::ostream & _output) : output(_output) { }
 	
 	/*!
 	 * Flush the output stream.
-	 * @return true if there were no errors during writing.
+	 * \return true if there were no errors during writing.
 	 */
 	bool flush() {
 		return !output.flush().bad();
@@ -52,7 +50,7 @@ public:
 	
 	/*!
 	 * Write a section header to the output stream.
-	 * @param section The section to start.
+	 * \param section The section to start.
 	 */
 	void beginSection(const std::string & section);
 	

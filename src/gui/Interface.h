@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,18 +49,20 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <map>
 
 #include "game/Spells.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 #include "Configure.h"
 
+#include "gui/book/Book.h"
+#include "gui/CinematicBorder.h"
 #include "gui/Note.h"
 
-struct EERIE_CAMERA;
+#include "graphics/Color.h"
+
 class TextureContainer;
 class Entity;
 
-extern float BOOKDECX;
-extern float BOOKDECY;
+extern Vec2f BOOKDEC;
 
 extern Entity * FlyingOverIO;
 
@@ -68,49 +70,71 @@ extern Entity * FlyingOverIO;
 class INTERFACE_TC
 {
 public:
-	INTERFACE_TC();
-	~INTERFACE_TC();
-
-	void Set(const std::string& textureName, TextureContainer* pTexture);
-	void Set(const std::string& textureName, const std::string& fileName);
-	TextureContainer* Get(const std::string& name);
-
-	void Reset();
+	INTERFACE_TC()
+		: playerbook(NULL)
+		, ic_casting(NULL)
+		, ic_close_combat(NULL)
+		, ic_constitution(NULL)
+		, ic_defense(NULL)
+		, ic_dexterity(NULL)
+		, ic_etheral_link(NULL)
+		, ic_mind(NULL)
+		, ic_intuition(NULL)
+		, ic_mecanism(NULL)
+		, ic_object_knowledge(NULL)
+		, ic_projectile(NULL)
+		, ic_stealth(NULL)
+		, ic_strength(NULL)
+		
+		, questbook(NULL)
+		, ptexspellbook(NULL)
+		, bookmark_char(NULL)
+		, bookmark_magic(NULL)
+		, bookmark_map(NULL)
+		, bookmark_quest(NULL)
+	{
+		std::fill_n(accessibleTab, ARRAY_SIZE(accessibleTab), (TextureContainer *)NULL);
+		std::fill_n(currentTab, ARRAY_SIZE(currentTab), (TextureContainer *)NULL);
+	}
+	
+	void init();
 
 public:
+	TextureContainer * playerbook;
+	TextureContainer * ic_casting;
+	TextureContainer * ic_close_combat;
+	TextureContainer * ic_constitution;
+	TextureContainer * ic_defense;
+	TextureContainer * ic_dexterity;
+	TextureContainer * ic_etheral_link;
+	TextureContainer * ic_mind;
+	TextureContainer * ic_intuition;
+	TextureContainer * ic_mecanism;
+	TextureContainer * ic_object_knowledge;
+	TextureContainer * ic_projectile;
+	TextureContainer * ic_stealth;
+	TextureContainer * ic_strength;
+	
+	TextureContainer * questbook;
+	TextureContainer * ptexspellbook;
+	TextureContainer * bookmark_char;
+	TextureContainer * bookmark_magic;
+	TextureContainer * bookmark_map;
+	TextureContainer * bookmark_quest;
+	
+	TextureContainer * accessibleTab[10];
+	TextureContainer * currentTab[10];
+	
 	std::string        Level;
 	std::string        Xp;
-
-private:
-	typedef std::map<std::string, TextureContainer*>  TextureDictionary;
-
-	TextureDictionary  m_Textures;
-	
-};
-
-struct SPELL_ICON {
-	TextureContainer * tc;
-	std::string name;
-	std::string description;
-	long level;
-	Spell spellid;
-	Rune symbols[6];
-	bool bSecret;
-	bool bDuration;
-	bool bAudibleAtStart;
 };
 
 enum E_ARX_STATE_MOUSE
 {
 	MOUSE_IN_WORLD,
 	MOUSE_IN_TORCH_ICON,
-	MOUSE_IN_REDIST_ICON,
-	MOUSE_IN_GOLD_ICON,
-	MOUSE_IN_BOOK_ICON,
 	MOUSE_IN_BOOK,
 	MOUSE_IN_INVENTORY_ICON,
-	MOUSE_IN_INVENTORY_PICKALL_ICON,
-	MOUSE_IN_INVENTORY_CLOSE_ICON,
 	MOUSE_IN_STEAL_ICON,
 	MOUSE_IN_INVENTORY,
 	MOUSE_IN_NOTE
@@ -126,152 +150,56 @@ enum ARX_INTERFACE_MOVE_MODE
 	MOVE_RUN
 };
 
-enum ARX_INTERFACE_BOOK_ITEM
-{
-	BOOK_NOTHING,
-	BOOK_STRENGTH,
-	BOOK_MIND,
-	BOOK_DEXTERITY,
-	BOOK_CONSTITUTION,
-	BOOK_STEALTH,
-	BOOK_MECANISM,
-	BOOK_INTUITION,
-	BOOK_ETHERAL_LINK,
-	BOOK_OBJECT_KNOWLEDGE,
-	BOOK_CASTING,
-	BOOK_CLOSE_COMBAT,
-	BOOK_PROJECTILE,
-	BOOK_DEFENSE,
-	BUTTON_QUICK_GENERATION,
-	BUTTON_SKIN,
-	BUTTON_DONE,
-	WND_ATTRIBUTES,
-	WND_SKILLS,
-	WND_STATUS,
-	WND_LEVEL,
-	WND_XP,
-	WND_HP,
-	WND_MANA,
-	WND_AC,
-	WND_RESIST_MAGIC,
-	WND_RESIST_POISON,
-	WND_DAMAGE,
-	WND_NEXT_LEVEL
-
-};
-
-#ifdef BUILD_EDITOR
-// long "EDITION" values (Danae.cpp)
-enum ARX_INTERFACE_EDITION_MODE
-{
-	EDITION_IO,
-	EDITION_LIGHTS,
-	EDITION_FOGS,
-	EDITION_NODES,
-	EDITION_ZONES,
-	EDITION_PATHWAYS,
-	EDITION_PARTICLES
-};
-#endif
-
-enum ARX_INTERFACE_FLAG
-{
-	INTER_MAP        = 0x00000001,
-	INTER_INVENTORY  = 0x00000002,
-	INTER_INVENTORYALL = 0x00000004,
-	INTER_MINIBOOK   = 0x00000008,
-	INTER_MINIBACK   = 0x00000010,
-	INTER_LIFE_MANA  = 0x00000020,
-	INTER_COMBATMODE = 0x00000040,
-	INTER_NOTE       = 0x00000080,
-	INTER_STEAL       = 0x00000100,
-	INTER_NO_STRIKE   = 0x00000200
-};
-
-enum ARX_INTERFACE_CURSOR_MODE
-{
-	CURSOR_UNDEFINED,
-	CURSOR_FIREBALLAIM,
-	CURSOR_INTERACTION_ON,
-	CURSOR_REDIST,
-	CURSOR_COMBINEON,
-	CURSOR_COMBINEOFF
-};
-
-enum ARX_INTERFACE_BOOK_MODE
-{
-	BOOKMODE_STATS = 0,
-	BOOKMODE_SPELLS,
-	BOOKMODE_MINIMAP,
-	BOOKMODE_QUESTS
+enum ARX_INTERFACE_COMBAT_MODE {
+	COMBAT_MODE_OFF,
+	COMBAT_MODE_ON,
+	COMBAT_MODE_DRAW_WEAPON
 };
 
 //-----------------------------------------------------------------------------
-extern INTERFACE_TC ITC;
+extern INTERFACE_TC g_bookResouces;
 extern Vec2s MemoMouse;
-extern Vec2s bookclick;
 
-extern SPELL_ICON spellicons[SPELL_COUNT];
-extern float CINEMA_DECAL;
-extern ARX_INTERFACE_BOOK_MODE Book_Mode;
-extern long SpecialCursor;
+extern float lSLID_VALUE;
+extern E_ARX_STATE_MOUSE eMouseState;
+extern bool bInverseInventory;
+extern bool lOldTruePlayerMouseLook;
+extern bool TRUE_PLAYER_MOUSELOOK_ON;
+extern bool bForceEscapeFreeLook;
+extern bool COMBINEGOLD;
+extern bool DRAGGING;
+extern bool PLAYER_MOUSELOOK_ON;
+extern bool bRenderInCursorMode;
+extern bool MAGICMODE;
 
-extern long LastMouseClick;
-extern long INVERTMOUSE;
-extern long CINEMASCOPE;
-extern long CINEMA_INC;
-extern long CurrFightPos;
+extern Note openNote;
 
-//-----------------------------------------------------------------------------
-float INTERFACE_RATIO(const float);
-float INTERFACE_RATIO_LONG(const long);
-float INTERFACE_RATIO_DWORD(const u32);
-short SHORT_INTERFACE_RATIO(const float);
+extern EntityHandle LastSelectedIONum;
 
-bool MouseInCam(EERIE_CAMERA * cam);
-bool MouseInRect(float x0, float y0, float x1, float y1);
-long GetMainSpeakingIO();
+void ARX_INTERFACE_setCombatMode(ARX_INTERFACE_COMBAT_MODE i);
+
 bool ARX_INTERFACE_MouseInBook();
-void ARX_INTERFACE_PlayerInterfaceModify(long showhide, long smooth);
+
 void ARX_INTERFACE_Reset();
-void ARX_INTERFACE_SetCinemascope(long v, long vv);
-void ARX_INTERFACE_RenderCursor(long flag = 0);
-void ARX_INTERFACE_ManageOpenedBook();
-void ARX_INTERFACE_ManageOpenedBook_Finish();
+
 void ARX_INTERFACE_NoteManage();
-void ARX_INTERFACE_BookOpenClose(unsigned long t);
-void ARX_INTERFACE_NoteOpen(gui::Note::Type type, const std::string & tex);
+
+void ARX_INTERFACE_NoteOpen(Note::Type type, const std::string & tex);
 void ARX_INTERFACE_NoteClose();
 void ARX_INTERFACE_NoteClear();
 
-bool ARX_INTERFACE_InitFISHTANK();
-void ARX_INTERFACE_ShowFISHTANK();
-void ARX_INTERFACE_KillFISHTANK();
+bool NeedHalo(Entity * io);
 
-bool ARX_INTERFACE_InitARKANE();
-void ARX_INTERFACE_ShowARKANE();
-void ARX_INTERFACE_KillARKANE();
-
-void ARX_INTERFACE_EndIntro();
-void ARX_INTERFACE_HALO_Flush();
-void LoadScreen();
-void LoadLevelScreen();
-void LoadLevelScreen(long lev);
-void ReleaseHalo();
+void ARX_INTERFACE_HALO_Render(Color3f color, long _lHaloType, TextureContainer * haloTexture, Vec2f pos, Vec2f ratio);
 void ResetPlayerInterface();
 void Set_DragInter(Entity * io);
-void CreateInterfaceTextureContainers();
-void KillInterfaceTextureContainers();
 
-namespace gui {
-void updateQuestBook();
-} // namespace gui
+void ARX_INTERFACE_DrawNumberInit();
+void ARX_INTERFACE_DrawNumber(const Vec2f & pos, long num, Color color, float scale);
 
-#define ARX_MOUSE_OVER_BOOK			1
-#define ARX_MOUSE_OVER_INVENTORY	2
-#define ARX_MOUSE_OVER_INVENTORY_2	4
-#define ARX_MOUSE_OVER_IO			8
+// 0 switch 1 forceopen 2 forceclose
+void InventoryOpenClose(unsigned long t);
 
-extern long ARX_MOUSE_OVER;
+extern bool g_cursorOverBook;
 
 #endif // ARX_GUI_INTERFACE_H

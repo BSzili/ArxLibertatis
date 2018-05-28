@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -31,6 +31,7 @@ void logger::Backend::format(std::ostream & os, const Source & file,
 	switch(level) {
 		case Logger::Debug:    os << "[D]"; break;
 		case Logger::Info:     os << "[I]"; break;
+		case Logger::Console:  os << "[C]"; break;
 		case Logger::Warning:  os << "[W]"; break;
 		case Logger::Error:    os << "[E]"; break;
 		case Logger::Critical: os << "[CRITICAL]", length = 10; break;
@@ -38,10 +39,14 @@ void logger::Backend::format(std::ostream & os, const Source & file,
 	}
 	os << ' ' << file.name << ':';
 	
+	std::ostream::fmtflags flags = os.flags();
+	
 	length += 1 + file.name.length() + 1;
 	if(length < alignment) {
 		os << std::left << std::setfill(' ') << std::setw(alignment - length);
 	}
 	
 	os << line << "  " << str << std::endl;
+	
+	os.flags(flags);
 }

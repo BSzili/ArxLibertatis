@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -57,10 +57,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/GameSound.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
 
-extern long ARX_CONVERSATION;
-extern long FRAME_COUNT;
 extern Vec3f LASTCAMPOS;
 extern Anglef LASTCAMANGLE;
 
@@ -76,46 +73,10 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string nbpeople = context.getWord();
-		long nb_people = 0;
-		if(!nbpeople.empty() && nbpeople[0] == '-') {
-			std::istringstream iss(nbpeople.substr(1));
-			iss >> nb_people;
-			if(iss.bad()) {
-				nb_people = 0;
-			}
+		std::string param = context.getWord();
+		if(param != "off") {
+			LogWarning << "Invalid used of stubbed conversation command";
 		}
-		
-		bool enabled = context.getBool();
-		ARX_CONVERSATION = enabled ? 1 : 0;
-		
-		if(!nb_people || !enabled) {
-			DebugScript(' ' << nbpeople << ' ' << enabled);
-			return Success;
-		}
-		
-		main_conversation.actors_nb = nb_people;
-		
-#ifdef ARX_DEBUG
-		std::ostringstream oss;
-		oss << ' ' << nbpeople << ' ' << enabled;
-#endif
-		
-		for(long j = 0; j < nb_people; j++) {
-			
-			string target = context.getWord();
-			Entity * t = entities.getById(target, context.getEntity());
-			
-#ifdef ARX_DEBUG
-			oss << ' ' << target;
-#endif
-			
-			main_conversation.actors[j] = (t == NULL) ? -1 : t->index();
-		}
-		
-#ifdef ARX_DEBUG
-		DebugScript(oss.rdbuf());
-#endif
 		
 		return Success;
 	}
@@ -142,7 +103,7 @@ public:
 				loop = ARX_SOUND_PLAY_LOOPED;
 			}
 			if(flg & flag('p')) {
-				pitch = 0.9F + 0.2F * rnd();
+				pitch = Random::getf(0.9f, 1.1f);
 			}
 			stop = test_flag(flg, 's');
 			no_pos = test_flag(flg, 'o');
@@ -227,7 +188,7 @@ public:
 			}
 		}
 		
-		string text = context.getStringVar(context.getWord());
+		std::string text = context.getStringVar(context.getWord());
 		
 		DebugScript(' ' << options << " \"" << text << '"');
 		
@@ -236,6 +197,21 @@ public:
 		}
 		
 		ARX_SPEECH_Add(text);
+		
+		return Success;
+	}
+	
+	Result peek(Context & context) {
+		
+		/*
+		 * TODO Technically this command has a side effect so it should abort non-destructive execution.
+		 * However, the on combine event for books unconditionally uses this command. resulting
+		 * in all books lighting up in the inventory when an item is selected for combining.
+		 */
+		
+		(void)context.getFlags();
+		
+		context.skipWord();
 		
 		return Success;
 	}
@@ -266,12 +242,12 @@ public:
 
 class SpeakCommand : public Command {
 	
-	static void computeACSPos(CinematicSpeech & acs, Entity * io, long ionum) {
+	static void computeACSPos(CinematicSpeech & acs, Entity * io, EntityHandle ionum) {
 		
 		if(io) {
-			long id = io->obj->fastaccess.view_attach;
-			if(id != -1) {
-				acs.pos1 = io->obj->vertexlist3[id].v;
+			ActionPoint id = io->obj->fastaccess.view_attach;
+			if(id != ActionPoint()) {
+				acs.pos1 = actionPointPosition(io->obj, id);
 			} else {
 				acs.pos1 = io->pos + Vec3f(0.f, io->physics.cyl.height, 0.f);
 			}
@@ -279,29 +255,67 @@ class SpeakCommand : public Command {
 		
 		if(ValidIONum(ionum)) {
 			Entity * ioo = entities[ionum];
-			long id = ioo->obj->fastaccess.view_attach;
-			if(id != -1) {
-				acs.pos2 = ioo->obj->vertexlist3[id].v;
+			ActionPoint id = ioo->obj->fastaccess.view_attach;
+			if(id != ActionPoint()) {
+				acs.pos2 = actionPointPosition(ioo->obj, id);
 			} else {
 				acs.pos2 = ioo->pos + Vec3f(0.f, ioo->physics.cyl.height, 0.f);
 			}
 		}
 	}
 	
-	static void parseParams(CinematicSpeech & acs, Context & context, bool player) {
+	static void parseParams(CinematicSpeech & acs, Context & context, Entity * speaker) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		Entity * t = entities.getById(target, context.getEntity());
 		
-		acs.ionum = (t == NULL) ? -1 : t->index();
+		acs.ionum = (t == NULL) ? EntityHandle() : t->index();
 		acs.startpos = context.getFloat();
 		acs.endpos = context.getFloat();
 		
-		if(player) {
-			computeACSPos(acs, entities.player(), acs.ionum);
+		computeACSPos(acs, speaker, acs.ionum);
+	}
+	
+	void parseCinematicSpeech(CinematicSpeech & acs, Context & context, Entity * speaker) {
+		
+		std::string command = context.getWord();
+		
+		if(command == "keep") {
+			acs.type = ARX_CINE_SPEECH_KEEP;
+			acs.pos1 = LASTCAMPOS;
+			acs.pos2.x = LASTCAMANGLE.getPitch();
+			acs.pos2.y = LASTCAMANGLE.getYaw();
+			acs.pos2.z = LASTCAMANGLE.getRoll();
+			
+		} else if(command == "zoom") {
+			acs.type = ARX_CINE_SPEECH_ZOOM;
+			acs.startangle.setPitch(context.getFloat());
+			acs.startangle.setYaw(context.getFloat());
+			acs.endangle.setPitch(context.getFloat());
+			acs.endangle.setYaw(context.getFloat());
+			acs.startpos = context.getFloat();
+			acs.endpos = context.getFloat();
+			acs.ionum = context.getEntity()->index();
+			computeACSPos(acs, speaker, acs.ionum);
+			
+		} else if(command == "ccctalker_l" || command == "ccctalker_r") {
+			acs.type = (command == "ccctalker_r") ? ARX_CINE_SPEECH_CCCTALKER_R : ARX_CINE_SPEECH_CCCTALKER_L;
+			parseParams(acs, context, speaker);
+			
+		} else if(command == "ccclistener_l" || command == "ccclistener_r") {
+			acs.type = (command == "ccclistener_r") ? ARX_CINE_SPEECH_CCCLISTENER_R :  ARX_CINE_SPEECH_CCCLISTENER_L;
+			parseParams(acs, context, speaker);
+			
+		} else if(command == "side" || command == "side_l" || command == "side_r") {
+			acs.type = (command == "side_l") ? ARX_CINE_SPEECH_SIDE_LEFT : ARX_CINE_SPEECH_SIDE;
+			parseParams(acs, context, speaker);
+			acs.m_startdist = context.getFloat(); // startdist
+			acs.m_enddist = context.getFloat(); // enddist
+			acs.m_heightModifier = context.getFloat(); // height modifier
 		} else {
-			computeACSPos(acs, context.getEntity(), acs.ionum);
+			ScriptWarning << "unexpected command: " << command;
 		}
+		
 	}
 	
 public:
@@ -313,16 +327,18 @@ public:
 		CinematicSpeech acs;
 		acs.type = ARX_CINE_SPEECH_NONE;
 		
-		Entity * io = context.getEntity();
+		Entity * speaker = context.getEntity();
 		
-		bool player = false, unbreakable = false;
+		bool unbreakable = false;
 		SpeechFlags voixoff = 0;
 		AnimationNumber mood = ANIM_TALK_NEUTRAL;
 		HandleFlags("tuphaoc") {
 			
 			voixoff |= (flg & flag('t')) ? ARX_SPEECH_FLAG_NOTEXT : SpeechFlags(0);
 			unbreakable = test_flag(flg, 'u');
-			player = test_flag(flg, 'p');
+			if(flg & flag('p')) {
+				speaker = entities.player();
+			}
 			if(flg & flag('h')) {
 				mood = ANIM_TALK_HAPPY;
 			}
@@ -335,55 +351,12 @@ public:
 			voixoff |= (flg & flag('o')) ? ARX_SPEECH_FLAG_OFFVOICE : SpeechFlags(0);
 			
 			if(flg & flag('c')) {
-				
-				string command = context.getWord();
-				
-				FRAME_COUNT = 0;
-				
-				if(command == "keep") {
-					acs.type = ARX_CINE_SPEECH_KEEP;
-					acs.pos1 = LASTCAMPOS;
-					acs.pos2.x = LASTCAMANGLE.a;
-					acs.pos2.y = LASTCAMANGLE.b;
-					acs.pos2.z = LASTCAMANGLE.g;
-					
-				} else if(command == "zoom") {
-					acs.type = ARX_CINE_SPEECH_ZOOM;
-					acs.startangle.a = context.getFloat();
-					acs.startangle.b = context.getFloat();
-					acs.endangle.a = context.getFloat();
-					acs.endangle.b = context.getFloat();
-					acs.startpos = context.getFloat();
-					acs.endpos = context.getFloat();
-					acs.ionum = (io == NULL) ? -1 : io->index();
-					if(player) {
-						computeACSPos(acs, entities.player(), acs.ionum);
-					} else {
-						computeACSPos(acs, io, -1);
-					}
-					
-				} else if(command == "ccctalker_l" || command == "ccctalker_r") {
-					acs.type = (command == "ccctalker_r") ? ARX_CINE_SPEECH_CCCTALKER_R : ARX_CINE_SPEECH_CCCTALKER_L;
-					parseParams(acs, context, player);
-					
-				} else if(command == "ccclistener_l" || command == "ccclistener_r") {
-					acs.type = (command == "ccclistener_r") ? ARX_CINE_SPEECH_CCCLISTENER_R :  ARX_CINE_SPEECH_CCCLISTENER_L;
-					parseParams(acs, context, player);
-					
-				} else if(command == "side" || command == "side_l" || command == "side_r") {
-					acs.type = (command == "side_l") ? ARX_CINE_SPEECH_SIDE_LEFT : ARX_CINE_SPEECH_SIDE;
-					parseParams(acs, context, player);
-					acs.f0 = context.getFloat(); // startdist
-					acs.f1 = context.getFloat(); // enddist
-					acs.f2 = context.getFloat(); // height modifier
-				} else {
-					ScriptWarning << "unexpected command: " << options << ' ' << command;
-				}
-				
+				parseCinematicSpeech(acs, context, speaker);
 			}
+			
 		}
 		
-		string text = context.getWord();
+		std::string text = context.getWord();
 		
 		if(text == "killall") {
 			
@@ -395,40 +368,70 @@ public:
 			return Success;
 		}
 		
-		string data = loadUnlocalized(context.getStringVar(text));
+		std::string data = loadUnlocalized(context.getStringVar(text));
 		
 		DebugScript(' ' << options << ' ' << data); // TODO debug more
 		
 		if(data.empty()) {
-			ARX_SPEECH_ClearIOSpeech(io);
+			ARX_SPEECH_ClearIOSpeech(context.getEntity());
 			return Success;
 		}
 		
 		
-		if(!CINEMASCOPE) {
+		if(!cinematicBorder.isActive()) {
 			voixoff |= ARX_SPEECH_FLAG_NOTEXT;
 		}
 		
-		long speechnum;
-		if(player) {
-			speechnum = ARX_SPEECH_AddSpeech(entities.player(), data, mood, voixoff);
-		} else {
-			speechnum = ARX_SPEECH_AddSpeech(io, data, mood, voixoff);
-		}
+		long speechnum = ARX_SPEECH_AddSpeech(speaker, data, mood, voixoff);
 		if(speechnum < 0) {
 			return Failed;
 		}
 		
 		size_t onspeechend = context.skipCommand();
 		
-		if(onspeechend != (size_t)-1) {
+		if(onspeechend != size_t(-1)) {
 			aspeech[speechnum].scrpos = onspeechend;
 			aspeech[speechnum].es = context.getScript();
-			aspeech[speechnum].ioscript = io;
+			aspeech[speechnum].ioscript = context.getEntity();
 			if(unbreakable) {
 				aspeech[speechnum].flags |= ARX_SPEECH_FLAG_UNBREAKABLE;
 			}
 			aspeech[speechnum].cine = acs;
+		}
+		
+		return Success;
+	}
+	
+	Result peek(Context & context) {
+		
+		HandleFlags("tuphaoc") {
+			
+			if(flg & flag('c')) {
+				CinematicSpeech acs;
+				parseCinematicSpeech(acs, context, context.getEntity());
+			}
+			
+		}
+		
+		std::string text = context.getWord();
+		
+		if(text == "killall") {
+			return Success;
+		}
+		
+		std::string data = loadUnlocalized(context.getStringVar(text));
+		
+		if(data.empty()) {
+			return Success;
+		}
+		
+		std::string command = context.getCommand(false);
+		
+		size_t onspeechend = context.skipCommand();
+		
+		if((!command.empty() && command != "nop") || onspeechend != size_t(-1)) {
+			LogWarning << onspeechend;
+			return AbortDestructive;
 		}
 		
 		return Success;
@@ -453,7 +456,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedConversation() {
 	

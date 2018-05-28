@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,7 +47,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "graphics/particle/ParticleSystem.h"
 
-using std::list;
+#include "platform/profiler/Profiler.h"
+
+ParticleManager g_particleManager;
 
 ParticleManager::ParticleManager() {
 	listParticleSystem.clear();
@@ -70,43 +72,38 @@ void ParticleManager::AddSystem(ParticleSystem * _pPS) {
 	listParticleSystem.insert(listParticleSystem.end(), _pPS);
 }
 
-//-----------------------------------------------------------------------------
-void ParticleManager::Update(long _lTime)
-{
-	if (listParticleSystem.empty()) return;
+void ParticleManager::Update(GameDuration delta) {
+	
+	ARX_PROFILE_FUNC();
+	
+	if(listParticleSystem.empty())
+		return;
 
-	list<ParticleSystem *>::iterator i;
+	std::list<ParticleSystem *>::iterator i;
 	i = listParticleSystem.begin();
 
-	while (i != listParticleSystem.end())
-	{
+	while(i != listParticleSystem.end()) {
 		ParticleSystem * p = *i;
 		++i;
 
-		if (!p->IsAlive())
-		{
+		if(!p->IsAlive()) {
 			delete p;
 			listParticleSystem.remove(p);
-		}
-		else
-		{
-			p->Update(_lTime);
+		} else {
+			p->Update(delta);
 		}
 	}
 }
 
-//-----------------------------------------------------------------------------
+void ParticleManager::Render() {
+	
+	ARX_PROFILE_FUNC();
+	
+	std::list<ParticleSystem *>::iterator i;
 
-void ParticleManager::Render()
-{
-	int ilekel = 0;
-	list<ParticleSystem *>::iterator i;
-
-	for (i = listParticleSystem.begin(); i != listParticleSystem.end(); ++i)
-	{
+	for(i = listParticleSystem.begin(); i != listParticleSystem.end(); ++i) {
 		ParticleSystem * p = *i;
 		p->Render();
-		ilekel++;
 	}
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -53,18 +53,36 @@ namespace fs { class path; }
 
 void ARX_CHANGELEVEL_Change(const std::string & level, const std::string & target, long angle);
 
-long ARX_CHANGELEVEL_GetInfo(const fs::path & savefile, std::string & name, float & version, long & level, unsigned long & time);
+long ARX_CHANGELEVEL_GetInfo(const fs::path & savefile, std::string & name, float & version, long & level);
+
+bool ARX_CHANGELEVEL_StartNew();
 
 /*!
  * Load a GameSave
  */
-long ARX_CHANGELEVEL_Load(const fs::path & savefile);
+void ARX_CHANGELEVEL_Load(const fs::path & savefile);
 
 bool ARX_CHANGELEVEL_Save(const std::string & name, const fs::path & savefile);
 
 bool ARX_Changelevel_CurGame_Clear();
-void ARX_Changelevel_CurGame_Open();
-bool ARX_Changelevel_CurGame_Seek(const std::string & ident);
-void ARX_Changelevel_CurGame_Close();
+
+/*!
+ * Check if the current saved game state contains an entry for the entity with the
+ * given ID string.
+ */
+bool currentSavedGameHasEntity(const std::string & idString);
+
+/*!
+ * Mark the entity with ID string as deleted in the current save game state.
+ * This needs to be done for entities referenced in level files or we will recreate
+ * the entity the next time the level is loaded.
+ */
+void currentSavedGameStoreEntityDeletion(const std::string & idString);
+
+/*!
+ * Completely remove an entity from the current save game state.
+ * This should only be done when the entity isn't referenced anymore (destroyed).
+ */
+void currentSavedGameRemoveEntity(const std::string & idString);
 
 #endif // ARX_SCENE_CHANGELEVEL_H

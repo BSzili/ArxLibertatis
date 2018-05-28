@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,10 +47,12 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "game/Entity.h"
 
 enum EquipmentModifierType {
+	// Attributes
 	IO_EQUIPITEM_ELEMENT_STRENGTH         = 0,
 	IO_EQUIPITEM_ELEMENT_DEXTERITY        = 1,
 	IO_EQUIPITEM_ELEMENT_CONSTITUTION     = 2,
 	IO_EQUIPITEM_ELEMENT_MIND             = 3,
+	// Skills
 	IO_EQUIPITEM_ELEMENT_Stealth          = 4,
 	IO_EQUIPITEM_ELEMENT_Mecanism         = 5,
 	IO_EQUIPITEM_ELEMENT_Intuition        = 6,
@@ -60,6 +62,7 @@ enum EquipmentModifierType {
 	IO_EQUIPITEM_ELEMENT_Projectile       = 10,
 	IO_EQUIPITEM_ELEMENT_Close_Combat     = 11,
 	IO_EQUIPITEM_ELEMENT_Defense          = 12,
+	// Other stats
 	IO_EQUIPITEM_ELEMENT_Armor_Class      = 13,
 	IO_EQUIPITEM_ELEMENT_Resist_Magic     = 14,
 	IO_EQUIPITEM_ELEMENT_Resist_Poison    = 15,
@@ -80,7 +83,7 @@ enum EquipmentModifierType {
 };
 
 enum EquipmentModifierFlag {
-	IO_ELEMENT_FLAG_PERCENT = (1<<0)
+	IO_ELEMENT_FLAG_PERCENT = 1 << 0
 };
 DECLARE_FLAGS(EquipmentModifierFlag, EquipmentModifierFlags)
 DECLARE_FLAGS_OPERATORS(EquipmentModifierFlags)
@@ -88,7 +91,7 @@ DECLARE_FLAGS_OPERATORS(EquipmentModifierFlags)
 enum EquipmentModifiedSpecialType {
 	IO_SPECIAL_ELEM_NONE       = 0,
 	IO_SPECIAL_ELEM_PARALYZE   = 1,
-	IO_SPECIAL_ELEM_DRAIN_LIFE = 2,
+	IO_SPECIAL_ELEM_DRAIN_LIFE = 2
 };
 
 struct IO_EQUIPITEM_ELEMENT {
@@ -110,6 +113,17 @@ struct IO_ITEMDATA {
 	char stealvalue;
 	short playerstacksize;
 	short LightValue;
+	
+	IO_ITEMDATA()
+		: equipitem(0)
+		, price(0)
+		, maxcount(0)
+		, count(0)
+		, food_value(0)
+		, stealvalue(0)
+		, playerstacksize(0)
+		, LightValue(0)
+	{}
 };
 
 #endif // ARX_GAME_ITEM_H

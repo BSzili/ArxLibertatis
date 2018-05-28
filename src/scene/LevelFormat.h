@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,7 +51,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 const f32 DLH_CURRENT_VERSION = 1.44f;
 
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 
 
 struct DANAE_LS_HEADER {
@@ -92,8 +92,8 @@ struct DANAE_LS_SCENE {
 
 struct DANAE_LS_LIGHTINGHEADER {
 	s32 nb_values;
-	s32 ViewMode;
-	s32 ModeLight;
+	s32 ViewMode; // unused
+	s32 ModeLight; // unused
 	s32 pad;
 };
 
@@ -140,13 +140,6 @@ struct DANAE_LS_FOG {
 	char cpadd[256];
 };
 
-struct DANAE_LS_NODE {
-	char name[64];
-	SavedVec3 pos;
-	s32 pad[16];
-	f32 fpad[16];
-};
-
 struct DANAE_LS_PATH {
 	char name[64];
 	s16 idx;
@@ -154,14 +147,14 @@ struct DANAE_LS_PATH {
 	SavedVec3 initpos;
 	SavedVec3 pos;
 	s32 nb_pathways;
-	SavedColor rgb; 
+	SavedColor rgb;
 	f32 farclip;
 	f32 reverb;
 	f32 amb_max_vol;
 	f32 fpadd[26];
 	s32 height;
 	s32 lpadd[31];
-	char ambiance[128]; 
+	char ambiance[128];
 	char cpadd[128];
 };
 
@@ -199,8 +192,6 @@ struct DANAE_LS_INTER {
 	s32 pad[14];
 	f32 fpad[16];
 };
-
-const size_t SAVED_MAX_LINKS = 12;
 
 
 #pragma pack(pop)

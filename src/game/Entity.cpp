@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,6 +47,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <iomanip>
 #include <cstring>
 
+#include "animation/Animation.h"
 #include "ai/Paths.h"
 
 #include "core/Core.h"
@@ -62,52 +63,66 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "gui/Interface.h"
 
+#include "io/log/Logger.h"
+
+#include "scene/ChangeLevel.h"
 #include "scene/GameSound.h"
 #include "scene/Interactive.h"
 #include "scene/Light.h"
+#include "scene/LinkedObject.h"
 #include "scene/LoadLevel.h"
 
 extern Entity * pIOChangeWeapon;
 
-Entity::Entity(const res::path & classPath)
-	: m_index(size_t(-1)),
-	  m_classPath(classPath) {
+Entity::Entity(const res::path & classPath, EntityInstance instance)
+	: mainevent(SM_MAIN)
+	, m_index(size_t(-1))
+	, m_id(classPath, instance)
+	, m_classPath(classPath)
+{
 	
 	m_index = entities.add(this);
 	
 	ioflags = 0;
-	lastpos = Vec3f::ZERO;
-	pos = Vec3f::ZERO;
-	move = Vec3f::ZERO;
-	lastmove = Vec3f::ZERO;
-	forcedmove = Vec3f::ZERO;
+	lastpos = Vec3f_ZERO;
+	pos = Vec3f_ZERO;
+	move = Vec3f_ZERO;
+	lastmove = Vec3f_ZERO;
+	forcedmove = Vec3f_ZERO;
 	
 	angle = Anglef::ZERO;
-	std::memset(&physics, 0, sizeof(IO_PHYSICS)); // TODO use constructor
+	physics = IO_PHYSICS();
 	room = -1;
-	room_flags = 1;
+	requestRoomUpdate = true;
 	original_height = 0.f;
 	original_radius = 0.f;
-	inv = NULL;
+	m_icon = NULL;
 	obj = NULL;
 	std::fill_n(anims, MAX_ANIMS, (ANIM_HANDLE *)NULL);
-	std::memset(animlayer, 0, sizeof(ANIM_USE) * MAX_ANIM_LAYERS); // TODO use constructor
-	lastanimvertex = NULL;
-	nb_lastanimvertex = 0;
-	lastanimtime = 0;
+	
+	for(size_t l = 0; l < MAX_ANIM_LAYERS; l++) {
+		animlayer[l] = AnimLayer();
+	}
+	
+	animBlend.m_active = false;
+	animBlend.lastanimtime = 0;
 	
 	std::memset(&bbox3D, 0, sizeof(EERIE_3D_BBOX)); // TODO use constructor
 	
-	bbox1 = Vec2s(-1, -1);
-	bbox2 = Vec2s(-1, -1);
+	bbox2D.min = Vec2f(-1.f, -1.f);
+	bbox2D.max = Vec2f(-1.f, -1.f);
+
 	tweaky = NULL;
 	sound = audio::INVALID_ID;
 	type_flags = 0;
 	scriptload = 0;
-	target = Vec3f::ZERO;
-	targetinfo = TARGET_NONE;
+	target = Vec3f_ZERO;
+	targetinfo = EntityHandle(TARGET_NONE);
 	
-	_itemdata = NULL, _fixdata = NULL, _npcdata = NULL, _camdata = NULL;
+	_itemdata = NULL;
+	_fixdata = NULL;
+	_npcdata = NULL;
+	_camdata = NULL;
 	
 	inventory = NULL;
 	show = SHOW_FLAG_IN_SCENE;
@@ -115,40 +130,38 @@ Entity::Entity(const res::path & classPath)
 	infracolor = Color3f::blue;
 	changeanim = -1;
 	
-	ident = 0;
 	weight = 1.f;
 	gameFlags = GFLAG_NEEDINIT | GFLAG_INTERACTIVITY;
-	velocity = Vec3f::ZERO;
 	fall = 0.f;
 	
-	stopped = 1;
-	initpos = Vec3f::ZERO;
+	initpos = Vec3f_ZERO;
 	initangle = Anglef::ZERO;
 	scale = 1.f;
 	
 	usepath = NULL;
 	symboldraw = NULL;
-	dynlight = -1;
+	dynlight = LightHandle();
 	lastspeechflag = 2;
 	inzone = NULL;
-	std::memset(&halo, 0, sizeof(IO_HALO)); // TODO use constructor
-	std::memset(&halo_native, 0, sizeof(IO_HALO)); // TODO use constructor
+	halo = IO_HALO();
+	halo_native = IO_HALO();
 	halo_native.color = Color3f(0.2f, 0.5f, 1.f);
 	halo_native.radius = 45.f;
 	halo_native.flags = 0;
-	halo_native.dynlight = -1;
 	ARX_HALO_SetToNative(this);
-	halo.dynlight = -1;
 	
-	std::memset(&script, 0, sizeof(EERIE_SCRIPT)); // TODO use constructor
-	std::memset(&over_script, 0, sizeof(EERIE_SCRIPT)); // TODO use constructor
+	for(size_t j = 0; j < MAX_SCRIPTTIMERS; j++) {
+		m_scriptTimers[j] = 0;
+	}
+	m_disabledEvents = 0;
+	
 	stat_count = 0;
 	stat_sent = 0;
 	tweakerinfo = NULL;
 	material = MATERIAL_NONE;
 	
-	sizex = 1;
-	sizey = 1;
+	m_inventorySize = Vec2s(1, 1);
+	
 	soundtime = 0;
 	soundcount = 0;
 	
@@ -157,17 +170,13 @@ Entity::Entity(const res::path & classPath)
 	ouch_time = 0;
 	dmg_sum = 0.f;
 	
-	std::memset(&spellcast_data, 0, sizeof(IO_SPELLCAST_DATA));
+	spellcast_data = IO_SPELLCAST_DATA();
 	flarecount = 0;
-	no_collide = -1;
+	no_collide = EntityHandle();
 	invisibility = 0.f;
-	frameloss = 0.f;
 	basespeed = 1.f;
 	
 	speed_modif = 0.f;
-	spells_on = NULL;
-	nb_spells_on = 0;
-	damagedata = -1;
 	
 	rubber = BASE_RUBBER;
 	max_durability = durability = 100.f;
@@ -175,7 +184,7 @@ Entity::Entity(const res::path & classPath)
 	poisonous_count = 0;
 	
 	ignition = 0.f;
-	ignit_light = -1;
+	ignit_light = LightHandle();
 	ignit_sound = audio::INVALID_ID;
 	head_rot = 0.f;
 	
@@ -188,10 +197,11 @@ Entity::Entity(const res::path & classPath)
 	shop_multiply = 1.f;
 	isHit = false;
 	inzone_show = 0;
-	summoner = 0;
+	summoner = EntityHandle();
 	spark_n_blood = 0;
-	
-	ARX_SCRIPT_SetMainEvent(this, "main");
+
+	special_color = Color3f::white;
+	highlightColor = Color3f::black;
 	
 }
 
@@ -199,136 +209,153 @@ Entity::~Entity() {
 	
 	cleanReferences();
 	
-	if(!FAST_RELEASE) {
-		TREATZONE_RemoveIO(this);
+	if(g_cameraEntity == this) {
+		g_cameraEntity = NULL;
 	}
-	
-	if(ignit_light > -1) {
-		DynLight[ignit_light].exist = 0, ignit_light = -1;
-	}
-	
-	if(ignit_sound != audio::INVALID_ID) {
-		ARX_SOUND_Stop(ignit_sound), ignit_sound = audio::INVALID_ID;
-	}
-	
-	if(FlyingOverIO == this) {
-		FlyingOverIO = NULL;
-	}
-	
-	if((MasterCamera.exist & 1) && MasterCamera.io == this) {
-		MasterCamera.exist = 0;
-	}
-	
-	if((MasterCamera.exist & 2) && MasterCamera.want_io == this) {
-		MasterCamera.exist = 0;
-	}
-	
-	ARX_INTERACTIVE_DestroyDynamicInfo(this);
-	IO_UnlinkAllLinkedObjects(this);
 	
 	// Releases ToBeDrawn Transparent Polys linked to this object !
 	tweaks.clear();
-	ARX_SCRIPT_Timer_Clear_For_IO(this);
 	
 	if(obj && !(ioflags & IO_CAMERA) && !(ioflags & IO_MARKER) && !(ioflags & IO_GOLD)) {
 		delete obj, obj = NULL;
 	}
 	
-	ARX_SPELLS_RemoveAllSpellsOn(this);
+	spells.removeTarget(this);
 	
 	delete tweakerinfo;
 	delete tweaky, tweaky = NULL;
 	
-	RemoveFromAllInventories(this);
-	
 	ReleaseScript(&script);
 	ReleaseScript(&over_script);
 	
-	for(long n = 0; n < MAX_ANIMS; n++) {
+	for(size_t n = 0; n < MAX_ANIMS; n++) {
 		if(anims[n]) {
 			EERIE_ANIMMANAGER_ReleaseHandle(anims[n]);
 			anims[n] = NULL;
 		}
 	}
 	
-	if(damagedata >= 0) {
-		damages[damagedata].exist = 0;
-	}
+	lightHandleDestroy(dynlight);
 	
-	if(ValidDynLight(dynlight)) {
-		DynLight[dynlight].exist = 0, dynlight = -1;
-	}
+	delete usepath;
 	
-	if(ValidDynLight(halo.dynlight)) {
-		DynLight[halo.dynlight].exist = 0, halo.dynlight = -1;
-	}
-	
-	free(lastanimvertex);
-	free(usepath);
-	free(symboldraw), symboldraw = NULL;
+	delete symboldraw;
+	symboldraw = NULL;
 	
 	if(ioflags & IO_NPC) {
 		delete _npcdata;
-		
 	} else if(ioflags & IO_ITEM) {
 		free(_itemdata->equipitem);
-		free(_itemdata);
-		
+		delete _itemdata;
 	} else if(ioflags & IO_FIX) {
-		free(_fixdata);
-		
+		delete _fixdata;
 	} else if(ioflags & IO_CAMERA && _camdata) {
-		if(ACTIVECAM == &_camdata->cam) {
-			ACTIVECAM = &subj;
+		if(g_camera == &_camdata->cam) {
+			SetActiveCamera(&g_playerCamera);
 		}
-		free(_camdata);
+		delete _camdata;
+	}
+	
+	if(SecondaryInventory && SecondaryInventory->io == this) {
+		SecondaryInventory = NULL;
 	}
 	
 	if(TSecondaryInventory && TSecondaryInventory->io == this) {
 		TSecondaryInventory = NULL;
 	}
 	
-	free(inventory);
+	delete inventory;
 	
 	if(m_index != size_t(-1)) {
 		entities.remove(m_index);
 	}
 	
-	if(pIOChangeWeapon == this) {
-		pIOChangeWeapon = NULL; // TODO we really need a proper weak_ptr
-	}
 }
 
-std::string Entity::short_name() const {
-	return m_classPath.filename();
-}
-
-std::string Entity::long_name() const {
-	std::stringstream ss;
-	ss << short_name() << '_' << std::setw(4) << std::setfill('0') << ident;
-	return ss.str();
-}
-
-res::path Entity::full_name() const {
-	return m_classPath.parent() / long_name();
+res::path Entity::instancePath() const {
+	return m_classPath.parent() / idString();
 }
 
 void Entity::cleanReferences() {
 	
+	ARX_INTERACTIVE_DestroyIOdelayedRemove(this);
+	
 	if(DRAGINTER == this) {
 		Set_DragInter(NULL);
+	}
+	
+	if(FlyingOverIO == this) {
+		FlyingOverIO = NULL;
+	}
+	
+	if(COMBINE == this) {
+		COMBINE = NULL;
+	}
+	
+	if(pIOChangeWeapon == this) {
+		pIOChangeWeapon = NULL; // TODO we really need a proper weak_ptr
+	}
+	
+	if(ioSteal == this) {
+		ioSteal = NULL;
+	}
+	
+	if(!FAST_RELEASE) {
+		TREATZONE_RemoveIO(this);
+	}
+	gameFlags &= ~GFLAG_ISINTREATZONE;
+	
+	ARX_INTERACTIVE_DestroyDynamicInfo(this);
+	
+	RemoveFromAllInventories(this);
+	
+	ARX_SCRIPT_Timer_Clear_For_IO(this);
+	
+	spells.endByCaster(index());
+	
+	lightHandleDestroy(ignit_light);
+	
+	if(ignit_sound != audio::INVALID_ID) {
+		ARX_SOUND_Stop(ignit_sound), ignit_sound = audio::INVALID_ID;
 	}
 	
 }
 
 void Entity::destroy() {
 	
-	if(scriptload) {
-		delete this;
-	} else {
-		show = SHOW_FLAG_KILLED;
-		cleanReferences();
+	LogDebug("destroying entity " << idString());
+	
+	if(instance() > 0 && !(ioflags & IO_NOSAVE)) {
+		if(scriptload) {
+			// In case we previously saved this entity...
+			currentSavedGameRemoveEntity(idString());
+		} else {
+			currentSavedGameStoreEntityDeletion(idString());
+		}
 	}
+	
+	if(obj) {
+		while(!obj->linked.empty()) {
+			if(obj->linked[0].lgroup != ObjVertGroup() && obj->linked[0].obj) {
+				Entity * linked = obj->linked[0].io;
+				if(linked && ValidIOAddress(linked)) {
+					EERIE_LINKEDOBJ_UnLinkObjectFromObject(obj, linked->obj);
+					linked->destroy();
+				}
+			}
+		}
+	}
+	
+	delete this;
 	
 }
 
+void Entity::destroyOne() {
+	
+	if((ioflags & IO_ITEM) && _itemdata->count > 1) {
+		_itemdata->count--;
+	} else {
+		destroy();
+	}
+	
+}

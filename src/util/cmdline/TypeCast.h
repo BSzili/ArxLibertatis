@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -38,11 +38,11 @@
 
 namespace util { namespace cmdline {
 
-/// default strategy for types convertation
+//! default strategy for types convertation
 struct type_cast {
 	
-	/// converts input parameter to value which type is Dest
-	template<typename Dest, typename Source>
+	//! converts input parameter to value which type is Dest
+	template <typename Dest, typename Source>
 	Dest cast(const Source & str) const {
 		return boost::lexical_cast<Dest>(str);
 	}

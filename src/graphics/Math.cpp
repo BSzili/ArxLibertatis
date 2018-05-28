@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,11 +47,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/Math.h"
 
 #include <algorithm>
+#include <limits>
+
+#include <glm/gtc/type_ptr.hpp>
 
 #include "graphics/GraphicsTypes.h"
-
-using std::min;
-using std::max;
 
 /* Triangle/triangle intersection test routine,
  * int tri_tri_intersect(float V0[3],float V1[3],float V2[3],
@@ -63,36 +63,25 @@ using std::max;
  *
  */
 
-#define OPTIM_COMPUTE_INTERVALS(VV0,VV1,VV2,D0,D1,D2,D0D1,D0D2,A,B,C,X0,X1) \
+#define OPTIM_COMPUTE_INTERVALS(VV0, VV1, VV2, D0, D1, D2, D0D1, D0D2, A, B, C, X0, X1) \
 	{ \
-		if(D0D1>0.0f) \
-		{ \
-			/* here we know that D0D2<=0.0 */ \
+		if(D0D1 > 0.0f) { \
+			/* here we know that D0D2 <= 0.0 */ \
 			/* that is D0, D1 are on the same side, D2 on the other or on the plane */ \
-			A=VV2; B=(VV0-VV2)*D2; C=(VV1-VV2)*D2; X0=D2-D0; X1=D2-D1; \
-		} \
-		else if(D0D2>0.0f)\
-		{ \
-			/* here we know that d0d1<=0.0 */ \
-			A=VV1; B=(VV0-VV1)*D1; C=(VV2-VV1)*D1; X0=D1-D0; X1=D1-D2; \
-		} \
-		else if(D1*D2>0.0f || D0!=0.0f) \
-		{ \
-			/* here we know that d0d1<=0.0 or that D0!=0.0 */ \
-			A=VV0; B=(VV1-VV0)*D0; C=(VV2-VV0)*D0; X0=D0-D1; X1=D0-D2; \
-		} \
-		else if(D1!=0.0f) \
-		{ \
-			A=VV1; B=(VV0-VV1)*D1; C=(VV2-VV1)*D1; X0=D1-D0; X1=D1-D2; \
-		} \
-		else if(D2!=0.0f) \
-		{ \
-			A=VV2; B=(VV0-VV2)*D2; C=(VV1-VV2)*D2; X0=D2-D0; X1=D2-D1; \
-		} \
-		else \
-		{ \
+			A = VV2; B = (VV0 - VV2) * D2; C = (VV1 - VV2) * D2; X0 = D2 - D0; X1 = D2 - D1; \
+		} else if(D0D2 > 0.0f) { \
+			/* here we know that d0d1 <= 0.0 */ \
+			A = VV1; B = (VV0 - VV1) * D1; C = (VV2 - VV1) * D1; X0 = D1 - D0; X1 = D1 - D2; \
+		} else if(D1 * D2 > 0.0f || D0 != 0.0f) { \
+			/* here we know that d0d1 <=0 .0 or that D0 != 0.0 */ \
+			A = VV0; B = (VV1 - VV0) * D0; C = (VV2 - VV0) * D0; X0 = D0 - D1; X1 = D0 - D2; \
+		} else if(D1 != 0.0f) { \
+			A = VV1; B = (VV0 - VV1) * D1; C = (VV2 - VV1) * D1; X0 = D1 - D0; X1 = D1 - D2; \
+		} else if(D2 != 0.0f) { \
+			A = VV2; B = (VV0 - VV2) * D2; C = (VV1 - VV2) * D2; X0 = D2 - D0; X1 = D2 - D1; \
+		} else { \
 			/* triangles are coplanar */ \
-			return coplanar_tri_tri(N1,V0,V1,V2,U0,U1,U2); \
+			return coplanar_tri_tri(N1, V0, V1, V2, U0, U1, U2); \
 		} \
 	}
 
@@ -101,74 +90,46 @@ using std::max;
 /* this edge to edge test is based on Franlin Antonio's gem:
    "Faster Line Segment Intersection", in Graphics Gems III,
    pp. 199-202 */
-#define EDGE_EDGE_TEST(V0,U0,U1)                        \
-	Bx=U0[i0]-U1[i0];                                   \
-	By=U0[i1]-U1[i1];                                   \
-	Cx=V0[i0]-U0[i0];                                   \
-	Cy=V0[i1]-U0[i1];                                   \
-	f=Ay*Bx-Ax*By;                                      \
-	d=By*Cx-Bx*Cy;                                      \
-	if((f>0 && d>=0 && d<=f) || (f<0 && d<=0 && d>=f))  \
-	{                                                   \
-		e=Ax*Cy-Ay*Cx;                                  \
-		if(f>0)                                         \
-		{                                               \
-			if(e>=0 && e<=f) return 1;                  \
-		}                                               \
-		else                                            \
-		{                                               \
-			if(e<=0 && e>=f) return 1;                  \
+#define EDGE_EDGE_TEST(V0, U0, U1) \
+	Bx = U0[i0] - U1[i0];                                   \
+	By = U0[i1] - U1[i1];                                   \
+	Cx = V0[i0] - U0[i0];                                   \
+	Cy = V0[i1] - U0[i1];                                   \
+	f = Ay * Bx - Ax * By;                                      \
+	d = By * Cx - Bx * Cy;                                      \
+	if((f > 0 && d >= 0 && d <= f) || (f < 0 && d <= 0 && d >= f)) { \
+		e = Ax * Cy - Ay * Cx;                             \
+		if(f > 0) {                                               \
+			if(e >= 0 && e <= f) return 1;                  \
+		} else {                                               \
+			if(e <= 0 && e >= f) return 1;                  \
 		}                                               \
 	}
 
-#define EDGE_AGAINST_TRI_EDGES(V0,V1,U0,U1,U2)       \
-	{                                                \
-		float Ax,Ay,Bx,By,Cx,Cy,e,d,f;               \
-		Ax=V1[i0]-V0[i0];                            \
-		Ay=V1[i1]-V0[i1];                            \
-		/* test edge U0,U1 against V0,V1 */          \
-		EDGE_EDGE_TEST(V0,U0,U1);                    \
-		/* test edge U1,U2 against V0,V1 */          \
-		EDGE_EDGE_TEST(V0,U1,U2);                    \
-		/* test edge U2,U1 against V0,V1 */          \
-		EDGE_EDGE_TEST(V0,U2,U0);                    \
+#define EDGE_AGAINST_TRI_EDGES(V0, V1, U0, U1, U2) \
+	{ \
+		float Ax, Ay, Bx, By, Cx, Cy, e, d, f; \
+		Ax = V1[i0] - V0[i0]; \
+		Ay = V1[i1] - V0[i1]; \
+		/* test edge U0,U1 against V0,V1 */ \
+		EDGE_EDGE_TEST(V0, U0, U1); \
+		/* test edge U1,U2 against V0,V1 */ \
+		EDGE_EDGE_TEST(V0, U1, U2); \
+		/* test edge U2,U1 against V0,V1 */ \
+		EDGE_EDGE_TEST(V0, U2, U0); \
 	}
 
-#define POINT_IN_TRI(V0,U0,U1,U2)                 \
-	{                                             \
-		float a,b,c,d0,d1,d2;                     \
-		/* is T1 completly inside T2? */          \
-		/* check if V0 is inside tri(U0,U1,U2) */ \
-		a=U1[i1]-U0[i1];                          \
-		b=-(U1[i0]-U0[i0]);                       \
-		c=-a*U0[i0]-b*U0[i1];                     \
-		d0=a*V0[i0]+b*V0[i1]+c;                   \
-		\
-		a=U2[i1]-U1[i1];                          \
-		b=-(U2[i0]-U1[i0]);                       \
-		c=-a*U1[i0]-b*U1[i1];                     \
-		d1=a*V0[i0]+b*V0[i1]+c;                   \
-		\
-		a=U0[i1]-U2[i1];                          \
-		b=-(U0[i0]-U2[i0]);                       \
-		c=-a*U2[i0]-b*U2[i1];                     \
-		d2=a*V0[i0]+b*V0[i1]+c;                   \
-		if(d0*d1>0.0)                             \
-		{                                         \
-			if(d0*d2>0.0) return 1;               \
-		}                                         \
-	}
-
-int coplanar_tri_tri(const float N[3], const float V0[3], const float V1[3], const float V2[3],
-                     const float U0[3], const float U1[3], const float U2[3])
-{
+static int coplanar_tri_tri(const float N[3], const float V0[3], const float V1[3],
+                            const float V2[3], const float U0[3], const float U1[3],
+                            const float U2[3]) {
+	
 	float A[3];
 	short i0, i1;
 	/* first project onto an axis-aligned plane, that maximizes the area */
 	/* of the triangles, compute indices: i0,i1. */
-	A[0] = EEfabs(N[0]);
-	A[1] = EEfabs(N[1]);
-	A[2] = EEfabs(N[2]);
+	A[0] = glm::abs(N[0]);
+	A[1] = glm::abs(N[1]);
+	A[2] = glm::abs(N[2]);
 
 	if (A[0] > A[1])
 	{
@@ -205,26 +166,22 @@ int coplanar_tri_tri(const float N[3], const float V0[3], const float V1[3], con
 	return 0;
 }
 
-#define CROSS(dest,v1,v2) \
-	dest[0]=v1[1]*v2[2]-v1[2]*v2[1]; \
-	dest[1]=v1[2]*v2[0]-v1[0]*v2[2]; \
-	dest[2]=v1[0]*v2[1]-v1[1]*v2[0];
+#define CROSS(dest, v1, v2) \
+	dest[0] = v1[1] * v2[2] - v1[2] * v2[1]; \
+	dest[1] = v1[2] * v2[0] - v1[0] * v2[2]; \
+	dest[2] = v1[0] * v2[1] - v1[1] * v2[0];
 
-#define DOT(v1,v2) (v1[0]*v2[0]+v1[1]*v2[1]+v1[2]*v2[2])
+#define DOT(v1, v2) (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2])
 
-#define SUB(dest,v1,v2) \
-	dest[0]=v1[0]-v2[0]; \
-	dest[1]=v1[1]-v2[1]; \
-	dest[2]=v1[2]-v2[2];
+#define SUB(dest, v1, v2) \
+	dest[0] = v1[0] - v2[0]; \
+	dest[1] = v1[1] - v2[1]; \
+	dest[2] = v1[2] - v2[2];
 
 /* sort so that a<=b */
-#define SORT(a,b)       \
-	if(a>b)    \
-	{          \
-		float c; \
-		c=a;     \
-		a=b;     \
-		b=c;     \
+#define SORT(a, b) \
+	if(a > b) { \
+		std::swap(a, b); \
 	}
 
 //***********************************************************************************************
@@ -233,8 +190,8 @@ int coplanar_tri_tri(const float N[3], const float V0[3], const float V1[3], con
 // VERIFIED (Cyril 2001/10/19)
 // OPTIMIZED (Cyril 2001/10/19) removed divisions, need some more optims perhaps...
 //***********************************************************************************************
-int tri_tri_intersect(const EERIE_TRI * VV, const EERIE_TRI * UU) 
-{
+static int tri_tri_intersect(const EERIE_TRI & VV, const EERIE_TRI & UU)  {
+	
 	float E1[3], E2[3];
 	float N1[3], N2[3], d1, d2;
 	float du0, du1, du2, dv0, dv1, dv2;
@@ -256,13 +213,14 @@ int tri_tri_intersect(const EERIE_TRI * VV, const EERIE_TRI * UU)
 	const float * U0;
 	const float * U1;
 	const float * U2;
-	V0 = VV->v[0].elem;
-	V1 = VV->v[1].elem;
-	V2 = VV->v[2].elem;
 
-	U0 = UU->v[0].elem;
-	U1 = UU->v[1].elem;
-	U2 = UU->v[2].elem;
+	V0 = glm::value_ptr(VV.v[0]);
+	V1 = glm::value_ptr(VV.v[1]);
+	V2 = glm::value_ptr(VV.v[2]);
+
+	U0 = glm::value_ptr(UU.v[0]);
+	U1 = glm::value_ptr(UU.v[1]);
+	U2 = glm::value_ptr(UU.v[2]);
 
 	/* compute plane equation of triangle(V0,V1,V2) */
 	SUB(E1, V1, V0);
@@ -305,10 +263,10 @@ int tri_tri_intersect(const EERIE_TRI * VV, const EERIE_TRI * UU)
 	CROSS(D, N1, N2);
 
 	// compute and index to the largest component of D
-	max = (float)EEfabs(D[0]);
+	max = glm::abs(D[0]);
 	index = 0;
-	bb = (float)EEfabs(D[1]);
-	cc = (float)EEfabs(D[2]);
+	bb = glm::abs(D[1]);
+	cc = glm::abs(D[2]);
 
 	if (bb > max) max = bb, index = 1;
 
@@ -354,31 +312,34 @@ int tri_tri_intersect(const EERIE_TRI * VV, const EERIE_TRI * UU)
 #undef SUB
 
 // Computes Bounding Box for a triangle
-static inline void Triangle_ComputeBoundingBox(EERIE_3D_BBOX * bb, const EERIE_TRI * v) {
-	bb->min.x = min(v->v[0].x, v->v[1].x);
-	bb->min.x = min(bb->min.x, v->v[2].x);
+static EERIE_3D_BBOX Triangle_ComputeBoundingBox(const EERIE_TRI & v) {
+	EERIE_3D_BBOX bb;
+	
+	bb.min.x = std::min(v.v[0].x, v.v[1].x);
+	bb.min.x = std::min(bb.min.x, v.v[2].x);
 
-	bb->max.x = max(v->v[0].x, v->v[1].x);
-	bb->max.x = max(bb->max.x, v->v[2].x);
+	bb.max.x = std::max(v.v[0].x, v.v[1].x);
+	bb.max.x = std::max(bb.max.x, v.v[2].x);
 
-	bb->min.y = min(v->v[0].y, v->v[1].y);
-	bb->min.y = min(bb->min.y, v->v[2].y);
+	bb.min.y = std::min(v.v[0].y, v.v[1].y);
+	bb.min.y = std::min(bb.min.y, v.v[2].y);
 
-	bb->max.y = max(v->v[0].y, v->v[1].y);
-	bb->max.y = max(bb->max.y, v->v[2].y);
+	bb.max.y = std::max(v.v[0].y, v.v[1].y);
+	bb.max.y = std::max(bb.max.y, v.v[2].y);
 
-	bb->min.z = min(v->v[0].z, v->v[1].z);
-	bb->min.z = min(bb->min.z, v->v[2].z);
+	bb.min.z = std::min(v.v[0].z, v.v[1].z);
+	bb.min.z = std::min(bb.min.z, v.v[2].z);
 
-	bb->max.z = max(v->v[0].z, v->v[1].z);
-	bb->max.z = max(bb->max.z, v->v[2].z);
+	bb.max.z = std::max(v.v[0].z, v.v[1].z);
+	bb.max.z = std::max(bb.max.z, v.v[2].z);
+	
+	return bb;
 }
 
-bool Triangles_Intersect(const EERIE_TRI * v, const EERIE_TRI * u)
+bool Triangles_Intersect(const EERIE_TRI & v, const EERIE_TRI & u)
 {
-	EERIE_3D_BBOX bb1, bb2;
-	Triangle_ComputeBoundingBox(&bb1, v);
-	Triangle_ComputeBoundingBox(&bb2, u);
+	EERIE_3D_BBOX bb1 = Triangle_ComputeBoundingBox(v);
+	EERIE_3D_BBOX bb2 = Triangle_ComputeBoundingBox(u);
 
 	if (bb1.max.y < bb2.min.y) return false;
 
@@ -391,376 +352,155 @@ bool Triangles_Intersect(const EERIE_TRI * v, const EERIE_TRI * u)
 	if (bb1.max.z < bb2.min.z) return false;
 
 	if (bb1.min.z > bb2.max.z) return false;
-
-	if (tri_tri_intersect(v, u)) 
-		return true;
-
-	return false;
+	
+	return tri_tri_intersect(v, u) != 0;
 }
-
-///////////////////////////////////////////////////////////////////////////////////
-
-#define X 0
-#define Y 1
-#define Z 2
-
-#define FINDMINMAX(x0,x1,x2,min,max) \
-	min = max = x0;   \
-	if(x1<min) min=x1;\
-	else if(x1>max) max=x1;\
-	if(x2<min) min=x2;\
-	else if(x2>max) max=x2;
-
-/*======================== X-tests ========================*/
-#define AXISTEST_X01(a, b, fa, fb)			   \
-	p0 = a*v0[Y] - b*v0[Z];			       	   \
-	p2 = a*v2[Y] - b*v2[Z];			       	   \
-	if(p0<p2) {min=p0; max=p2;} else {min=p2; max=p0;} \
-	rad = fa * boxhalfsize[Y] + fb * boxhalfsize[Z];   \
-	if(min>rad || max<-rad) return 0;
-
-#define AXISTEST_X2(a, b, fa, fb)			   \
-	p0 = a*v0[Y] - b*v0[Z];			           \
-	p1 = a*v1[Y] - b*v1[Z];			       	   \
-	if(p0<p1) {min=p0; max=p1;} else {min=p1; max=p0;} \
-	rad = fa * boxhalfsize[Y] + fb * boxhalfsize[Z];   \
-	if(min>rad || max<-rad) return 0;
-
-/*======================== Y-tests ========================*/
-#define AXISTEST_Y02(a, b, fa, fb)			   \
-	p0 = -a*v0[X] + b*v0[Z];		      	   \
-	p2 = -a*v2[X] + b*v2[Z];	       	       	   \
-	if(p0<p2) {min=p0; max=p2;} else {min=p2; max=p0;} \
-	rad = fa * boxhalfsize[X] + fb * boxhalfsize[Z];   \
-	if(min>rad || max<-rad) return 0;
-
-#define AXISTEST_Y1(a, b, fa, fb)			   \
-	p0 = -a*v0[X] + b*v0[Z];		      	   \
-	p1 = -a*v1[X] + b*v1[Z];	     	       	   \
-	if(p0<p1) {min=p0; max=p1;} else {min=p1; max=p0;} \
-	rad = fa * boxhalfsize[X] + fb * boxhalfsize[Z];   \
-	if(min>rad || max<-rad) return 0;
-
-/*======================== Z-tests ========================*/
-
-#define AXISTEST_Z12(a, b, fa, fb)			   \
-	p1 = a*v1[X] - b*v1[Y];			           \
-	p2 = a*v2[X] - b*v2[Y];			       	   \
-	if(p2<p1) {min=p2; max=p1;} else {min=p1; max=p2;} \
-	rad = fa * boxhalfsize[X] + fb * boxhalfsize[Y];   \
-	if(min>rad || max<-rad) return 0;
-
-#define AXISTEST_Z0(a, b, fa, fb)			   \
-	p0 = a*v0[X] - b*v0[Y];				   \
-	p1 = a*v1[X] - b*v1[Y];			           \
-	if(p0<p1) {min=p0; max=p1;} else {min=p1; max=p0;} \
-	rad = fa * boxhalfsize[X] + fb * boxhalfsize[Y];   \
-	if(min>rad || max<-rad) return 0;
-
-//*******************************************************************************************
-//*******************************************************************************************
 
 // Cylinder y origin must be min Y of cylinder
 // Cylinder height MUST be negative FROM origin (inverted Theo XYZ system Legacy)
-bool CylinderInCylinder(const EERIE_CYLINDER * cyl1, const EERIE_CYLINDER * cyl2)
-{
-	if (cyl1 == cyl2) return false;
-
-	float m1 = cyl1->origin.y;					//tokeep: max(cyl1->origin.y,cyl1->origin.y+cyl1->height);
-	float m2 = cyl2->origin.y + cyl2->height;	//tokeep: min(cyl2->origin.y,cyl2->origin.y+cyl2->height);
-
+bool CylinderInCylinder(const Cylinder & cyl1, const Cylinder & cyl2) {
+	
+	float m1 = cyl1.origin.y;
+	float m2 = cyl2.origin.y + cyl2.height;
+	
 	if (m2 > m1) return false;
-
-	m1 = cyl1->origin.y + cyl1->height;			//tokeep: min(cyl1->origin.y,cyl1->origin.y+cyl1->height);
-	m2 = cyl2->origin.y;						//tokeep: max(cyl2->origin.y,cyl2->origin.y+cyl2->height);
-
+	
+	m1 = cyl1.origin.y + cyl1.height;
+	m2 = cyl2.origin.y;
+	
 	if (m1 > m2) return false;
-
-	m1 = cyl1->radius + cyl2->radius;
-
-	if(!fartherThan(Vec2f(cyl1->origin.x, cyl1->origin.z), Vec2f(cyl2->origin.x, cyl2->origin.z), m1)) {
-		return true;
-	}
-
-	return false;
+	
+	m1 = cyl1.radius + cyl2.radius;
+	
+	return !fartherThan(Vec2f(cyl1.origin.x, cyl1.origin.z), Vec2f(cyl2.origin.x, cyl2.origin.z), m1);
 }
 
 // Sort of...
-bool SphereInCylinder(const EERIE_CYLINDER * cyl1, const EERIE_SPHERE * s)
+bool SphereInCylinder(const Cylinder & cyl1, const Sphere & s)
 {
-	float m1 = max(cyl1->origin.y, cyl1->origin.y + cyl1->height);
-	float m2 = s->origin.y - s->radius;
+	float m1 = std::max(cyl1.origin.y, cyl1.origin.y + cyl1.height);
+	float m2 = s.origin.y - s.radius;
 
 	if (m2 > m1) return false;
 
-	m1 = min(cyl1->origin.y, cyl1->origin.y + cyl1->height);
-	m2 = s->origin.y + s->radius;
+	m1 = std::min(cyl1.origin.y, cyl1.origin.y + cyl1.height);
+	m2 = s.origin.y + s.radius;
 
 	if (m1 > m2) return false;
-
-	if(!fartherThan(Vec2f(cyl1->origin.x, cyl1->origin.z), Vec2f(s->origin.x, s->origin.z), cyl1->radius + s->radius)) {
-		return true;
-	}
 	
-	return false;
+	return !fartherThan(Vec2f(cyl1.origin.x, cyl1.origin.z), Vec2f(s.origin.x, s.origin.z), cyl1.radius + s.radius);
 }
 
 //--------------------------------------------------------------------------------------
 // Quaternions Funcs
 //--------------------------------------------------------------------------------------
 
-//*************************************************************************************
-// Multiply Quaternion 'q1' by Quaternion 'q2', returns result in Quaternion 'dest'
-//*************************************************************************************
-void Quat_Multiply(EERIE_QUAT * dest, const EERIE_QUAT * q1, const EERIE_QUAT * q2)
+glm::quat Quat_Slerp(const glm::quat & from, glm::quat to, float ratio)
 {
-	/*
-	Fast multiplication
-
-	There are some schemes available that reduces the number of internal
-	multiplications when doing quaternion multiplication. Here is one:
-
-	   q = (a, b, c, d), p = (x, y, z, w)
-
-	   tmp_00 = (d - c) * (z - w)
-	   tmp_01 = (a + b) * (x + y)
-	   tmp_02 = (a - b) * (z + w)
-	   tmp_03 = (c + d) * (x - y)
-	   tmp_04 = (d - b) * (y - z)
-	   tmp_05 = (d + b) * (y + z)
-	   tmp_06 = (a + c) * (x - w)
-	   tmp_07 = (a - c) * (x + w)
-	   tmp_08 = tmp_05 + tmp_06 + tmp_07
-	   tmp_09 = 0.5 * (tmp_04 + tmp_08)
-
-	   q * p = (tmp_00 + tmp_09 - tmp_05,
-	            tmp_01 + tmp_09 - tmp_08,
-	            tmp_02 + tmp_09 - tmp_07,
-	            tmp_03 + tmp_09 - tmp_06)
-
-	With this method You get 7 less multiplications, but 15 more
-	additions/subtractions. Generally, this is still an improvement.
-	  */
-
-	dest->x = q1->w * q2->x + q1->x * q2->w + q1->y * q2->z - q1->z * q2->y;
-	dest->y = q1->w * q2->y + q1->y * q2->w + q1->z * q2->x - q1->x * q2->z;
-	dest->z = q1->w * q2->z + q1->z * q2->w + q1->x * q2->y - q1->y * q2->x;
-	dest->w = q1->w * q2->w - q1->x * q2->x - q1->y * q2->y - q1->z * q2->z;
-}
-
-//*************************************************************************************
-// Invert Multiply of a quaternion by another quaternion
-//*************************************************************************************
-void Quat_Divide(EERIE_QUAT * dest, const EERIE_QUAT * q1, const EERIE_QUAT * q2)
-{
-	dest->x = q1->w * q2->x - q1->x * q2->w - q1->y * q2->z + q1->z * q2->y;
-	dest->y = q1->w * q2->y - q1->y * q2->w - q1->z * q2->x + q1->x * q2->z;
-	dest->z = q1->w * q2->z - q1->z * q2->w - q1->x * q2->y + q1->y * q2->x;
-	dest->w = q1->w * q2->w + q1->x * q2->x + q1->y * q2->y + q1->z * q2->z;
-}
-
-// Invert-Transform of vertex by a quaternion
-void TransformInverseVertexQuat(const EERIE_QUAT * quat, const Vec3f * vertexin,
-                                Vec3f * vertexout) {
-	
-	EERIE_QUAT rev_quat;
-	Quat_Copy(&rev_quat, quat);
-	Quat_Reverse(&rev_quat);
-	
-	float x = vertexin->x;
-	float y = vertexin->y;
-	float z = vertexin->z;
-	
-	float qx = rev_quat.x;
-	float qy = rev_quat.y;
-	float qz = rev_quat.z;
-	float qw = rev_quat.w;
-	
-	float rx = x * qw - y * qz + z * qy;
-	float ry = y * qw - z * qx + x * qz;
-	float rz = z * qw - x * qy + y * qx;
-	float rw = x * qx + y * qy + z * qz;
-	
-	vertexout->x = qw * rx + qx * rw + qy * rz - qz * ry;
-	vertexout->y = qw * ry + qy * rw + qz * rx - qx * rz;
-	vertexout->z = qw * rz + qz * rw + qx * ry - qy * rx;
-}
-
-
-void Quat_Slerp(EERIE_QUAT * result, const EERIE_QUAT * from, EERIE_QUAT * to, float ratio)
-{
-	float fCosTheta = from->x * to->x + from->y * to->y + from->z * to->z + from->w * to->w;
+	float fCosTheta = from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w;
 
 	if (fCosTheta < 0.0f)
 	{
 		fCosTheta = -fCosTheta;
-		to->x = -to->x;
-		to->y = -to->y;
-		to->z = -to->z;
-		to->w = -to->w;
+		to.x = -to.x;
+		to.y = -to.y;
+		to.z = -to.z;
+		to.w = -to.w;
 	}
 
 	float fBeta = 1.f - ratio;
 
 	if (1.0f - fCosTheta > 0.001f)
 	{
-		float fTheta = acosf(fCosTheta);
-		float t = 1 / EEsin(fTheta);
-		fBeta  = EEsin(fTheta * fBeta) * t ;
-		ratio = EEsin(fTheta * ratio) * t ;
+		float fTheta = glm::acos(fCosTheta);
+		float t = 1 / std::sin(fTheta);
+		fBeta = std::sin(fTheta * fBeta) * t;
+		ratio = std::sin(fTheta * ratio) * t;
 	}
 
-	result->x = fBeta * from->x + ratio * to->x;
-	result->y = fBeta * from->y + ratio * to->y;
-	result->z = fBeta * from->z + ratio * to->z;
-	result->w = fBeta * from->w + ratio * to->w;
+	return glm::quat(
+		fBeta * from.w + ratio * to.w,
+		fBeta * from.x + ratio * to.x,
+		fBeta * from.y + ratio * to.y,
+		fBeta * from.z + ratio * to.z
+	);
 }
-
-
-
-//*************************************************************************************
-// Inverts a Quaternion
-//*************************************************************************************
-void Quat_Reverse(EERIE_QUAT * q)
-{
-	EERIE_QUAT qw, qr;
-	Quat_Init(&qw);
-	Quat_Divide(&qr, q, &qw);
-	Quat_Copy(q, &qr);
-
-}
-
 
 //*************************************************************************************
 // Converts euler angles to a unit quaternion.
 //*************************************************************************************
-void QuatFromAngles(EERIE_QUAT * q, const Anglef * angle)
-
-{
+glm::quat QuatFromAngles(const Anglef & angle) {
 	float A, B;
-	A = angle->yaw * ( 1.0f / 2 );
-	B = angle->pitch * ( 1.0f / 2 );
+	A = glm::radians(angle.getPitch()) * ( 1.0f / 2 );
+	B = glm::radians(angle.getYaw()) * ( 1.0f / 2 );
 
-	float fSinYaw   = sinf(A);
-	float fCosYaw   = cosf(A);
-	float fSinPitch = sinf(B);
-	float fCosPitch = cosf(B);
-	A = angle->roll * ( 1.0f / 2 );
-	float fSinRoll  = sinf(A);
-	float fCosRoll  = cosf(A);
+	float fSinYaw   = glm::sin(A);
+	float fCosYaw   = glm::cos(A);
+	float fSinPitch = glm::sin(B);
+	float fCosPitch = glm::cos(B);
+	A = glm::radians(angle.getRoll()) * ( 1.0f / 2 );
+	float fSinRoll  = glm::sin(A);
+	float fCosRoll  = glm::cos(A);
 	A = fCosRoll * fCosPitch;
 	B = fSinRoll * fSinPitch;
-	q->x = fSinRoll * fCosPitch * fCosYaw - fCosRoll * fSinPitch * fSinYaw;
-	q->y = fCosRoll * fSinPitch * fCosYaw + fSinRoll * fCosPitch * fSinYaw;
-	q->z = A * fSinYaw - B * fCosYaw;
-	q->w = A * fCosYaw + B * fSinYaw;
-
+	
+	glm::quat q;
+	q.x = fSinRoll * fCosPitch * fCosYaw - fCosRoll * fSinPitch * fSinYaw;
+	q.y = fCosRoll * fSinPitch * fCosYaw + fSinRoll * fCosPitch * fSinYaw;
+	q.z = A * fSinYaw - B * fCosYaw;
+	q.w = A * fCosYaw + B * fSinYaw;
+	return q;
 }
 
-//*************************************************************************************
-// Converts a unit quaternion into a rotation matrix.
-//*************************************************************************************
-
-void MatrixFromQuat(EERIEMATRIX * m, const EERIE_QUAT * quat)
-{
-	float wx, wy, wz, xx, yy, yz, xy, xz, zz, x2, y2, z2;
-
-	// calculate coefficients
-	x2 = quat->x + quat->x;
-	y2 = quat->y + quat->y;
-	z2 = quat->z + quat->z;
-	xx = quat->x * x2;
-	xy = quat->x * y2;
-	xz = quat->x * z2;
-	yy = quat->y * y2;
-	yz = quat->y * z2;
-	zz = quat->z * z2;
-	wx = quat->w * x2;
-	wy = quat->w * y2;
-	wz = quat->w * z2;
-
-	m->_11 = 1.0F - (yy + zz);
-	m->_21 = xy - wz;
-	m->_31 = xz + wy;
-	m->_41 = 0.0F;
-
-	m->_12 = xy + wz;
-	m->_22 = 1.0F - (xx + zz);
-	m->_32 = yz - wx;
-	m->_42 = 0.0F;
-
-	m->_13 = xz - wy;
-	m->_23 = yz + wx;
-	m->_33 = 1.0F - (xx + yy);
-	m->_43 = 0.0F;
+glm::mat4 toRotationMatrix(const Anglef & angle) {
+	float pitch = glm::radians(angle.getPitch());
+	float yaw = glm::radians(angle.getYaw());
+	float roll = glm::radians(angle.getRoll());
+	glm::mat4 rotateX = arx::eulerAngleX(pitch);
+	glm::mat4 rotateY = arx::eulerAngleY(yaw);
+	glm::mat4 rotateZ = arx::eulerAngleZ(-roll);
+	return rotateZ * rotateX * rotateY;
 }
 
-//*************************************************************************************
-// Converts a rotation matrix into a unit quaternion.
-//*************************************************************************************
-void QuatFromMatrix(EERIE_QUAT & quat, EERIEMATRIX & mat)
-{
-	float m[4][4];
-	m[0][0] = mat._11;
-	m[0][1] = mat._12;
-	m[0][2] = mat._13;
-	m[0][3] = mat._14;
-	m[1][0] = mat._21;
-	m[1][1] = mat._22;
-	m[1][2] = mat._23;
-	m[1][3] = mat._24;
-	m[2][0] = mat._31;
-	m[2][1] = mat._32;
-	m[2][2] = mat._33;
-	m[2][3] = mat._34;
-	m[3][0] = mat._41;
-	m[3][1] = mat._42;
-	m[3][2] = mat._43;
-	m[3][3] = mat._44;
-	float  tr, s, q[4];
 
-	int nxt[3] = {1, 2, 0};
+glm::quat angleToQuatForArrow(const Anglef & angle) {
+	float aa = angle.getPitch();
+	float ab = 90.f - angle.getYaw();
+	
+	Vec3f front(0.f, 0.f, 1.f);
+	Vec3f up(0.f, -1.f, 0.f);
+	
+	front = VRotateZ(front, aa);
+	front = VRotateY(front, ab);
+	up = VRotateZ(up, aa);
+	up = VRotateY(up, ab);
+	
+	glm::mat4x4 tmat;
+	MatrixSetByVectors(tmat, front, up);
+	return glm::quat_cast(tmat);
+}
 
-	tr = m[0][0] + m[1][1] + m[2][2];
+glm::quat angleToQuatForExtraRotation(const Anglef & angle) {
+	Anglef vt1;
+	vt1.setPitch(angle.getRoll());
+	vt1.setYaw(angle.getYaw());
+	vt1.setRoll(angle.getPitch());
+	
+	return QuatFromAngles(vt1);
+}
 
-	// check the diagonal
-	if (tr > 0.0f)
-	{
-		s = sqrt(tr + 1.0f);
-		quat.w = s * ( 1.0f / 2 );
-		s = 0.5f / s;
-		quat.x = (m[1][2] - m[2][1]) * s;
-		quat.y = (m[2][0] - m[0][2]) * s;
-		quat.z = (m[0][1] - m[1][0]) * s;
-	}
-	else
-	{
-		// diagonal is negative
-		int i = 0;
-
-		if (m[1][1] > m[0][0]) i = 1;
-
-		if (m[2][2] > m[i][i]) i = 2;
-
-		int j = nxt[i];
-		int k = nxt[j];
-
-		s = sqrt((m[i][i] - (m[j][j] + m[k][k])) + 1.0f);
-
-		q[i] = s * 0.5f;
-
-		if (s != 0.0) s = 0.5f / s;
-
-		q[3] = (m[j][k] - m[k][j]) * s;
-		q[j] = (m[i][j] + m[j][i]) * s;
-		q[k] = (m[i][k] + m[k][i]) * s;
-
-
-		quat.x = q[0];
-		quat.y = q[1];
-		quat.z = q[2];
-		quat.w = q[3];
-	}
+std::pair<Vec3f, Vec3f> angleToFrontUpVec(const Anglef & angle) {
+	
+	Vec3f front = angleToVector(angle);
+	Vec3f up = angleToVector(angle + Anglef(90.f, 0, 0));
+	
+	arx_assert_msg(glm::abs(glm::dot(front, up)) < 5.f * std::numeric_limits<float>::epsilon(),
+	               "front=(%f,%f,%f) and up=(%f,%f,%f) should be orthogonal; dot=%1f*epsilon",
+	               double(front.x), double(front.y), double(front.z),
+	               double(up.x), double(up.y), double(up.z),
+	               double(glm::dot(front, up) / std::numeric_limits<float>::epsilon()));
+	
+	return std::make_pair(front, up);
 }
 
 //--------------------------------------------------------------------------------------
@@ -768,186 +508,127 @@ void QuatFromMatrix(EERIE_QUAT & quat, EERIEMATRIX & mat)
 //--------------------------------------------------------------------------------------
 
 // Rotates a Vector around X. angle is given in degrees
-void VRotateX(Vec3f * out, const float angle) {
-	Vec3f in = *out;
-	float s = radians(angle);
-	float c = EEcos(s);
-	s = EEsin(s);
-	*out = Vec3f(in.x, (in.y * c) + (in.z * s), (in.z * c) - (in.y * s));
+Vec3f VRotateX(const Vec3f in, const float angle) {
+	float s = glm::radians(angle);
+	float c = std::cos(s);
+	s = std::sin(s);
+	return Vec3f(in.x, (in.y * c) + (in.z * s), (in.z * c) - (in.y * s));
 }
 
 // Rotates a Vector around Y. angle is given in degrees
-void VRotateY(Vec3f * out, const float angle) {
-	Vec3f in = *out;
-	float s = radians(angle);
-	float c = EEcos(s);
-	s = EEsin(s);
-	*out = Vec3f((in.x * c) + (in.z * s), in.y, (in.z * c) - (in.x * s));
+Vec3f VRotateY(const Vec3f in, const float angle) {
+	float s = glm::radians(angle);
+	float c = std::cos(s);
+	s = std::sin(s);
+	return Vec3f((in.x * c) + (in.z * s), in.y, (in.z * c) - (in.x * s));
 }
 
 // Rotates a Vector around Z. angle is given in degrees
-void VRotateZ(Vec3f * out, const float angle) {
-	Vec3f in = *out;
-	float s = radians(angle);
-	float c = EEcos(s);
-	s = EEsin(s);
-	*out = Vec3f((in.x * c) + (in.y * s), (in.y * c) - (in.x * s), in.z);
+Vec3f VRotateZ(const Vec3f in, const float angle) {
+	float s = glm::radians(angle);
+	float c = std::cos(s);
+	s = std::sin(s);
+	return Vec3f((in.x * c) + (in.y * s), (in.y * c) - (in.x * s), in.z);
 }
 
-// Rotates a Vector around Y. angle is given in degrees
-void Vector_RotateY(Vec3f * dest, const Vec3f * src, const float angle) {
-	float s = radians(angle);
-	float c = EEcos(s);
-	s = EEsin(s);
-	*dest = Vec3f((src->x * c) + (src->z * s), src->y, (src->z * c) - (src->x * s));
+Vec3f angleToVectorXZ(float angleDegrees) {
+	float t = glm::radians(angleDegrees);
+	return Vec3f(-std::sin(t), 0.f, std::cos(t));
 }
 
-// Rotates a Vector around Z. angle is given in degrees
-void Vector_RotateZ(Vec3f * dest, const Vec3f * src, const float angle) {
-	float s = radians(angle);
-	float c = EEcos(s);
-	s = EEsin(s);
-	*dest = Vec3f((src->x * c) + (src->y * s), (src->y * c) - (src->x * s), src->z);
+Vec3f angleToVectorXZ_180offset(float angleDegrees) {
+	float t = glm::radians(angleDegrees);
+	return Vec3f(std::sin(t), 0.f, -std::cos(t));
+}
+
+Vec3f angleToVector(const Anglef & angle) {
+	Vec3f cam_vector = angleToVectorXZ(angle.getYaw());
+	
+	float pitch = glm::radians(angle.getPitch());
+	cam_vector.x *= std::cos(pitch);
+	cam_vector.y = std::sin(pitch);
+	cam_vector.z *= std::cos(pitch);
+	
+	return cam_vector;
 }
 
 //A x B = <Ay*Bz - Az*By, Az*Bx - Ax*Bz, Ax*By - Ay*Bx>
-void CalcFaceNormal(EERIEPOLY * ep, const TexturedVertex * v) {
+Vec3f CalcFaceNormal(const Vec3f * v) {
 	
-	float Ax, Ay, Az, Bx, By, Bz;
-	Ax = v[1].p.x - v[0].p.x;
-	Ay = v[1].p.y - v[0].p.y;
-	Az = v[1].p.z - v[0].p.z;
+	Vec3f A = v[1] - v[0];
+	Vec3f B = v[2] - v[0];
 	
-	Bx = v[2].p.x - v[0].p.x;
-	By = v[2].p.y - v[0].p.y;
-	Bz = v[2].p.z - v[0].p.z;
-	
-	ep->norm = Vec3f(Ay * Bz - Az * By, Az * Bx - Ax * Bz, Ax * By - Ay * Bx);
-	fnormalize(ep->norm);
+	return glm::normalize(Vec3f(A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x));
 }
 
-void CalcObjFaceNormal(const Vec3f * v0, const Vec3f * v1, const Vec3f * v2,
-                       EERIE_FACE * ef) {
-	
-	float Ax, Ay, Az, Bx, By, Bz;
-	Ax = v1->x - v0->x;
-	Ay = v1->y - v0->y;
-	Az = v1->z - v0->z;
-	Bx = v2->x - v0->x;
-	By = v2->y - v0->y;
-	Bz = v2->z - v0->z;
-	
-	ef->norm = Vec3f(Ay * Bz - Az * By, Az * Bx - Ax * Bz, Ax * By - Ay * Bx);
-	ef->norm.normalize();
-}
-
-void MatrixReset(EERIEMATRIX * mat) {
-	memset(mat, 0, sizeof(EERIEMATRIX));
-}
-
-void MatrixSetByVectors(EERIEMATRIX * m, const Vec3f * d, const Vec3f * u)
+void MatrixSetByVectors(glm::mat4x4 & m, const Vec3f & d, const Vec3f & u)
 {
 	float t;
 	Vec3f D, U, R;
-	D = d->getNormalized();
-	U = *u;
+	D = glm::normalize(d);
+	U = u;
 	t = U.x * D.x + U.y * D.y + U.z * D.z;
 	U.x -= D.x * t;
 	U.y -= D.y * t;
 	U.z -= D.y * t; // TODO is this really supposed to be D.y?
-	U.normalize();
-	R = cross(U, D);
-	m->_11 = R.x;
-	m->_12 = R.y;
-	m->_21 = U.x;
-	m->_22 = U.y;
-	m->_31 = D.x;
-	m->_32 = D.y;
-	m->_33 = D.z;
-	m->_13 = R.z;
-	m->_23 = U.z;
+	U = glm::normalize(U);
+	R = glm::cross(U, D);
+	m[0][0] = R.x;
+	m[0][1] = R.y;
+	m[1][0] = U.x;
+	m[1][1] = U.y;
+	m[2][0] = D.x;
+	m[2][1] = D.y;
+	m[2][2] = D.z;
+	m[0][2] = R.z;
+	m[1][2] = U.z;
 }
 
-void GenerateMatrixUsingVector(EERIEMATRIX * matrix, const Vec3f * vect, float rollDegrees)
+void GenerateMatrixUsingVector(glm::mat4x4 & matrix, const Vec3f & vect, float rollDegrees)
 {
 	// Get our direction vector (the Z vector component of the matrix)
 	// and make sure it's normalized into a unit vector
-	Vec3f zAxis = vect->getNormalized();
+	Vec3f zAxis = glm::normalize(vect);
 
 	// Build the Y vector of the matrix (handle the degenerate case
 	// in the way that 3DS does) -- This is not the true vector, only
 	// a reference vector.
 	Vec3f yAxis;
 
-	if (!zAxis.x && !zAxis.z)
+	if(zAxis.x == 0.f && zAxis.z == 0.f)
 		yAxis = Vec3f(-zAxis.y, 0.f, 0.f);
 	else
 		yAxis = Vec3f(0.f, 1.f, 0.f);
 
 	// Build the X axis vector based on the two existing vectors
-	Vec3f xAxis = cross(yAxis, zAxis).getNormalized();
+	Vec3f xAxis = glm::normalize(glm::cross(yAxis, zAxis));
 
 	// Correct the Y reference vector
-	yAxis = cross(xAxis, zAxis).getNormalized();
+	yAxis = glm::normalize(glm::cross(xAxis, zAxis));
 	yAxis = -yAxis;
 
 	// Generate rotation matrix without roll included
-	EERIEMATRIX rot, roll;
-	MatrixReset(&rot);
-	MatrixReset(&roll);
-	rot._11 = yAxis.x;
-	rot._12 = yAxis.y;
-	rot._13 = yAxis.z;
-	rot._21 = zAxis.x;
-	rot._22 = zAxis.y;
-	rot._23 = zAxis.z;
-	rot._31 = xAxis.x;
-	rot._32 = xAxis.y;
-	rot._33 = xAxis.z;
+	glm::mat4x4 rot;
+	glm::mat4x4 roll;
+	rot[0][0] = yAxis.x;
+	rot[0][1] = yAxis.y;
+	rot[0][2] = yAxis.z;
+	rot[1][0] = zAxis.x;
+	rot[1][1] = zAxis.y;
+	rot[1][2] = zAxis.z;
+	rot[2][0] = xAxis.x;
+	rot[2][1] = xAxis.y;
+	rot[2][2] = xAxis.z;
 
 	// Generate the Z rotation matrix for roll
-	roll._33 = 1.f;
-	roll._44 = 1.f;
-	roll._11 = EEcos(radians(rollDegrees));
-	roll._12 = -EEsin(radians(rollDegrees));
-	roll._21 = EEsin(radians(rollDegrees));
-	roll._22 = EEcos(radians(rollDegrees));
+	roll[2][2] = 1.f;
+	roll[3][3] = 1.f;
+	roll[0][0] =  std::cos(glm::radians(rollDegrees));
+	roll[0][1] = -std::sin(glm::radians(rollDegrees));
+	roll[1][0] =  std::sin(glm::radians(rollDegrees));
+	roll[1][1] =  std::cos(glm::radians(rollDegrees));
 
 	// Concatinate them for a complete rotation matrix that includes
 	// all rotations
-	MatrixMultiply(matrix, &rot, &roll);
+	matrix = roll * rot;
 }
-
-
-//-----------------------------------------------------------------------------
-// MatrixMultiply()
-// Does the matrix operation: [Q] = [A] * [B]. Note that the order of
-// this operation was changed from the previous version of the DXSDK.
-//-----------------------------------------------------------------------------
-void MatrixMultiply(EERIEMATRIX * q, const EERIEMATRIX * a, const EERIEMATRIX * b)
-{
-	const float * pA = &a->_11;
-	const float * pB = &b->_11;
-	float pM[16];
-
-	memset(pM, 0, sizeof(EERIEMATRIX));
-
-	for (size_t i = 0; i < 4; i++)
-		for (size_t j = 0; j < 4; j++)
-			for (size_t k = 0; k < 4; k++)
-				pM[4*i+j] +=  pA[4*i+k] * pB[4*k+j];
-
-	memcpy(q, pM, sizeof(EERIEMATRIX));
-}
-
-// Desc: Multiplies a vector by a matrix
-void VectorMatrixMultiply(Vec3f * vDest, const Vec3f * vSrc, const EERIEMATRIX * mat) {
-	float x = vSrc->x * mat->_11 + vSrc->y * mat->_21 + vSrc->z * mat->_31 + mat->_41;
-	float y = vSrc->x * mat->_12 + vSrc->y * mat->_22 + vSrc->z * mat->_32 + mat->_42;
-	float z = vSrc->x * mat->_13 + vSrc->y * mat->_23 + vSrc->z * mat->_33 + mat->_43;
-	*vDest = Vec3f(x, y, z);
-}
-
-#undef X
-#undef Y
-#undef Z

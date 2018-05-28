@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,7 +25,7 @@
 #include <utility>
 
 #include "audio/AudioTypes.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 namespace audio {
 
@@ -59,19 +59,19 @@ public:
 	
 	/*!
 	 * Set the volume of this source and update the volume calculated from the sources mixers.
-	 * @param volume The new source volume. The volume will be clamped to the range [0,1].
+	 * \param volume The new source volume. The volume will be clamped to the range [0,1].
 	 */
 	aalError setVolume(float volume);
 	
 	/*!
 	 * Set the pitch of this source and update the pitch calculated from the sources mixers.
-	 * @param pitch The new source pitch. The pitch will be clamped to the range [0,1].
+	 * \param pitch The new source pitch. The pitch will be clamped to the range [0,1].
 	 */
 	virtual aalError setPitch(float pitch) = 0;
 	
 	/*!
 	 * Set the panning of this source.
-	 * @param pitch The new source panning. The pan will be clamped to the range [-1,1].
+	 * \param pan The new source panning. The pan will be clamped to the range [-1,1].
 	 */
 	virtual aalError setPan(float pan) = 0;
 	
@@ -83,14 +83,8 @@ public:
 	aalError setMixer(MixerId mixer);
 	
 	/*!
-	 * Get the current play position in the sample.
-	 * Updates to the return value may be deferred to calles to the update() methos.
-	 */
-	size_t getTime(TimeUnit unit = UNIT_MS) const;
-	
-	/*!
 	 * Play the source. A source that is already playing is not stopped / rewinded, but the playCount increased by the provided amount.
-	 * @param playCount How often to play the sample. 0 means loop forever.
+	 * \param playCount How often to play the sample. 0 means loop forever.
 	 */
 	virtual aalError play(unsigned playCount = 1) = 0;
 	
@@ -102,19 +96,19 @@ public:
 	virtual aalError resume() = 0;
 	aalError update();
 	
-	inline SourceId getId() const { return id; }
-	inline Sample * getSample() const { return sample; }
-	inline const Channel & getChannel() const { return channel; }
-	inline Status getStatus() const { return status; }
-	inline bool isPlaying() const { return status == Playing; }
-	inline bool isIdle() const { return status == Idle; }
+	SourceId getId() const { return id; }
+	Sample * getSample() const { return sample; }
+	const Channel & getChannel() const { return channel; }
+	Status getStatus() const { return status; }
+	bool isPlaying() const { return status == Playing; }
+	bool isIdle() const { return status == Idle; }
 	
 	/*!
 	 * Re-calculate the final volume from the channel and mixer volumes.
 	 */
 	virtual aalError updateVolume() = 0;
 	
-	void addCallback(Callback * callback, size_t time, TimeUnit unit = UNIT_MS);
+	void addCallback(Callback * callback, size_t position);
 	
 protected:
 	
@@ -130,11 +124,11 @@ protected:
 	
 	size_t time; // Elapsed 'time'
 	
-	inline void reset() { time = 0, callback_i = 0; }
+	void reset() { time = 0, callback_i = 0; }
 	
 	/*!
 	 * Check if this source is too far from the listener and play/pause it accordingly.
-	 * @return true if the source is too far and should not be played
+	 * \return true if the source is too far and should not be played
 	 */
 	virtual bool updateCulling() = 0;
 	
@@ -142,7 +136,7 @@ protected:
 	
 private:
 	
-	typedef std::vector<std::pair<Callback*, size_t> > CallbackList;
+	typedef std::vector<std::pair<Callback *, size_t> > CallbackList;
 	CallbackList callbacks;
 	size_t callback_i;
 	

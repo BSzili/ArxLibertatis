@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,13 +44,13 @@ namespace util { namespace cmdline {
  * You can use this class just likes as std::vector.
  * It is used to indicate option with variable amount of parameters.
  *
- * @param T Type of the elements.
+ * \param T Type of the elements.
  *
- * @param Alloc Type of the allocator object used to define the storage
+ * \param Alloc Type of the allocator object used to define the storage
  * allocation model. By default, the allocator class template for type T
  * is equal to the default allocator class for std::vector<T>
  */
-template<typename T, typename Alloc = typename std::vector<T>::allocator_type>
+template <typename T, typename Alloc = typename std::vector<T>::allocator_type>
 class ellipsis : std::vector<T, Alloc> {
 	
 	typedef std::vector<T> super_t;
@@ -99,18 +99,18 @@ public:
 	
 	explicit ellipsis(size_type s, const value_type & v = value_type(),
 	                  const allocator_type & a = allocator_type())
-		: super_t(s,v,a) {
+		: super_t(s, v, a) {
 	}
 	
-	template<typename Iter>
+	template <typename Iter>
 	ellipsis(Iter b, Iter e, const allocator_type & a = allocator_type())
-		: super_t(b,e,a) {
+		: super_t(b, e, a) {
 	}
 	
 	ellipsis(const ellipsis & rh) : super_t(rh) { }
 	
 	ellipsis & operator=(const ellipsis & rh) {
-		static_cast<super_t&>(*this) = rh;
+		static_cast<super_t &>(*this) = rh;
 		return *this;
 	}
 	

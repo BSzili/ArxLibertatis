@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -48,6 +48,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <string>
 #include <vector>
 
+#include "core/TimeTypes.h"
 #include "audio/AudioTypes.h"
 #include "io/resource/ResourcePath.h"
 #include "platform/Platform.h"
@@ -63,27 +64,24 @@ public:
 	
 	aalError load();
 	
-	inline void setUserData(void * _data) { data = _data; }
-	inline void * getUserData() const { return data; }
+	void setType(PlayingAmbianceType type) { m_type = type; }
+	PlayingAmbianceType getType() const { return m_type; }
 	
-	const Channel & getChannel() const { return channel; }
-	const res::path & getName() const { return name; }
+	const Channel & getChannel() const { return m_channel; }
+	const res::path & getName() const { return m_name; }
 	
 	aalError setVolume(float volume);
 	
-	inline bool isPaused() const { return status == Paused; }
-	inline bool isPlaying() const { return status == Playing; }
-	inline bool isIdle() const { return status == Idle; }
-	inline bool isLooped() const { return loop; }
+	bool isPaused() const { return m_status == Paused; }
+	bool isPlaying() const { return m_status == Playing; }
+	bool isIdle() const { return m_status == Idle; }
+	bool isLooped() const { return m_loop; }
 	
-	aalError play(const Channel & channel, bool loop = true,
-	              size_t fade_interval = 0);
-	aalError stop(size_t fade_interval = 0);
+	aalError play(const Channel & channel, bool loop = true, PlatformDuration fadeInterval = 0);
+	aalError stop(PlatformDuration fadeInterval = 0);
 	aalError pause();
 	aalError resume();
 	aalError update();
-	
-	aalError muteTrack(const std::string & track, bool mute);
 	
 	struct Track;
 	typedef std::vector<Track> TrackList;
@@ -102,19 +100,22 @@ private:
 		Paused
 	};
 	
-	Status status;
-	bool loop;
-	Fade fade;
+	Status m_status;
+	bool m_loop;
+	Fade m_fade;
 	
-	Channel channel;
-	float fade_time, fade_interval, fade_max;
-	s32 start, time;
+	Channel m_channel;
+	PlatformDuration m_fadeTime;
+	PlatformDuration m_fadeInterval;
+	float m_fadeMax;
+	PlatformInstant m_start;
+	PlatformDuration m_time;
 	
-	TrackList tracks;
+	TrackList m_tracks;
 	
-	res::path name;
+	res::path m_name;
 	
-	void * data;
+	PlayingAmbianceType m_type;
 	
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -39,21 +39,24 @@
 
 #include "io/Blast.h"
 
-#include <csetjmp> /* for setjmp(), longjmp(), and jmp_buf */
 #include <cstring>
 #include <cstdlib>
+#include <exception>
 
 #include "io/log/Logger.h"
 
 #define MAXBITS 13              /* maximum code length */
 #define MAXWIN 4096             /* maximum window size */
 
+namespace {
+
+struct blast_truncated_error : public std::exception { };
+
+} // anonymous namespace
+
 /* input and output state */
 struct state {
 	
-	/* input limit error return state for bits() and decode() */
-	jmp_buf env;
-
 	/* input state */
 	blast_in infun;             /* input function provided by user */
 	void * inhow;               /* opaque information passed to infun() */
@@ -91,7 +94,7 @@ static int bits(state * s, int need) {
 	while(s->bitcnt < need) {
 		if(s->left == 0) {
 			s->left = s->infun(s->inhow, &(s->in));
-			if (s->left == 0) longjmp(s->env, 1);       /* out of input */
+			if (s->left == 0) throw blast_truncated_error(); /* out of input */
 		}
 		val |= (int)(*(s->in)++) << s->bitcnt;          /* load eight bits */
 		s->left--;
@@ -155,7 +158,7 @@ static int decode(state * s, huffman * h) {
 	code = first = index = 0;
 	len = 1;
 	next = h->count + 1;
-	while(1) {
+	while(true) {
 		while(left--) {
 			code |= (bitbuf & 1) ^ 1;   /* invert code */
 			bitbuf >>= 1;
@@ -171,11 +174,11 @@ static int decode(state * s, huffman * h) {
 			code <<= 1;
 			len++;
 		}
-		left = (MAXBITS+1) - len;
+		left = (MAXBITS + 1) - len;
 		if(left == 0) break;
 		if(s->left == 0) {
 			s->left = s->infun(s->inhow, &(s->in));
-			if (s->left == 0) longjmp(s->env, 1);       /* out of input */
+			if (s->left == 0) throw blast_truncated_error(); /* out of input */
 		}
 		bitbuf = *(s->in)++;
 		s->left--;
@@ -206,7 +209,7 @@ static int construct(huffman * h, const unsigned char * rep, int n) {
 	int symbol;         /* current symbol when stepping through length[] */
 	int len;            /* current length when stepping through h->count[] */
 	int left;           /* number of possible codes left of current length */
-	short offs[MAXBITS+1];      /* offsets in symbol table for each length */
+	short offs[MAXBITS + 1];      /* offsets in symbol table for each length */
 	short length[256];  /* code lengths */
 	
 	/* convert compact repeat counts into symbol bit length list */
@@ -302,9 +305,9 @@ static BlastResult blastDecompress(state * s) {
 	int copy;           /* copy counter */
 	unsigned char * from, *to;   /* copy pointers */
 	static int virgin = 1;                              /* build tables once */
-	static short litcnt[MAXBITS+1], litsym[256];        /* litcode memory */
-	static short lencnt[MAXBITS+1], lensym[16];         /* lencode memory */
-	static short distcnt[MAXBITS+1], distsym[64];       /* distcode memory */
+	static short litcnt[MAXBITS + 1], litsym[256];        /* litcode memory */
+	static short lencnt[MAXBITS + 1], lensym[16];         /* lencode memory */
+	static short distcnt[MAXBITS + 1], distsym[64];       /* distcode memory */
 	static huffman litcode = {litcnt, litsym};   /* length code */
 	static huffman lencode = {lencnt, lensym};   /* length code */
 	static huffman distcode = {distcnt, distsym};/* distance code */
@@ -391,12 +394,12 @@ static BlastResult blastDecompress(state * s) {
 				s->first = 0;
 			}
 		}
-	} while(1);
+	} while(true);
 	
 	return BLAST_SUCCESS;
 }
 
-BlastResult blast(blast_in infun, void *inhow, blast_out outfun, void *outhow) {
+BlastResult blast(blast_in infun, void * inhow, blast_out outfun, void * outhow) {
 	
 	state s;
 	
@@ -413,24 +416,12 @@ BlastResult blast(blast_in infun, void *inhow, blast_out outfun, void *outhow) {
 	s.next = 0;
 	s.first = 1;
 	
-#if ARX_COMPILER_MSVC
-	// Disable warning C4611: interaction between '_setjmp' and C++ object destruction is non-portable
-	#pragma warning(push)
-	#pragma warning(disable:4611)
-#endif
-
 	BlastResult err;
-	// return if bits() or decode() tries to read past available input
-	if(setjmp(s.env) != 0) {
-		// if came back here via longjmp() then skip decomp(), return error
-		err = BLAST_TRUNCATED_INPUT;
-	} else {
+	try {
 		err = blastDecompress(&s);
+	} catch(const blast_truncated_error &) {
+		err = BLAST_TRUNCATED_INPUT;
 	}
-
-#if ARX_COMPILER_MSVC
-	#pragma warning(pop)
-#endif
 	
 	// write any leftover output and update the error code if needed
 	if(err != 1 && s.next && s.outfun(s.outhow, s.out, s.next) && err == 0) {

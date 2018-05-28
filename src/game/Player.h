@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,77 +47,97 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GAME_PLAYER_H
 #define ARX_GAME_PLAYER_H
 
+#include <stddef.h>
 #include <string>
 #include <vector>
 
+#include <boost/array.hpp>
+
 #include "game/Entity.h"
 #include "game/Spells.h"
-#include "math/MathFwd.h"
-#include "platform/Flags.h"
+#include "game/GameTypes.h"
+#include "gui/book/Necklace.h"
+#include "math/Types.h"
+#include "util/Flags.h"
 
 struct EERIE_3DOBJ;
 class TextureContainer;
 
-#define MAX_EQUIPED 12
-
-struct ARX_NECKLACE {
-	EERIE_3DOBJ * lacet;
-	EERIE_3DOBJ * runes[RUNE_COUNT];
-	TextureContainer * pTexTab[RUNE_COUNT];
-};
+static const size_t MAX_EQUIPED = 12;
 
 struct ARX_INTERFACE_MEMORIZE_SPELL {
 	bool bSpell;
-	unsigned long lTimeCreation;
-	unsigned long lDuration;
+	GameInstant lTimeCreation;
 	Rune iSpellSymbols[6];
-	float fPosX;
-	float fPosY;
+	
+	ARX_INTERFACE_MEMORIZE_SPELL()
+		: bSpell(false)
+		, lTimeCreation(0)
+	{
+		for(size_t i = 0; i < ARRAY_SIZE(iSpellSymbols); i++) {
+			iSpellSymbols[i] = RUNE_NONE;
+		}
+	}
 };
 
+enum PlayerInterfaceFlag {
+	INTER_PLAYERBOOK   = 1 << 0,
+	INTER_INVENTORY    = 1 << 1,
+	INTER_INVENTORYALL = 1 << 2,
+	INTER_MINIBOOK     = 1 << 3,
+	INTER_MINIBACK     = 1 << 4,
+	INTER_LIFE_MANA    = 1 << 5,
+	INTER_COMBATMODE   = 1 << 6,
+	INTER_NOTE         = 1 << 7,
+	INTER_STEAL        = 1 << 8,
+	INTER_NO_STRIKE    = 1 << 9
+};
+DECLARE_FLAGS(PlayerInterfaceFlag, PlayerInterfaceFlags)
+DECLARE_FLAGS_OPERATORS(PlayerInterfaceFlags)
+
 enum PlayerMovementFlag {
-	PLAYER_MOVE_WALK_FORWARD  = (1<<0),
-	PLAYER_MOVE_WALK_BACKWARD = (1<<1),
-	PLAYER_MOVE_STRAFE_LEFT   = (1<<2),
-	PLAYER_MOVE_STRAFE_RIGHT  = (1<<3),
-	PLAYER_MOVE_JUMP          = (1<<4),
-	PLAYER_MOVE_STEALTH       = (1<<5),
-	PLAYER_ROTATE             = (1<<6),
-	PLAYER_CROUCH             = (1<<7),
-	PLAYER_LEAN_LEFT          = (1<<8),
-	PLAYER_LEAN_RIGHT         = (1<<9)
+	PLAYER_MOVE_WALK_FORWARD  = 1 << 0,
+	PLAYER_MOVE_WALK_BACKWARD = 1 << 1,
+	PLAYER_MOVE_STRAFE_LEFT   = 1 << 2,
+	PLAYER_MOVE_STRAFE_RIGHT  = 1 << 3,
+	PLAYER_MOVE_JUMP          = 1 << 4,
+	PLAYER_MOVE_STEALTH       = 1 << 5,
+	PLAYER_ROTATE             = 1 << 6,
+	PLAYER_CROUCH             = 1 << 7,
+	PLAYER_LEAN_LEFT          = 1 << 8,
+	PLAYER_LEAN_RIGHT         = 1 << 9
 };
 DECLARE_FLAGS(PlayerMovementFlag, PlayerMovement)
 DECLARE_FLAGS_OPERATORS(PlayerMovement)
 
 enum PlayerFlag {
-	PLAYERFLAGS_NO_MANA_DRAIN   = (1<<0),
-	PLAYERFLAGS_INVULNERABILITY = (1<<1)
+	PLAYERFLAGS_NO_MANA_DRAIN   = 1 << 0,
+	PLAYERFLAGS_INVULNERABILITY = 1 << 1
 };
 DECLARE_FLAGS(PlayerFlag, PlayerFlags)
 DECLARE_FLAGS_OPERATORS(PlayerFlags)
 
 enum RuneFlag {
-	FLAG_AAM         = (1<<(RUNE_AAM)),
-	FLAG_CETRIUS     = (1<<(RUNE_CETRIUS)),
-	FLAG_COMUNICATUM = (1<<(RUNE_COMUNICATUM)),
-	FLAG_COSUM       = (1<<(RUNE_COSUM)),
-	FLAG_FOLGORA     = (1<<(RUNE_FOLGORA)),
-	FLAG_FRIDD       = (1<<(RUNE_FRIDD)),
-	FLAG_KAOM        = (1<<(RUNE_KAOM)),
-	FLAG_MEGA        = (1<<(RUNE_MEGA)),
-	FLAG_MORTE       = (1<<(RUNE_MORTE)),
-	FLAG_MOVIS       = (1<<(RUNE_MOVIS)),
-	FLAG_NHI         = (1<<(RUNE_NHI)),
-	FLAG_RHAA        = (1<<(RUNE_RHAA)),
-	FLAG_SPACIUM     = (1<<(RUNE_SPACIUM)),
-	FLAG_STREGUM     = (1<<(RUNE_STREGUM)),
-	FLAG_TAAR        = (1<<(RUNE_TAAR)),
-	FLAG_TEMPUS      = (1<<(RUNE_TEMPUS)),
-	FLAG_TERA        = (1<<(RUNE_TERA)),
-	FLAG_VISTA       = (1<<(RUNE_VISTA)),
-	FLAG_VITAE       = (1<<(RUNE_VITAE)),
-	FLAG_YOK         = (1<<(RUNE_YOK))
+	FLAG_AAM         = 1 << RUNE_AAM,
+	FLAG_CETRIUS     = 1 << RUNE_CETRIUS,
+	FLAG_COMUNICATUM = 1 << RUNE_COMUNICATUM,
+	FLAG_COSUM       = 1 << RUNE_COSUM,
+	FLAG_FOLGORA     = 1 << RUNE_FOLGORA,
+	FLAG_FRIDD       = 1 << RUNE_FRIDD,
+	FLAG_KAOM        = 1 << RUNE_KAOM,
+	FLAG_MEGA        = 1 << RUNE_MEGA,
+	FLAG_MORTE       = 1 << RUNE_MORTE,
+	FLAG_MOVIS       = 1 << RUNE_MOVIS,
+	FLAG_NHI         = 1 << RUNE_NHI,
+	FLAG_RHAA        = 1 << RUNE_RHAA,
+	FLAG_SPACIUM     = 1 << RUNE_SPACIUM,
+	FLAG_STREGUM     = 1 << RUNE_STREGUM,
+	FLAG_TAAR        = 1 << RUNE_TAAR,
+	FLAG_TEMPUS      = 1 << RUNE_TEMPUS,
+	FLAG_TERA        = 1 << RUNE_TERA,
+	FLAG_VISTA       = 1 << RUNE_VISTA,
+	FLAG_VITAE       = 1 << RUNE_VITAE,
+	FLAG_YOK         = 1 << RUNE_YOK
 };
 DECLARE_FLAGS(RuneFlag, RuneFlags)
 DECLARE_FLAGS_OPERATORS(RuneFlags)
@@ -130,146 +150,232 @@ enum JumpPhase {
 	JumpEnd = 5
 };
 
+struct PlayerAttribute {
+	float strength;
+	float dexterity;
+	float constitution;
+	float mind;
+	
+	PlayerAttribute()
+		: strength(0)
+		, dexterity(0)
+		, constitution(0)
+		, mind(0)
+	{}
+	
+	void add(const PlayerAttribute & other) {
+		strength += other.strength;
+		dexterity += other.dexterity;
+		constitution += other.constitution;
+		mind += other.mind;
+	}
+};
+
+struct PlayerSkill {
+	float stealth;
+	float mecanism;
+	float intuition;
+	
+	float etheralLink;
+	float objectKnowledge;
+	float casting;
+	
+	float projectile;
+	float closeCombat;
+	float defense;
+	
+	PlayerSkill()
+		: stealth(0)
+		, mecanism(0)
+		, intuition(0)
+		, etheralLink(0)
+		, objectKnowledge(0)
+		, casting(0)
+		, projectile(0)
+		, closeCombat(0)
+		, defense(0)
+	{}
+	
+	void add(const PlayerSkill & other) {
+		stealth += other.stealth;
+		mecanism += other.mecanism;
+		intuition += other.intuition;
+		
+		etheralLink += other.etheralLink;
+		objectKnowledge += other.objectKnowledge;
+		casting += other.casting;
+		
+		projectile += other.projectile;
+		closeCombat += other.closeCombat;
+		defense += other.defense;
+	}
+};
+
+struct PlayerMisc {
+	float armorClass;
+	float resistMagic;
+	float resistPoison;
+	float criticalHit;
+	float damages;
+	
+	PlayerMisc()
+		: armorClass(0)
+		, resistMagic(0)
+		, resistPoison(0)
+		, criticalHit(0)
+		, damages(0)
+	{}
+	
+	void add(const PlayerMisc & other) {
+		armorClass += other.armorClass;
+		resistMagic += other.resistMagic;
+		resistPoison += other.resistPoison;
+		criticalHit += other.criticalHit;
+		damages += other.damages;
+	}
+};
+
 struct ARXCHARACTER {
 	
 	Vec3f pos;
 	Anglef angle;
-	ANIM_USE useanim;
 	IO_PHYSICS physics;
 	
+	AnimLayer bookAnimation[MAX_ANIM_LAYERS];
+	
+	long m_strikeDirection;
+	AnimationDuration m_weaponBlocked;
+	
 	// Jump Sub-data
-	unsigned long jumpstarttime;
+	PlatformInstant jumpstarttime;
 	float jumplastposition;
 	JumpPhase jumpphase;
 	
-	short climbing;
-	short levitate;
+	bool climbing;
+	
+	bool m_paralysed;
+	
+	// Updated by spells
+	bool levitate;
+	bool m_telekinesis;
+	bool m_improve;
 	
 	Anglef desiredangle;
 	Vec3f size;
 	ARX_PATH * inzone;
 	
-	long falling;
+	bool falling;
 	short doingmagic;
-	short Interface;
+	PlayerInterfaceFlags Interface;
 	
-	PlayerMovement Current_Movement;
-	PlayerMovement Last_Movement;
-	long onfirmground;
+	PlayerMovement m_currentMovement;
+	PlayerMovement m_lastMovement;
+	bool onfirmground;
 	
-	Entity * rightIO;
-	Entity * leftIO;
-	Entity * equipsecondaryIO;
-	Entity * equipshieldIO;
+	Color3f m_torchColor;
+	Entity * torch;
 	
-	short equiped[MAX_EQUIPED]; 
+	EntityHandle equiped[MAX_EQUIPED];
 	
 	// Modifier Values (Items, curses, etc...)
-	float Mod_Attribute_Strength;
-	float Mod_Attribute_Dexterity;
-	float Mod_Attribute_Constitution;
-	float Mod_Attribute_Mind;
-	float Mod_Skill_Stealth;
-	float Mod_Skill_Mecanism;
-	float Mod_Skill_Intuition;
-	float Mod_Skill_Etheral_Link;
-	float Mod_Skill_Object_Knowledge;
-	float Mod_Skill_Casting;
-	float Mod_Skill_Projectile;
-	float Mod_Skill_Close_Combat;
-	float Mod_Skill_Defense;
-	float Mod_armor_class;
-	float Mod_resist_magic;
-	float Mod_resist_poison;
-	float Mod_Critical_Hit;
-	float Mod_damages;
+	PlayerAttribute m_attributeMod;
+	PlayerSkill m_skillMod;
+	PlayerMisc m_miscMod;
 	
 	// Full Frame values (including items)
-	float Full_Attribute_Strength;
-	float Full_Attribute_Dexterity;
-	float Full_Attribute_Constitution;
-	float Full_Attribute_Mind;
+	PlayerAttribute m_attributeFull;
+	PlayerSkill m_skillFull;
+	PlayerMisc m_miscFull;
 	
-	float Full_Skill_Stealth;
-	float Full_Skill_Mecanism;
-	float Full_Skill_Intuition;
+	float m_bowAimRatio;
 	
-	float Full_Skill_Etheral_Link;
-	float Full_Skill_Object_Knowledge;
-	float Full_Skill_Casting;
+	float m_strikeAimRatio;
+	PlatformDuration Full_AimTime;
 	
-	float Full_Skill_Projectile;
-	float Full_Skill_Close_Combat;
-	float Full_Skill_Defense;
-	float Full_armor_class;
-	float Full_resist_magic;
-	float Full_resist_poison;
-	float Full_Critical_Hit;
-	float Full_damages;
-	long Full_AimTime;
-	long Full_Weapon_Type;
 	float Full_life;
 	float Full_maxlife;
 	float Full_maxmana;
 	
 	// true (naked) Player Values
-	float Attribute_Strength;
-	float Attribute_Dexterity;
-	float Attribute_Constitution;
-	float Attribute_Mind;
+	PlayerAttribute m_attribute;
+	PlayerSkill m_skill;
 	
-	float Skill_Stealth;
-	float Skill_Mecanism;
-	float Skill_Intuition;
+	PlatformDuration m_aimTime;
 	
-	float Skill_Etheral_Link;
-	float Skill_Object_Knowledge;
-	float Skill_Casting;
-	
-	float Skill_Projectile;
-	float Skill_Close_Combat;
-	float Skill_Defense;
-	
-	float Critical_Hit;
-	long AimTime;
-	float life;
-	float maxlife;
-	float mana;
-	float maxmana;
+	ResourcePool lifePool;
+	ResourcePool manaPool;
 	
 	// Player Old Values
-	float Old_Skill_Stealth;
-	float Old_Skill_Mecanism;
-	float Old_Skill_Intuition;
-	
-	float Old_Skill_Etheral_Link;
-	float Old_Skill_Object_Knowledge;
-	float Old_Skill_Casting;
-	
-	float Old_Skill_Projectile;
-	float Old_Skill_Close_Combat;
-	float Old_Skill_Defense;
+	PlayerSkill m_skillOld;
 	
 	unsigned char Attribute_Redistribute;
 	unsigned char Skill_Redistribute;
 	
-	unsigned char level;
+	short level;
 	
-	unsigned char armor_class;
-	unsigned char resist_magic;
-	unsigned char resist_poison;
 	long xp;
 	char skin;
 	
 	RuneFlags rune_flags;
-	TextureContainer * heads[5];
-	float damages;
+	bool hasRune(Rune rune) {
+		return (rune_flags & (RuneFlag)(1 << rune)) != 0;
+	}
+	
+	
+	boost::array<TextureContainer *, 5> heads;
 	float poison;
 	float hunger;
 	PlayerFlags playerflags;
 	long gold;
-	short bag;
+	short m_bags;
 	ARX_INTERFACE_MEMORIZE_SPELL SpellToMemorize;
+
+	float TRAP_DETECT;
+	float TRAP_SECRET;
+	
+	long m_cheatPnuxActive;
+	
+	GameDuration DeadTime;
+	
+	ARXCHARACTER()
+		: m_strikeDirection(0)
+		, m_weaponBlocked(AnimationDuration::ofRaw(-1)) // FIXME inband signaling
+		, jumpstarttime(0)
+		, jumplastposition(0.f)
+		, jumpphase(NotJumping)
+		, climbing(false)
+		, m_paralysed(false)
+		, levitate(false)
+		, m_telekinesis(false)
+		, m_improve(false)
+		, inzone(NULL)
+		, falling(false)
+		, doingmagic(0)
+		, onfirmground(false)
+		, torch(NULL)
+		, m_bowAimRatio(0.f)
+		, m_strikeAimRatio(0.f)
+		, Full_AimTime(0)
+		, Full_life(0)
+		, Full_maxlife(0)
+		, Full_maxmana(0)
+		, m_aimTime(0)
+		, Attribute_Redistribute(0)
+		, Skill_Redistribute(0)
+		, level(0)
+		, xp(0)
+		, skin(0)
+		, poison(0)
+		, hunger(0)
+		, gold(0)
+		, m_bags(0)
+		, TRAP_DETECT(0)
+		, TRAP_SECRET(0)
+		, m_cheatPnuxActive(0)
+		, DeadTime(0)
+	{
+		heads.fill(NULL);
+	}
 	
 	static float baseRadius() { return 52.f; }
 	static float baseHeight() { return -170.f; }
@@ -282,39 +388,27 @@ struct ARXCHARACTER {
 		return Vec3f(pos.x, pos.y - baseHeight(), pos.z);
 	}
 	
-	EERIE_CYLINDER baseCylinder() {
-		EERIE_CYLINDER c;
-		c.height = baseHeight();
-		c.radius = baseRadius();
-		c.origin = basePosition();
-		return c;
+	Cylinder baseCylinder() {
+		return Cylinder(basePosition(), baseRadius(), baseHeight());
 	}
+	
+	bool isAiming() { return m_aimTime > 0; }
 	
 };
 
-struct KEYRING_SLOT {
-	char slot[64];
-};
-
-
-// Quests Management (QuestLogBook)
-
-struct STRUCT_QUEST {
-	std::string ident;
-};
+extern float CURRENT_PLAYER_COLOR;
 
 extern ARXCHARACTER player;
-extern ARX_NECKLACE necklace;
 extern EERIE_3DOBJ * hero;
 extern ANIM_HANDLE * herowaitbook;
 extern ANIM_HANDLE * herowait_2h;
-extern std::vector<STRUCT_QUEST> PlayerQuest;
-extern std::vector<KEYRING_SLOT> Keyring;
+extern std::vector<std::string> g_playerQuestLogEntries;
+extern std::vector<std::string> g_playerKeyring;
 
-extern float DeadCameraDistance;
-extern long BLOCK_PLAYER_CONTROLS;
-extern long USE_PLAYERCOLLISIONS;
-extern long WILLRETURNTOCOMBATMODE;
+extern bool BLOCK_PLAYER_CONTROLS;
+extern bool USE_PLAYERCOLLISIONS;
+extern bool WILLRETURNTOCOMBATMODE;
+extern PlatformInstant LAST_JUMP_ENDTIME;
 
 void ARX_PLAYER_MakeSpHero();
 void ARX_PLAYER_LoadHeroAnimsAndMesh();
@@ -325,17 +419,15 @@ void ARX_PLAYER_RectifyPosition();
 void ARX_PLAYER_Frame_Update();
 void ARX_PLAYER_Manage_Movement();
 void ARX_PLAYER_Manage_Death();
-void ARX_PLAYER_GotoAnyPoly();
-void ARX_PLAYER_Quest_Add(const std::string & quest, bool _bLoad = false);
+void ARX_PLAYER_Quest_Add(const std::string & quest);
 void ARX_PLAYER_Quest_Init();
-void ARX_PLAYER_FrontPos(Vec3f * pos);
-void ARX_PLAYER_MakePowerfullHero();
+Vec3f ARX_PLAYER_FrontPos();
 void ARX_PLAYER_ComputePlayerFullStats();
 void ARX_PLAYER_MakeFreshHero();
 void ARX_PLAYER_QuickGeneration();
 void ARX_PLAYER_MakeAverageHero();
 void ARX_PLAYER_Modify_XP(long val);
-void ARX_PLAYER_FrameCheck(float Framedelay);
+void ARX_PLAYER_FrameCheck(PlatformDuration delta);
 void ARX_PLAYER_Poison(float val);
 void ARX_PLAYER_Manage_Visual();
 void ARX_PLAYER_Remove_Invisibility();
@@ -348,23 +440,23 @@ bool ARX_PLAYER_CanStealItem(Entity * item);
 
 void ARX_KEYRING_Init();
 void ARX_KEYRING_Add(const std::string & key);
-void ARX_KEYRING_Combine(Entity * io);
 
 void ARX_PLAYER_Reset_Fall();
 void ARX_PLAYER_KillTorch();
-void ARX_PLAYER_PutPlayerInNormalStance(long val);
+void ARX_PLAYER_PutPlayerInNormalStance();
 void ARX_PLAYER_Start_New_Quest();
 void ARX_PLAYER_Rune_Add_All();
  
 void ARX_PLAYER_Restore_Skin();
 float GetPlayerStealth();
 
-void ARX_GAME_Reset(long type = 0);
-void Manage_sp_max();
-long GetXPforLevel(long level);
+void ARX_GAME_Reset();
+long GetXPforLevel(short level);
 bool ARX_PLAYER_IsInFightMode();
 void ARX_PLAYER_Invulnerability(long flag);
 
 void ForcePlayerLookAtIO(Entity * io);
+
+void ARX_SPSound();
 
 #endif // ARX_GAME_PLAYER_H

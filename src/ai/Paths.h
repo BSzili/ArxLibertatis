@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,18 +49,17 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <stddef.h>
 #include <string>
+#include <vector>
 
+#include "core/TimeTypes.h"
 #include "graphics/BaseGraphicsTypes.h"
 #include "graphics/Color.h"
 #include "io/resource/ResourcePath.h"
-#include "math/MathFwd.h"
-#include "math/Vector3.h"
-#include "platform/Flags.h"
+#include "math/Types.h"
+#include "math/Vector.h"
+#include "util/Flags.h"
 
-struct EERIE_CAMERA;
-struct EERIE_3DOBJ;
 class Entity;
-class CRuban;
 
 enum PathwayType {
 	PATHWAY_STANDARD = 0,
@@ -69,22 +68,23 @@ enum PathwayType {
 };
 
 struct ARX_PATHWAY {
-	Vec3f rpos; //relative pos
+	Vec3f rpos; // Relative position
 	PathwayType flag;
-	float _time;
+	GameDuration _time;
 };
 
 // ARX_PATH@flags values
 enum PathFlag {
-	PATH_LOOP     = (1<<0),
-	PATH_AMBIANCE = (1<<1),
-	PATH_RGB      = (1<<2),
-	PATH_FARCLIP  = (1<<3),
-	PATH_REVERB   = (1<<4)
+	PATH_LOOP     = 1 << 0,
+	PATH_AMBIANCE = 1 << 1,
+	PATH_RGB      = 1 << 2,
+	PATH_FARCLIP  = 1 << 3,
+	PATH_REVERB   = 1 << 4
 };
 DECLARE_FLAGS(PathFlag, PathFlags)
 DECLARE_FLAGS_OPERATORS(PathFlags)
 
+// TODO this struct is used both for paths followed by NPCs and for zones
 struct ARX_PATH {
 	
 	ARX_PATH(const std::string & name, const Vec3f & pos);
@@ -93,8 +93,7 @@ struct ARX_PATH {
 	PathFlags flags;
 	Vec3f initpos;
 	Vec3f pos;
-	long nb_pathways;
-	ARX_PATHWAY * pathways;
+	std::vector<ARX_PATHWAY> pathways;
 	
 	long height; // 0 NOT A ZONE
 	
@@ -110,150 +109,53 @@ struct ARX_PATH {
 	Vec3f bbmin;
 	Vec3f bbmax;
 	
+	Vec3f interpolateCurve(size_t i, float step);
+	
 };
 
 enum UsePathFlag {
-	ARX_USEPATH_FLAG_FINISHED    = (1<<0),
-	ARX_USEPATH_WORM_SPECIFIC    = (1<<1),
-	ARX_USEPATH_FOLLOW_DIRECTION = (1<<2),
-	ARX_USEPATH_FORWARD          = (1<<3),
-	ARX_USEPATH_BACKWARD         = (1<<4),
-	ARX_USEPATH_PAUSE            = (1<<5),
-	ARX_USEPATH_FLAG_ADDSTARTPOS = (1<<6)
+	ARX_USEPATH_FLAG_FINISHED    = 1 << 0,
+	ARX_USEPATH_WORM_SPECIFIC    = 1 << 1,
+	ARX_USEPATH_FOLLOW_DIRECTION = 1 << 2,
+	ARX_USEPATH_FORWARD          = 1 << 3,
+	ARX_USEPATH_BACKWARD         = 1 << 4,
+	ARX_USEPATH_PAUSE            = 1 << 5,
+	ARX_USEPATH_FLAG_ADDSTARTPOS = 1 << 6
 };
 DECLARE_FLAGS(UsePathFlag, UsePathFlags)
 DECLARE_FLAGS_OPERATORS(UsePathFlags)
 
 struct ARX_USE_PATH {
 	ARX_PATH * path;
-	float _starttime;
-	float _curtime;
+	GameInstant _starttime;
+	GameInstant _curtime;
 	UsePathFlags aupflags;
 	Vec3f initpos;
 	long lastWP;
 };
 
-struct MASTER_CAMERA_STRUCT {
-	long exist; // 2== want to change to want_vars...
-	Entity * io;
-	ARX_USE_PATH * aup;
-	EERIE_CAMERA * cam;
-	Entity * want_io;
-	ARX_USE_PATH * want_aup;
-	EERIE_CAMERA * want_cam;
-};
-
 enum PathMod {
-	ARX_PATH_MOD_POSITION  = (1<<0),
-	ARX_PATH_MOD_FLAGS     = (1<<1),
-	ARX_PATH_MOD_TIME      = (1<<2),
-	ARX_PATH_MOD_TRANSLATE = (1<<3),
-	ARX_PATH_HIERARCHY     = (1<<4)
+	ARX_PATH_MOD_POSITION  = 1 << 0,
+	ARX_PATH_MOD_FLAGS     = 1 << 1,
+	ARX_PATH_MOD_TIME      = 1 << 2,
+	ARX_PATH_MOD_TRANSLATE = 1 << 3,
+	ARX_PATH_HIERARCHY     = 1 << 4
 };
 DECLARE_FLAGS(PathMod, PathMods)
 DECLARE_FLAGS_OPERATORS(PathMods)
 
-extern MASTER_CAMERA_STRUCT MasterCamera;
-extern ARX_USE_PATH USE_CINEMATICS_PATH;
 extern ARX_PATH ** ARXpaths;
-#ifdef BUILD_EDITOR
-extern ARX_PATH * ARX_PATHS_FlyingOverAP;
-extern ARX_PATH * ARX_PATHS_SelectedAP;
-extern long	ARX_PATHS_SelectedNum;
-extern long	ARX_PATHS_FlyingOverNum;
-#endif
-extern long USE_CINEMATICS_CAMERA;
-extern long	nbARXpaths;
+extern long nbARXpaths;
 
 void ARX_PATH_UpdateAllZoneInOutInside();
-long ARX_PATH_IsPosInZone(ARX_PATH * ap, float x, float y, float z);
+long ARX_PATH_IsPosInZone(ARX_PATH * ap, Vec3f pos);
 void ARX_PATH_ClearAllUsePath();
 void ARX_PATH_ReleaseAllPath();
 ARX_PATH * ARX_PATH_GetAddressByName(const std::string & name);
 void ARX_PATH_ClearAllControled();
 void ARX_PATH_ComputeAllBoundingBoxes();
 
-ARX_PATH * ARX_PATHS_ExistName(const std::string & name);
 void ARX_PATHS_Delete(ARX_PATH * ap);
 long ARX_PATHS_Interpolate(ARX_USE_PATH * aup, Vec3f * pos);
-
-enum ThrownObjectFlag {
-	ATO_EXIST      = (1<<0),
-	ATO_MOVING     = (1<<1),
-	ATO_UNDERWATER = (1<<2),
-	ATO_FIERY      = (1<<3)
-};
-DECLARE_FLAGS(ThrownObjectFlag, ThrownObjectFlags)
-DECLARE_FLAGS_OPERATORS(ThrownObjectFlags)
-
-struct ARX_THROWN_OBJECT {
-	ThrownObjectFlags flags;
-	Vec3f vector;
-	Vec3f upvect;
-	EERIE_QUAT quat;
-	Vec3f initial_position;
-	float velocity;
-	Vec3f position;
-	float damages;
-	EERIE_3DOBJ * obj;
-	long source;
-	unsigned long creation_time;
-	float poisonous;
-	CRuban * pRuban;
-};
-
-const size_t MAX_THROWN_OBJECTS = 100;
-
-extern ARX_THROWN_OBJECT Thrown[MAX_THROWN_OBJECTS];
-extern long Thrown_Count;
-
-class CRuban {
-	
-private:
-	
-	short key;
-	int duration;
-	int currduration;
-	int iNumThrow;
-	
-	struct T_RUBAN {
-		int actif;
-		Vec3f pos;
-		int next;
-	};
-	T_RUBAN truban[2048];
-	
-	struct T_RUBAN_DEF {
-		int first;
-		int origin;
-		float size;
-		int dec;
-		float r, g, b;
-		float r2, g2, b2;
-	};
-	
-	int nbrubandef;
-	T_RUBAN_DEF trubandef[256];
-	
-	int GetFreeRuban(void);
-	void AddRuban(int * f, int dec);
-	void DrawRuban(int num, float size, int dec, float r, float g, float b, float r2, float g2, float b2);
-	
-public:
-	
-	void AddRubanDef(int origin, float size, int dec, float r, float g, float b, float r2, float g2, float b2);
-	void Create(int numinteractive, int duration);
-	void Update();
-	float Render();
-	
-};
-
-long ARX_THROWN_OBJECT_GetFree();
-long ARX_THROWN_OBJECT_Throw(long source, Vec3f * position, Vec3f * vect, Vec3f * upvect, EERIE_QUAT * quat, float velocity, float damages, float poisonous);
-void ARX_THROWN_OBJECT_KillAll();
-void ARX_THROWN_OBJECT_Manage(unsigned long time_offset);
-void EERIE_PHYSICS_BOX_Launch_NOCOL(Entity * io, EERIE_3DOBJ * obj, Vec3f * pos, Vec3f * vect, long flags = 0, Anglef * angle = NULL);
-
-long ARX_PHYSICS_BOX_ApplyModel(EERIE_3DOBJ * obj, float framediff, float rubber, long source);
 
 #endif // ARX_AI_PATHS_H

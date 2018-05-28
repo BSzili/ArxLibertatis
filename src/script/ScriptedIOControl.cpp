@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -59,10 +59,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
 
 extern Entity * LASTSPAWNED;
-extern long CHANGE_LEVEL_ICON;
 
 namespace script {
 
@@ -109,8 +107,8 @@ public:
 			Set_DragInter(ioo);
 		}
 		
-		long neww = ioo->index();
-		long oldd = io->index();
+		EntityHandle neww = ioo->index();
+		EntityHandle oldd = io->index();
 		
 		if((io->ioflags & IO_ITEM) && io->_itemdata->count > 1) {
 			io->_itemdata->count--;
@@ -122,14 +120,7 @@ public:
 				CheckForInventoryReplaceMe(ioo, io);
 			}
 		} else {
-			
-			for(size_t i = 0; i < MAX_SPELLS; i++) {
-				if(spells[i].exist && spells[i].caster == oldd) {
-					spells[i].caster = neww;
-				}
-			}
-			
-			io->show = SHOW_FLAG_KILLED;
+			spells.replaceCaster(oldd, neww);
 			
 			InventoryPos oldPos = removeFromInventories(io);
 			
@@ -144,8 +135,8 @@ public:
 				// the init script already inserted the item into an inventory
 				reInsert = false;
 			}
-			for(int i = 0; i < MAX_EQUIPED; i++) {
-				if(player.equiped[i] != 0 && ValidIONum(player.equiped[i])) {
+			for(size_t i = 0; i < MAX_EQUIPED; i++) {
+				if(ValidIONum(player.equiped[i])) {
 					if(entities[player.equiped[i]] == ioo) {
 						// the init script was sneaky and equiped the item
 						reInsert = false;
@@ -157,8 +148,8 @@ public:
 				if(oldPos) {
 					insertIntoInventory(ioo, oldPos);
 				} else {
-					for(int i = 0; i < MAX_EQUIPED; i++) {
-						if(player.equiped[i] != 0 && ValidIONum(player.equiped[i])) {
+					for(size_t i = 0; i < MAX_EQUIPED; i++) {
+						if(ValidIONum(player.equiped[i])) {
 							if(entities[player.equiped[i]] == io) {
 								ARX_EQUIPMENT_UnEquip(entities.player(), io, 1);
 								ARX_EQUIPMENT_Equip(entities.player(), ioo);
@@ -168,13 +159,12 @@ public:
 				}
 			}
 			
-			if(io->scriptload) {
-				delete io;
-				return AbortRefuse;
-			} else {
-				TREATZONE_RemoveIO(io);
-			}
+			// Delay destruction of the object to avoid invalid references
+			ARX_INTERACTIVE_DestroyIOdelayed(io);
 			
+			// Prevent further script events as the object has been destroyed!
+			io->show = SHOW_FLAG_MEGAHIDE;
+			io->ioflags |= IO_FREEZESCRIPT;
 			return AbortRefuse;
 		}
 		
@@ -206,22 +196,18 @@ public:
 			
 			bool colliding = false;
 			for(size_t k = 0; k < entities.size(); k++) {
-				Entity * ioo = entities[k];
+				const EntityHandle handle = EntityHandle(k);
+				Entity * ioo = entities[handle];
 				if(ioo && IsCollidingIO(io, ioo)) {
-					Entity * oes = EVENT_SENDER;
-					EVENT_SENDER = ioo;
-					Stack_SendIOScriptEvent(io, SM_COLLISION_ERROR_DETAIL);
-					EVENT_SENDER = oes;
+					Stack_SendIOScriptEvent(ioo, io, SM_COLLISION_ERROR_DETAIL);
 					colliding = true;
 				}
 			}
 			
 			if(colliding) {
-				Entity * oes = EVENT_SENDER;
-				EVENT_SENDER = NULL;
-				Stack_SendIOScriptEvent(io, SM_COLLISION_ERROR);
-				EVENT_SENDER = oes;
+				Stack_SendIOScriptEvent(NULL, io, SM_COLLISION_ERROR);
 			}
+			
 		}
 		
 		io->ioflags &= ~IO_NO_COLLISIONS;
@@ -239,14 +225,14 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		if(type == "npc" || type == "item") {
 			
 			res::path file = res::path::load(context.getWord()); // object to spawn.
 			file.remove_ext();
 			
-			string target = context.getWord(); // object ident for position
+			std::string target = context.getWord(); // object ident for position
 			Entity * t = entities.getById(target, context.getEntity());
 			if(!t) {
 				ScriptWarning << "unknown target: npc " << file << ' ' << target;
@@ -278,8 +264,8 @@ public:
 				
 				if(t->ioflags & IO_NPC) {
 					float dist = t->physics.cyl.radius + ioo->physics.cyl.radius + 10;
-					ioo->pos.x += -EEsin(radians(t->angle.b)) * dist;
-					ioo->pos.z += EEcos(radians(t->angle.b)) * dist;
+					
+					ioo->pos += angleToVectorXZ(t->angle.getYaw()) * dist;
 				}
 				
 				TREATZONE_AddIO(ioo);
@@ -319,36 +305,11 @@ public:
 				pos.y -= 80.f;
 			}
 			
-			ARX_MISSILES_Spawn(io, MISSILE_FIREBALL, &pos, &io->target);
+			ARX_MISSILES_Spawn(io, MISSILE_FIREBALL, pos, io->target);
 			
 		} else {
 			ScriptWarning << "unexpected type: " << type;
 			return Failed;
-		}
-		
-		return Success;
-	}
-	
-};
-
-class KillMeCommand : public Command {
-	
-public:
-	
-	KillMeCommand() : Command("killme", AnyEntity) { }
-	
-	Result execute(Context & context) {
-		
-		DebugScript("");
-		
-		Entity * io = context.getEntity();
-		if((io->ioflags & IO_ITEM) && io->_itemdata->count > 1) {
-			io->_itemdata->count--;
-		} else {
-			io->show = SHOW_FLAG_KILLED;
-			io->gameFlags &= ~GFLAG_ISINTREATZONE;
-			RemoveFromAllInventories(io);
-			ARX_DAMAGES_ForceDeath(io, EVENT_SENDER);
 		}
 		
 		return Success;
@@ -364,7 +325,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		Entity * io = context.getEntity();
 		
@@ -383,10 +344,10 @@ public:
 			DebugScript(' ' << type << ' ' << fval);
 			
 			if(type == "height") {
-				io->original_height = clamp(-fval, -165.f, -30.f);
+				io->original_height = glm::clamp(-fval, -165.f, -30.f);
 				io->physics.cyl.height = io->original_height * io->scale;
 			} else if(type == "radius") {
-				io->original_radius = clamp(fval, 10.f, 40.f);
+				io->original_radius = glm::clamp(fval, 10.f, 40.f);
 				io->physics.cyl.radius = io->original_radius * io->scale;
 			} else {
 				ScriptWarning << "unknown command: " << type;
@@ -408,13 +369,13 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string name = context.getStringVar(context.getWord());
+		std::string name = context.getStringVar(context.getWord());
 		
-		string attach = context.getWord();
+		std::string attach = context.getWord();
 		
 		DebugScript(' ' << name << ' ' << attach);
 		
-		long t = entities.getById(name);
+		EntityHandle t = entities.getById(name);
 		if(!ValidIONum(t)) {
 			ScriptWarning << "unknown target: " << name;
 			return Failed;
@@ -435,13 +396,13 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
-		long t = entities.getById(target);
+		EntityHandle t = entities.getById(target);
 		
-		if(t == -1) {
+		if(t == EntityHandle()) {
 			context.skipStatement();
 		}
 		
@@ -454,20 +415,15 @@ class IfVisibleCommand : public Command {
 	
 	static bool hasVisibility(Entity * io, Entity * ioo) {
 		
-		if(distSqr(io->pos, ioo->pos) > square(20000)) {
+		if(fartherThan(io->pos, ioo->pos, 20000)) {
 			return false;
 		}
 		
-		float ab = MAKEANGLE(io->angle.b);
+		float ab = MAKEANGLE(io->angle.getYaw());
 		float aa = getAngle(io->pos.x, io->pos.z, ioo->pos.x, ioo->pos.z);
-		aa = MAKEANGLE(degrees(aa));
+		aa = MAKEANGLE(glm::degrees(aa));
 		
-		if((aa < ab + 90.f) && (aa > ab - 90.f)) {
-			//font
-			return true;
-		}
-		
-		return false;
+		return (aa < ab + 90.f && aa > ab - 90.f);
 	}
 	
 public:
@@ -476,11 +432,11 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
-		long t = entities.getById(target);
+		EntityHandle t = entities.getById(target);
 		
 		if(!ValidIONum(t) || !hasVisibility(context.getEntity(), entities[t])) {
 			context.skipStatement();
@@ -504,7 +460,7 @@ public:
 			megahide = test_flag(flg, 'm');
 		}
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		Entity * t = entities.getById(target, context.getEntity());
 		
 		bool hide = context.getBool();
@@ -525,11 +481,11 @@ public:
 			}
 		} else if(t->show == SHOW_FLAG_MEGAHIDE || t->show == SHOW_FLAG_HIDDEN) {
 			t->show = SHOW_FLAG_IN_SCENE;
-			if((t->ioflags & IO_NPC) && t->_npcdata->life <= 0.f) {
+			if((t->ioflags & IO_NPC) && t->_npcdata->lifePool.current <= 0.f) {
 				t->animlayer[0].cur_anim = t->anims[ANIM_DIE];
 				t->animlayer[1].cur_anim = NULL;
 				t->animlayer[2].cur_anim = NULL;
-				t->animlayer[0].ctime = 9999999;
+				t->animlayer[0].ctime = AnimationDurationMs(9999999);
 			}
 		}
 		
@@ -557,7 +513,8 @@ public:
 				float fangle = context.getFloat();
 				angle = static_cast<long>(fangle);
 				if(!(flg & flag('l'))) {
-					player.desiredangle.b = player.angle.b = fangle;
+					player.desiredangle.setYaw(fangle);
+					player.angle.setYaw(fangle);
 				}
 			}
 			
@@ -567,19 +524,19 @@ public:
 			
 			if(flg & flag('l')) {
 				
-				string level = context.getWord();
-				string target = context.getWord();
+				std::string level = context.getWord();
+				std::string target = context.getWord();
 				
-				strcpy(TELEPORT_TO_LEVEL, level.c_str());
-				strcpy(TELEPORT_TO_POSITION, target.c_str());
+				TELEPORT_TO_LEVEL = level;
+				TELEPORT_TO_POSITION = target;
 				
 				if(angle == -1) {
-					TELEPORT_TO_ANGLE	=	static_cast<long>(player.angle.b);
+					TELEPORT_TO_ANGLE = static_cast<long>(player.angle.getYaw());
 				} else {
 					TELEPORT_TO_ANGLE = angle;
 				}
 				
-				CHANGE_LEVEL_ICON =  confirm ? 1 : 200;
+				CHANGE_LEVEL_ICON = confirm ? ConfirmChangeLevel : ChangeLevelNow;
 				
 				DebugScript(' ' << options << ' ' << angle << ' ' << level << ' ' << target);
 				
@@ -590,12 +547,12 @@ public:
 			initpos = test_flag(flg, 'i');
 		}
 		
-		string target;
+		std::string target;
 		if(!initpos) {
 			target = context.getWord();
 		}
 		
-		DebugScript(' ' << options << ' ' << player.angle.b << ' ' << target);
+		DebugScript(' ' << options << ' ' << player.angle.getYaw() << ' ' << target);
 		
 		if(target == "behind") {
 			ARX_INTERACTIVE_TeleportBehindTarget(context.getEntity());
@@ -616,22 +573,18 @@ public:
 				return Failed;
 			}
 			
-			Vec3f pos;
-			if(!GetItemWorldPosition(t, &pos)) {
-				ScriptWarning << "could not get world position";
-				return Failed;
-			}
+			Vec3f pos = GetItemWorldPosition(t);
 			
 			if(teleport_player) {
-				ARX_INTERACTIVE_Teleport(entities.player(), &pos);
+				ARX_INTERACTIVE_Teleport(entities.player(), pos);
 				return Success;
 			}
 			
-			if(!(io->ioflags & IO_NPC) || io->_npcdata->life > 0) {
+			if(!(io->ioflags & IO_NPC) || io->_npcdata->lifePool.current > 0) {
 				if(io->show != SHOW_FLAG_HIDDEN && io->show != SHOW_FLAG_MEGAHIDE) {
 					io->show = SHOW_FLAG_IN_SCENE;
 				}
-				ARX_INTERACTIVE_Teleport(io, &pos);
+				ARX_INTERACTIVE_Teleport(io, pos);
 			}
 			
 		} else {
@@ -642,15 +595,13 @@ public:
 			}
 			
 			if(teleport_player) {
-				Vec3f pos;
-				if(GetItemWorldPosition(io, &pos)) {
-					ARX_INTERACTIVE_Teleport(entities.player(), &pos);
-				}
-			} else if(!(io->ioflags & IO_NPC) || io->_npcdata->life > 0) {
+				Vec3f pos = GetItemWorldPosition(io);
+				ARX_INTERACTIVE_Teleport(entities.player(), pos);
+			} else if(!(io->ioflags & IO_NPC) || io->_npcdata->lifePool.current > 0) {
 				if(io->show != SHOW_FLAG_HIDDEN && io->show != SHOW_FLAG_MEGAHIDE) {
 					io->show = SHOW_FLAG_IN_SCENE;
 				}
-				ARX_INTERACTIVE_Teleport(io, &io->initpos);
+				ARX_INTERACTIVE_Teleport(io, io->initpos);
 			}
 		}
 		
@@ -669,7 +620,7 @@ public:
 		
 		DebugScript("");
 		
-		context.getEntity()->targetinfo = TARGET_PLAYER;
+		context.getEntity()->targetinfo = EntityHandle(TARGET_PLAYER);
 		GetTargetPos(context.getEntity());
 		
 		return Success;
@@ -685,20 +636,28 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getStringVar(context.getWord());
+		std::string target = context.getStringVar(context.getWord());
 		
 		DebugScript(' ' << target);
 		
-		Entity * t = entities.getById(target, context.getEntity());
-		if(!t) {
+		Entity * entity = entities.getById(target, context.getEntity());
+		if(!entity) {
 			return Success;
 		}
 		
-		bool self = (t == context.getEntity());
+		// Delay destruction of the object to avoid invalid references
+		bool destroyed = ARX_INTERACTIVE_DestroyIOdelayed(entity);
 		
-		ARX_INTERACTIVE_DestroyIO(t);
+		// Prevent further script events as the object has been destroyed!
+		if(destroyed) {
+			entity->show = SHOW_FLAG_MEGAHIDE;
+			entity->ioflags |= IO_FREEZESCRIPT;
+			if(entity == context.getEntity()) {
+				return AbortAccept;
+			}
+		}
 		
-		return self ? AbortAccept : Success; // Cannot process further if we destroyed the script's IO
+		return Success;
 	}
 	
 };
@@ -707,7 +666,7 @@ class AbstractDamageCommand : public Command {
 	
 protected:
 	
-	AbstractDamageCommand(const string & name, long ioflags = 0) : Command(name, ioflags) { }
+	AbstractDamageCommand(const std::string & name, long ioflags = 0) : Command(name, ioflags) { }
 	
 	DamageType getDamageType(Context & context) {
 		
@@ -744,7 +703,7 @@ public:
 		
 		DamageType type = getDamageType(context);
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		float damage = context.getFloat();
 		
@@ -756,7 +715,7 @@ public:
 			return Failed;
 		}
 		
-		long self = (context.getEntity() == NULL) ? -1 : context.getEntity()->index();
+		EntityHandle self = (context.getEntity() == NULL) ? EntityHandle() : context.getEntity()->index();
 		ARX_DAMAGES_DealDamages(t->index(), damage, self, type, &t->pos);
 		
 		return Success;
@@ -787,14 +746,13 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedIOControl() {
 	
 	ScriptEvent::registerCommand(new ReplaceMeCommand);
 	ScriptEvent::registerCommand(new CollisionCommand);
 	ScriptEvent::registerCommand(new SpawnCommand);
-	ScriptEvent::registerCommand(new KillMeCommand);
 	ScriptEvent::registerCommand(new PhysicalCommand);
 	ScriptEvent::registerCommand(new LinkObjToMeCommand);
 	ScriptEvent::registerCommand(new IfExistInternalCommand);

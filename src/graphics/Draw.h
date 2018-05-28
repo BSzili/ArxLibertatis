@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,53 +44,29 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_DRAW_H
 #define ARX_GRAPHICS_DRAW_H
 
+#include "graphics/RenderBatcher.h"
 #include "graphics/Renderer.h"
-#include "math/MathFwd.h"
+#include "graphics/Vertex.h"
+#include "graphics/texture/TextureStage.h"
+#include "graphics/data/TextureContainer.h"
+#include "math/Types.h"
 
 struct EERIEPOLY;
 struct EERIE_3DOBJ;
-struct EERIE_CYLINDER;
-struct TexturedVertex;
-
-extern Vec3f SPRmins;
-extern Vec3f SPRmaxs;
-
-void MDL_AddMetalDrawLater(TexturedVertex * tv);
-void MDL_FlushAll();
-
-
-void Delayed_EERIEDRAWPRIM(EERIEPOLY * ep);
-void Delayed_FlushAll();
+struct Sphere;
+struct Cylinder;
 
 void EERIEDRAWPRIM(Renderer::Primitive primitive, const TexturedVertex * vertices, size_t count = 3, bool nocount = false);
 
-void EERIEDrawCircle(float x0, float y0, float r, Color col, float z);
-void EERIEDraw2DLine(float x0, float y0, float x1, float y1, float z, Color col);
-void EERIEDrawBitmap(float x, float y, float sx, float sy, float z, TextureContainer * tex, Color color);
-void EERIEDraw2DRect(float x0, float y0, float x1, float y1, float z, Color col);
-void EERIEDrawFill2DRectDegrad(float x0, float y0, float x1, float y1, float z, Color cold, Color cole);
+void EERIEDrawBitmap(const Rectf & rect, float z, TextureContainer * tex, Color color);
+void EERIEDrawBitmap2DecalY(Rectf rect, float z, TextureContainer * tex, Color col, float _fDeltaY);
 
-void EERIEDraw3DCylinder(const EERIE_CYLINDER & cyl, Color col);
-void EERIEDraw3DCylinderBase(const EERIE_CYLINDER & cyl, Color col);
-void EERIEDrawTrue3DLine(const Vec3f & orgn, const Vec3f & dest, Color col);
-void EERIEDraw3DLine(const Vec3f & orgn, const Vec3f & dest, Color col);
-void EERIEDrawBitmap2DecalY(float x, float y, float sx, float sy, float z, TextureContainer * tex,
-                            Color col, float _fDeltaY);
+void EERIEDrawSprite(const Vec3f & in, float siz, TextureContainer * tex, Color col, float Zpos);
 
-void EERIEOBJECT_Quadify(EERIE_3DOBJ * obj);
+void EERIEDrawBitmap_uv(Rectf rect, float z, TextureContainer * tex, Color col, float u0, float v0, float u1, float v1);
+void EERIEDrawBitmapUVs(Rectf rect, float z, TextureContainer * tex, Color color, Vec2f uv0, Vec2f uv1, Vec2f uv2, Vec2f uv3);
 
-void EERIEDrawSprite(TexturedVertex * in, float siz, TextureContainer * tex, Color col, float Zpos);
-void EERIEDrawRotatedSprite(TexturedVertex * in, float siz, TextureContainer * tex, Color col, float Zpos, float rot);
-
-void EERIEPOLY_DrawWired(EERIEPOLY * ep, Color col = Color::none);
-void EERIEPOLY_DrawNormals(EERIEPOLY * ep);
-
-extern TextureContainer * EERIE_DRAW_sphere_particle;
-
-void EERIEDrawBitmap2(float x, float y, float sx, float sy, float z, TextureContainer * tex, Color col);
-
-void EERIEDrawBitmap_uv(float x, float y, float sx, float sy, float z, TextureContainer * tex, Color col, float u0, float v0, float u1, float v1);
-
-void EERIEDrawBitmapUVs(float x, float y, float sx, float sy, float z, TextureContainer * tex, Color col, float u0, float v0, float u1, float v1, float u2, float v2, float u3, float v3);
+void EERIEAddBitmap(const RenderMaterial & mat, const Vec3f & p, float sx, float sy, TextureContainer * tex, Color color);
+void EERIEAddSprite(const RenderMaterial & mat, const Vec3f & in, float siz, Color color, float Zpos, float rot = 0);
 
 #endif // ARX_GRAPHICS_DRAW_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -59,12 +59,6 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/GameSound.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-using std::free;
-using std::malloc;
-using std::memset;
-using std::strcpy;
-
 extern Entity * LASTSPAWNED;
 
 namespace script {
@@ -75,18 +69,18 @@ class InventoryCommand : public Command {
 	
 	class SubCommand : public Command {
 		
-		const string command;
+		const std::string command;
 		
 	public:
 		
 		explicit SubCommand(const std::string & name)
 			: Command("inventory " + name, AnyEntity), command(name) { }
 		
-		inline const string & getCommand() { return command; }
+		const std::string & getCommand() { return command; }
 		
 	};
 	
-	typedef std::map<string, SubCommand *> Commands;
+	typedef std::map<std::string, SubCommand *> Commands;
 	Commands commands;
 	
 	void addCommand(SubCommand * command) {
@@ -102,6 +96,51 @@ class InventoryCommand : public Command {
 		
 	}
 	
+	class DestroyCommand : public SubCommand {
+		
+	public:
+		
+		static void destroyInventory(Entity * io) {
+			
+			INVENTORY_DATA * id = io->inventory;
+			if(!id) {
+				return;
+			}
+			
+			for(long y = 0; y < id->m_size.y; y++) {
+				for(long x = 0; x < id->m_size.x; x++) {
+					Entity * item = id->slot[x][y].io;
+					if(item && id->slot[x][y].show) {
+						// Delay destruction of the object to avoid invalid references
+						if(item->ioflags & IO_ITEM) {
+							item->_itemdata->count = 1;
+						}
+						ARX_INTERACTIVE_DestroyIOdelayed(item);
+						// Prevent further script events as the object has been destroyed!
+						item->show = SHOW_FLAG_MEGAHIDE;
+						item->ioflags |= IO_FREEZESCRIPT;
+					}
+					id->slot[x][y].io = NULL;
+				}
+			}
+			
+			delete io->inventory;
+			io->inventory = NULL;
+		}
+		
+		DestroyCommand() : SubCommand("destroy") { }
+		
+		Result execute(Context & context) {
+			
+			DebugScript("");
+			
+			destroyInventory(context.getEntity());
+			
+			return Success;
+		}
+		
+	};
+	
 	class CreateCommand : public SubCommand {
 		
 	public:
@@ -114,31 +153,10 @@ class InventoryCommand : public Command {
 			
 			Entity * io = context.getEntity();
 			
-			if(io->inventory) {
-				
-				INVENTORY_DATA * id = io->inventory;
-				
-				for(long nj = 0; nj < id->sizey; nj++) {
-					for(long ni = 0; ni < id->sizex; ni++) {
-						
-						Entity * item = id->slot[ni][nj].io;
-						if(!item) {
-							continue;
-						}
-						
-						item->destroy();
-						
-						id->slot[ni][nj].io = NULL;
-					}
-				}
-				
-				free(io->inventory);
-			}
+			DestroyCommand::destroyInventory(io);
 			
-			io->inventory = (INVENTORY_DATA *)malloc(sizeof(INVENTORY_DATA));
-			memset(io->inventory, 0, sizeof(INVENTORY_DATA));
-			io->inventory->sizex = 3;
-			io->inventory->sizey = 11;
+			io->inventory = new INVENTORY_DATA();
+			io->inventory->m_size = Vec2s(3, 11);
 			io->inventory->io = io;
 			
 			return Success;
@@ -171,7 +189,7 @@ class InventoryCommand : public Command {
 		
 		Result execute(Context & context) {
 			
-			string target = context.getWord();
+			std::string target = context.getWord();
 			
 			DebugScript(' ' << target);
 			
@@ -196,7 +214,7 @@ class InventoryCommand : public Command {
 		
 	public:
 		
-		PlayerAddCommand(const string & name, bool _multi) : SubCommand(name), multi(_multi) { }
+		PlayerAddCommand(const std::string & name, bool _multi) : SubCommand(name), multi(_multi) { }
 		
 		Result execute(Context & context) {
 			
@@ -253,7 +271,7 @@ class InventoryCommand : public Command {
 		
 		Result execute(Context & context) {
 			
-			string target = context.getWord();
+			std::string target = context.getWord();
 			
 			DebugScript(' ' << target);
 			
@@ -272,8 +290,7 @@ class InventoryCommand : public Command {
 			t->scriptload = 0;
 			t->show = SHOW_FLAG_IN_INVENTORY;
 			
-			long xx, yy;
-			if(!CanBePutInSecondaryInventory(context.getEntity()->inventory, t, &xx, &yy)) {
+			if(!CanBePutInSecondaryInventory(context.getEntity()->inventory, t)) {
 				PutInFrontOfPlayer(t);
 			}
 			
@@ -288,7 +305,7 @@ class InventoryCommand : public Command {
 		
 	public:
 		
-		AddCommand(const string & name, bool _multi) : SubCommand(name), multi(_multi) { }
+		AddCommand(const std::string & name, bool _multi) : SubCommand(name), multi(_multi) { }
 		
 		Result execute(Context & context) {
 			
@@ -341,32 +358,8 @@ class InventoryCommand : public Command {
 				}
 			}
 			
-			long xx, yy;
-			if(!CanBePutInSecondaryInventory(context.getEntity()->inventory, ioo, &xx, &yy)) {
-					PutInFrontOfPlayer(ioo);
-			}
-			
-			return Success;
-		}
-		
-	};
-	
-	class DestroyCommand : public SubCommand {
-		
-	public:
-		
-		DestroyCommand() : SubCommand("destroy") { }
-		
-		Result execute(Context & context) {
-			
-			DebugScript("");
-			
-			Entity * io = context.getEntity();
-			if(io->inventory) {
-				if(SecondaryInventory == io->inventory) {
-					SecondaryInventory = NULL;
-				}
-				free(io->inventory), io->inventory = NULL;
+			if(!CanBePutInSecondaryInventory(context.getEntity()->inventory, ioo)) {
+				PutInFrontOfPlayer(ioo);
 			}
 			
 			return Success;
@@ -430,9 +423,16 @@ public:
 		addCommand(new CloseCommand);
 	}
 	
+	~InventoryCommand() {
+		for(Commands::iterator i = commands.begin(); i != commands.end(); ++i) {
+			delete i->second;
+		}
+		commands.clear();
+	}
+	
 	Result execute(Context & context) {
 		
-		string cmdname = context.getWord();
+		std::string cmdname = context.getWord();
 		
 		// Remove all underscores from the command.
 		cmdname.resize(std::remove(cmdname.begin(), cmdname.end(), '_') - cmdname.begin());
@@ -461,27 +461,21 @@ public:
 			unequip = test_flag(flg, 'r');
 		}
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << target);
 		
-		long t = entities.getById(target);
+		EntityHandle t = entities.getById(target);
 		if(!ValidIONum(t)) {
 			ScriptWarning << "unknown target: " << target;
 			return Failed;
 		}
 		
 		if(unequip) {
-			Entity * oes = EVENT_SENDER;
-			EVENT_SENDER = entities[t];
-			Stack_SendIOScriptEvent(context.getEntity(), SM_EQUIPOUT);
-			EVENT_SENDER = oes;
+			Stack_SendIOScriptEvent(entities[t], context.getEntity(), SM_EQUIPOUT);
 			ARX_EQUIPMENT_UnEquip(entities[t], context.getEntity());
 		} else {
-			Entity * oes = EVENT_SENDER;
-			EVENT_SENDER = entities[t];
-			Stack_SendIOScriptEvent(context.getEntity(), SM_EQUIPIN);
-			EVENT_SENDER = oes;
+			Stack_SendIOScriptEvent(entities[t], context.getEntity(), SM_EQUIPIN);
 			ARX_EQUIPMENT_Equip(entities[t], context.getEntity());
 		}
 		
@@ -553,7 +547,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedInventory() {
 	

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -46,21 +46,43 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <cstdlib>
 #include <algorithm>
 
+#include <boost/foreach.hpp>
+#include <boost/unordered_map.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "game/Entity.h"
 #include "platform/Platform.h"
 
+struct EntityManager::Impl {
+	
+	size_t m_minfree; // first unused index (value == NULL)
+	
+	typedef boost::unordered_map<std::string, Entity *> Index;
+	Index m_index;
+	
+	Impl() : m_minfree(0) { }
+	
+	EntityHandle getById(const std::string & idString) const {
+		Impl::Index::const_iterator i = m_index.find(idString);
+		return (i != m_index.end()) ? i->second->index() : EntityHandle();
+	}
+	
+};
+
 EntityManager entities;
 
-EntityManager::EntityManager() : minfree(0) { }
+EntityManager::EntityManager() : m_impl(new Impl) { }
 
 EntityManager::~EntityManager() {
 	
 #ifdef ARX_DEBUG
 	for(size_t i = 0; i < size(); i++) {
-		arx_assert_msg(entries[i] == NULL,
-		               "object %lu not cleared", (unsigned long)i);
+		arx_assert_msg(entries[i] == NULL, "object %lu not cleared", (unsigned long)i);
 	}
 #endif
+	
+	delete m_impl;
 	
 }
 
@@ -68,7 +90,7 @@ void EntityManager::init() {
 	arx_assert(size() == 0);
 	entries.resize(1);
 	entries[0] = NULL;
-	minfree = 0;
+	m_impl->m_minfree = 0;
 }
 
 void EntityManager::clear() {
@@ -80,60 +102,94 @@ void EntityManager::clear() {
 	}
 	
 	entries.resize(1);
-	minfree = 0;
+	m_impl->m_minfree = 0;
 }
 
-long EntityManager::getById(const std::string & name) const {
+EntityHandle EntityManager::getById(const std::string & idString) const {
 	
-	if(name.empty() || name == "none") {
-		return -1;
-	} else if(name == "self" || name == "me") {
-		return -2;
-	} else if(name == "player") {
-		return 0; // player is an IO with index 0
+	if(idString.empty() || idString == "none") {
+		return EntityHandle();
+	} else if(idString == "self" || idString == "me") {
+		return EntityHandle_Self;
+	} else if(idString == "player") {
+		return EntityHandle_Player;
 	}
 	
-	for(size_t i = 0 ; i < size() ; i++) {
-		if(entries[i] != NULL && entries[i]->ident > -1) {
-			// TODO this check is inefficient!
-			if(name == entries[i]->long_name()) {
-				return i;
+	return m_impl->getById(idString);
+}
+
+EntityHandle EntityManager::getById(const EntityId & id) const {
+	
+	if(id.isSpecial()) {
+		if(id.className().empty()) {
+			return EntityHandle();
+		} else if(id.className() == "self" || id.className() == "me") {
+			return EntityHandle_Self;
+		} else if(id.className() == "player") {
+			return EntityHandle_Player;
+		}
+	}
+	
+	return m_impl->getById(id.string());
+}
+
+Entity * EntityManager::getById(const std::string & name, Entity * self) const {
+	
+	EntityHandle handle = getById(name);
+	if(handle == EntityHandle()) {
+		return NULL;
+	} else if(handle == EntityHandle_Self) {
+		return self;
+	} else {
+		return entries[handle.handleData()];
+	}
+}
+
+void EntityManager::autocomplete(const std::string & prefix, AutocompleteHandler handler, void * context) {
+	
+	std::string check = boost::to_lower_copy(prefix);
+	
+	// TODO we don't need to iterate over all entities if we have per-class indices
+	BOOST_FOREACH(Entity * entity, entries) {
+		if(entity) {
+			std::string id = entity->idString();
+			if(boost::starts_with(id, check)) {
+				if(!handler(context, id)) {
+					return;
+				}
 			}
 		}
 	}
 	
-	return -1;
-}
-
-Entity * EntityManager::getById(const std::string & name, Entity * self) const {
-	long index = getById(name);
-	return (index == -1) ? NULL : (index == -2) ? self : entries[index]; 
 }
 
 size_t EntityManager::add(Entity * entity) {
 	
-	for(size_t i = minfree; i < size(); i++) {
+	m_impl->m_index[entity->idString()] = entity;
+	
+	for(size_t i = m_impl->m_minfree; i < size(); i++) {
 		if(entries[i] == NULL) {
 			entries[i] = entity;
-			minfree = i + 1;
+			m_impl->m_minfree = i + 1;
 			return i;
 		}
 	}
 	
 	size_t i = size();
 	entries.push_back(entity);
-	minfree = i + 1;
+	m_impl->m_minfree = i + 1;
 	return i;
 }
 
 void EntityManager::remove(size_t index) {
 	
 	arx_assert_msg(index < size() && entries[index] != NULL,
-	               "double free or memory corruption detected: index=%lu",
-	               (unsigned long)index);
+	               "double free or memory corruption detected: index=%lu", (unsigned long)index);
 	
-	if(index < minfree) {
-		minfree = index;
+	m_impl->m_index.erase(entries[index]->idString());
+	
+	if(index < m_impl->m_minfree) {
+		m_impl->m_minfree = index;
 	}
 	
 	entries[index] = NULL;

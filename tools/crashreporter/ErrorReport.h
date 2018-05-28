@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,29 +22,11 @@
 
 #include <vector>
 
-#include "Configure.h"
-
-#ifdef ARX_HAVE_WINAPI
-// Win32
-#include <winsock2.h>
-#endif // ARX_HAVE_WINAPI
-
-// BOOST
-#define BOOST_DATE_TIME_NO_LIB
-#include <boost/version.hpp>
-#if BOOST_VERSION < 104500
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-fpermissive"
-#endif
 #include <boost/interprocess/mapped_region.hpp>
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/interprocess/sync/interprocess_semaphore.hpp>
-#if BOOST_VERSION < 104500
-#pragma GCC diagnostic pop
-#endif
 #include <boost/scope_exit.hpp>
 
-// Qt
 #include <QString>
 #include <QList>
 #include <QDateTime>
@@ -53,79 +35,68 @@
 #include "platform/crashhandler/CrashInfo.h"
 #include "io/fs/FilePath.h"
 
-class ErrorReport
-{
+class ErrorReport {
+	
 public:
-	class IProgressNotifier
-	{
+	
+	class IProgressNotifier {
+		
 	public:
-		virtual void taskStarted(const QString& taskDescription, int numSteps) = 0;
-		virtual void taskStepStarted(const QString& taskStepDescription) = 0;
+		
+		virtual void taskStarted(const QString & taskDescription, int numSteps) = 0;
+		virtual void taskStepStarted(const QString & taskStepDescription) = 0;
 		virtual void taskStepEnded() = 0;
-		virtual void setError(const QString& strError) = 0;
-		virtual void setDetailedError(const QString& strDetailedError) = 0;
+		virtual void setError(const QString & strError) = 0;
+		virtual void setDetailedError(const QString & strDetailedError) = 0;
+		
 	};
-
-	struct File
-	{
-		fs::path	path;
-		bool		attachToReport;
-
-		File(const fs::path _path, bool _attach)
-		{
+	
+	struct File {
+		
+		fs::path path;
+		bool attachToReport;
+		
+		File(const fs::path & _path, bool _attach) {
 			path = _path;
 			attachToReport = _attach;
 		}
+		
 	};
-
+	
 	typedef std::vector<File> FileList;
-
+	
 public:
 	
 	explicit ErrorReport(const QString & sharedMemoryName);
 	
-	bool GenerateReport(IProgressNotifier* progressNotifier);
-	bool SendReport(IProgressNotifier* progressNotifier);
-
-	FileList& GetAttachedFiles();
-
-	const QString& GetErrorDescription() const;
-	const QString& GetIssueLink() const;
-
-	void SetLoginInfo(const QString& username, const QString& password);
-	void SetReproSteps(const QString& reproSteps);
-
+	bool GenerateReport(IProgressNotifier * progressNotifier);
+	bool SendReport(IProgressNotifier * progressNotifier);
+	
+	FileList & GetAttachedFiles();
+	
+	const QString & GetErrorDescription() const;
+	const QString & GetIssueLink() const;
+	
+	const QList<QString> & getFailedFiles() const { return m_failedFiles; }
+	
+	void SetLoginInfo(const QString & username, const QString & password);
+	void SetReproSteps(const QString & reproSteps);
+	
 private:
 	
 	bool Initialize();
-
-	bool WriteReport(const fs::path& fileName);
-
-	bool GetCrashDump(const fs::path& fileName);
-	bool getCrashDescription();
-	bool GetMiscCrashInfo();
-
-	void AddSSLCertificate();
-	void AddFile(const fs::path& fileName);
+	
+	void getCrashInfo();
+	
+	void AddFile(const fs::path & fileName);
 	
 	void ReleaseApplicationLock();
 	
 private:
 	
-	fs::path m_ReportFolder;
-	
 	FileList m_AttachedFiles;
 	
-	QDateTime m_CrashDateTime;
-	double m_RunningTimeSec;
-	
-	QString m_OSName;
-	QString m_OSArchitecture;
-	QString m_OSDistribution;
-		
-	fs::path m_ProcessPath;
-	quint64 m_ProcessMemoryUsage;
-	QString m_ProcessArchitecture;
+	int m_ProcessArchitecture;
 
 	QString m_SharedMemoryName;
 	boost::interprocess::shared_memory_object m_SharedMemory;
@@ -136,7 +107,6 @@ private:
 	QString m_ReportUniqueID;
 	QString m_ReportTitle;
 	QString m_ReportDescription;
-	QString m_ReportDescriptionText;
 	QString m_ReproSteps;
 	QString m_IssueLink;
 
@@ -144,6 +114,9 @@ private:
 	QString m_Password;
 
 	QString m_DetailedError;
+	
+	QList<QString> m_failedFiles;
+	
 };
 
 #endif // ARX_TOOLS_CRASHREPORTER_ERRORREPORT_H

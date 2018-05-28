@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,24 +47,19 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_AI_PATHFINDERMANAGER_H
 #define ARX_AI_PATHFINDERMANAGER_H
 
+#include "game/GameTypes.h"
+
 class Entity;
 
 struct PATHFINDER_REQUEST {
-	bool isvalid;
 	long from;
 	long to;
-	long * returnnumber;			// must point to a -1 value at call time
-	// As soon as returnnumber is no more -1
-	// Pathfinding is considered finished
-	Entity * ioid;
-	unsigned short ** returnlist;	//must be NULL
+	Entity * entity;
 };
 
-extern long PATHFINDER_WORKING;
-extern PATHFINDER_REQUEST pr;
-
-bool EERIE_PATHFINDER_Add_To_Queue(PATHFINDER_REQUEST * request);
+bool EERIE_PATHFINDER_Add_To_Queue(const PATHFINDER_REQUEST & request);
 long EERIE_PATHFINDER_Get_Queued_Number();
+bool EERIE_PATHFINDER_Is_Busy();
 void EERIE_PATHFINDER_Clear();
 void EERIE_PATHFINDER_Create();
 void EERIE_PATHFINDER_Release();

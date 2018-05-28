@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -26,7 +26,7 @@
 #include <boost/noncopyable.hpp>
 
 #include "graphics/Color.h"
-#include "math/Vector2.h"
+#include "math/Vector.h"
 
 #include "io/resource/ResourcePath.h"
 
@@ -88,43 +88,97 @@ public:
 		Vec2f uv_end;
 		
 		//!< Texture page on which the glyph can be found
-		unsigned int texture;
+		size_t texture;
 		
 	};
 	
 public:
 	
+	class TextSize {
+		
+		Vec2i m_anchor;
+		s32 m_start;
+		s32 m_end;
+		s32 m_next;
+		s32 m_height;
+		
+	public:
+		
+		TextSize(Vec2i anchor, s32 start, s32 end, s32 next, s32 height)
+			: m_anchor(anchor)
+			, m_start(start)
+			, m_end(end)
+			, m_next(next)
+			, m_height(height)
+		{ }
+		
+		Vec2i anchor() {
+			return m_anchor;
+		}
+		
+		s32 start() {
+			return m_start;
+		}
+		
+		s32 end() {
+			return m_end;
+		}
+		
+		s32 width() {
+			return m_end - m_start;
+		}
+		
+		s32 height() {
+			return m_height;
+		}
+		
+		s32 advance() {
+			return m_next - m_anchor.x;
+		}
+		
+		s32 head() {
+			return m_start - m_anchor.x;
+		}
+		
+		s32 tail() {
+			return m_next - m_end;
+		}
+		
+		s32 next() {
+			return m_next;
+		}
+		
+		operator Vec2i() {
+			return Vec2i(width(), height());
+		}
+		
+	};
+	
 	typedef u32 Char;
 	
 	typedef std::string::const_iterator text_iterator;
 	
-	const Info & getInfo() const { return info; }
-	const res::path & getName() const { return info.name; }
-	unsigned int getSize() const { return info.size; }
+	const Info & getInfo() const { return m_info; }
+	const res::path & getName() const { return m_info.name; }
+	unsigned int getSize() const { return m_info.size; }
 	
-	void draw(const Vector2<int> & p, const std::string & str, const Color & color) {
-		draw(p.x, p.y, str, color);
+	TextSize draw(const Vec2i & p, const std::string & str, const Color & color) {
+		return draw(p.x, p.y, str, color);
 	}
 	
-	void draw(int x, int y, const std::string & str, Color color) {
-		draw(x, y, str.begin(), str.end(), color);
+	TextSize draw(int x, int y, const std::string & str, Color color) {
+		return draw(x, y, str.begin(), str.end(), color);
 	}
 	
-	void draw(int x, int y, text_iterator start, text_iterator end, Color color);
+	TextSize draw(int x, int y, text_iterator start, text_iterator end, Color color);
 	
-	Vec2i getTextSize(const std::string & str) {
+	TextSize getTextSize(const std::string & str) {
 		return getTextSize(str.begin(), str.end());
 	}
 	
-	Vec2i getTextSize(text_iterator start, text_iterator end);
+	TextSize getTextSize(text_iterator start, text_iterator end);
 	
 	int getLineHeight() const;
-	
-	/*!
-	 * For debugging purpose... will write one image file per page
-	 * under "name_style_size_pagen.png"
-	 */
-	bool writeToDisk();
 	
 private:
 	
@@ -139,36 +193,36 @@ private:
 	 * Inserts a single glyph
 	 * Always maps the character to a glyph - uses a placeholder if there
 	 * is no glyph for the given character
-	 * @return true if the glyph textures were changed
+	 * \return true if the glyph textures were changed
 	 */
 	bool insertGlyph(Char character);
 	
 	/*!
 	 * Inserts any missing glyphs for the characters in the UTF-8 string [begin, end)
-	 * @return true if the glyph textures were changed
+	 * \return true if the glyph textures were changed
 	 */
 	bool insertMissingGlyphs(text_iterator begin, text_iterator end);
 	
 private:
 	
 	template <bool Draw>
-	Vec2i process(int pX, int pY, text_iterator start, text_iterator end, Color color);
+	TextSize process(int pX, int pY, text_iterator start, text_iterator end, Color color);
 	
-	Info info;
-	unsigned int referenceCount;
+	Info m_info;
+	unsigned int m_referenceCount;
 	
-	struct FT_FaceRec_ * face;
-	std::map<Char, Glyph> glyphs;
+	struct FT_FaceRec_ * m_face;
+	std::map<Char, Glyph> m_glyphs;
 	typedef std::map<Char, Glyph>::const_iterator glyph_iterator;
 	
 	/*!
 	 * Parses UTF-8 input and returns the glyph for the first character
 	 * Inserts missing glyphs if possible.
-	 * @return a glyph iterator or m_Glyphs.end()
+	 * \return a glyph iterator or m_Glyphs.end()
 	 */
 	glyph_iterator getNextGlyph(text_iterator & it, text_iterator end);
 	
-	class PackedTexture * textures;
+	class PackedTexture * m_textures;
 	
 };
 

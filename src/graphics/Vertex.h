@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -46,24 +46,49 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "graphics/Color.h"
 #include "platform/Platform.h"
-#include "math/Vector2.h"
-#include "math/Vector3.h"
+#include "math/Vector.h"
+
+struct TexturedVertexUntransformed {
+	
+	Vec3f p;
+	ColorRGBA color;
+	Vec2f uv;
+	
+	TexturedVertexUntransformed()
+		: p(Vec3f_ZERO)
+		, color(0x00000000)
+		, uv(0.f, 0.f)
+	{}
+	
+	TexturedVertexUntransformed(const Vec3f & _p, ColorRGBA _color, Vec2f _uv)
+		: p(_p)
+		, color(_color)
+		, uv(_uv)
+	{}
+};
 
 struct TexturedVertex {
 	
 	Vec3f p;
-	float rhw;
+	float w;
 	
-	ColorBGRA color;
-	ColorBGRA specular;
+	ColorRGBA color;
 	
 	Vec2f uv;
 	
-	TexturedVertex(const Vec3f & _p, float _rhw, ColorBGRA _color, ColorBGRA _specular, Vec2f _uv) : p(_p), rhw(_rhw), color(_color), specular(_specular), uv(_uv) { }
+	TexturedVertex()
+		: p(Vec3f_ZERO)
+		, w(1.f)
+		, color(0x00000000)
+		, uv(0.f, 0.f)
+	{}
 	
-	TexturedVertex(const TexturedVertex & o) : p(o.p), rhw(o.rhw), color(o.color), specular(o.specular), uv(o.uv) { }
-	
-	TexturedVertex() { }
+	TexturedVertex(const Vec3f & _p, float _w, ColorRGBA _color, Vec2f _uv)
+		: p(_p)
+		, w(_w)
+		, color(_color)
+		, uv(_uv)
+	{}
 	
 };
 
@@ -72,21 +97,19 @@ class VertexBuffer;
 
 struct SMY_VERTEX {
 	Vec3f p;
-	ColorBGRA color;
+	ColorRGBA color;
 	Vec2f uv;
 };
 
 struct SMY_VERTEX3 {
 	Vec3f p;
-	ColorBGRA color;
+	ColorRGBA color;
 	Vec2f uv[3];
 };
 
 struct EERIE_VERTEX {
-	TexturedVertex vert;
 	Vec3f v;
 	Vec3f norm;
-	Vec3f vworld;
 };
 
 #endif // ARX_GRAPHICS_VERTEX_H

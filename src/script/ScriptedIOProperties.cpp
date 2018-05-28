@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -53,8 +53,6 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-using std::strcpy;
 
 namespace script {
 
@@ -101,7 +99,7 @@ class GameFlagCommand : public Command {
 	
 public:
 	
-	GameFlagCommand(string name, GameFlag _flag, bool _inv = false)
+	GameFlagCommand(const std::string & name, GameFlag _flag, bool _inv = false)
 		: Command(name, AnyEntity), flag(_flag), inv(_inv) { }
 	
 	Result execute(Context & context) {
@@ -112,7 +110,7 @@ public:
 		
 		Entity * io = context.getEntity();
 		
-		if(enable ^ inv) {
+		if(enable != inv) {
 			io->gameFlags |= flag;
 		} else {
 			io->gameFlags &= ~flag;
@@ -130,7 +128,7 @@ class IOFlagCommand : public Command {
 	
 public:
 	
-	IOFlagCommand(string name, EntityFlag _flag, bool _inv = false)
+	IOFlagCommand(const std::string & name, EntityFlag _flag, bool _inv = false)
 		: Command(name, AnyEntity), flag(_flag), inv(_inv) { }
 	
 	Result execute(Context & context) {
@@ -141,7 +139,7 @@ public:
 		
 		Entity * io = context.getEntity();
 		
-		if(enable ^ inv) {
+		if(enable != inv) {
 			io->ioflags |= flag;
 		} else {
 			io->ioflags &= ~flag;
@@ -160,14 +158,14 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string trapvalue = context.getWord();
+		std::string trapvalue = context.getWord();
 		
 		DebugScript(' ' << trapvalue);
 		
 		if(trapvalue == "off") {
 			context.getEntity()->_fixdata->trapvalue = -1;
 		} else {
-			context.getEntity()->_fixdata->trapvalue = clamp((int)context.getFloatVar(trapvalue), -1, 100);
+			context.getEntity()->_fixdata->trapvalue = glm::clamp((int)context.getFloatVar(trapvalue), -1, 100);
 		}
 		
 		return Success;
@@ -183,14 +181,14 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string secretvalue = context.getWord();
+		std::string secretvalue = context.getWord();
 		
 		DebugScript(' ' << secretvalue);
 		
 		if(secretvalue == "off") {
 			context.getEntity()->secretvalue = -1;
 		} else {
-			context.getEntity()->secretvalue = clamp((int)context.getFloatVar(secretvalue), -1, 100);
+			context.getEntity()->secretvalue = glm::clamp((int)context.getFloatVar(secretvalue), -1, 100);
 		}
 		
 		return Success;
@@ -226,7 +224,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string name = context.getWord();
+		std::string name = context.getWord();
 		
 		DebugScript(' ' << name);
 		
@@ -268,7 +266,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string interactivity = context.getWord();
+		std::string interactivity = context.getWord();
 		
 		Entity * io = context.getEntity();
 		if(interactivity == "none") {
@@ -344,7 +342,7 @@ class SetCollisionCommand : public Command {
 	
 public:
 	
-	SetCollisionCommand(const string & command, IOCollisionFlags::Enum _flag) : Command(command, AnyEntity), flag(_flag) { }
+	SetCollisionCommand(const std::string & command, IOCollisionFlags::Enum _flag) : Command(command, AnyEntity), flag(_flag) { }
 	
 	Result execute(Context & context) {
 		
@@ -467,16 +465,6 @@ public:
 				io->halo_native.flags &= ~HALO_NEGATIVE;
 			}
 			
-			if(flg & flag('l')) {
-				io->halo_native.flags |= HALO_DYNLIGHT;
-			} else {
-				io->halo_native.flags &= ~HALO_DYNLIGHT;
-				if(ValidDynLight(io->halo_native.dynlight)) {
-					DynLight[io->halo_native.dynlight].exist = 0;
-				}
-				io->halo_native.dynlight = -1;
-			}
-			
 			if(flg & flag('c')) {
 				io->halo_native.color.r = context.getFloat();
 				io->halo_native.color.g = context.getFloat();
@@ -508,14 +496,14 @@ public:
 		
 		Entity * io = context.getEntity();
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		if(type == "skin") {
 			
 			res::path oldskin = res::path::load(context.getWord());
 			res::path newskin = res::path::load(context.getWord());
 			
-			DebugScript(" skin " << oldskin << ' '<< newskin);
+			DebugScript(" skin " << oldskin << ' ' << newskin);
 			
 			ARX_INTERACTIVE_MEMO_TWEAK(io, TWEAK_TYPE_SKIN, oldskin, newskin);
 			EERIE_MESH_TWEAK_Skin(io->obj, oldskin, newskin);
@@ -597,7 +585,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedIOProperties() {
 	
@@ -613,6 +601,7 @@ void setupScriptedIOProperties() {
 	ScriptEvent::registerCommand(new IOFlagCommand("setshadow", IO_NOSHADOW, true));
 	ScriptEvent::registerCommand(new IOFlagCommand("setshop", IO_SHOP));
 	ScriptEvent::registerCommand(new IOFlagCommand("setbump", IO_BUMP));
+	// IO_ZMAP Currently has no effect, but keep for now as it affects save state
 	ScriptEvent::registerCommand(new IOFlagCommand("setzmap", IO_ZMAP));
 	ScriptEvent::registerCommand(new IOFlagCommand("invertedobject", IO_INVERTED));
 	ScriptEvent::registerCommand(new SetTrapCommand);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,194 +47,76 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "animation/AnimationRender.h"
 #include "game/Player.h"
 #include "graphics/Math.h"
+#include "graphics/RenderBatcher.h"
+#include "math/RandomVector.h"
+#include "scene/Object.h"
 
 
-CSpellFx::CSpellFx() :
-	fBeta(0),
-	fManaCostToLaunch(10),
-	fManaCostPerSecond(10),
-	lLightId(-1),
-	lSrc(-1),
-	spellinstance(-1)
+CSpellFx::CSpellFx()
 {
-	SetDuration(1000);
-	SetAngle(fBeta);
-};
-
-//-----------------------------------------------------------------------------
-void CSpellFx::SetDuration(const unsigned long ulaDuration)
-{
-	ulDuration = ulaDuration;
-
-	if (ulDuration <= 0) ulDuration = 100;
-
-	fOneOnDuration = 1.f / (float)(ulDuration);
-
-	ulCurrentTime = 0;
-};
-
-//-----------------------------------------------------------------------------
-unsigned long CSpellFx::getCurrentTime() {
-	return ulCurrentTime;
-};
-
-//-----------------------------------------------------------------------------
-unsigned long CSpellFx::GetDuration()
-{
-	return ulDuration;
-};
-
-//-----------------------------------------------------------------------------
-void CSpellFx::SetAngle(float afAngle)
-{
-	fBeta = afAngle;
-	fBetaRad = radians(fBeta);
-	fBetaRadCos = (float) cos(fBetaRad);
-	fBetaRadSin = (float) sin(fBetaRad);
+	SetDuration(GameDurationMs(1000));
 }
 
-void CSpellFx::Update(float _fParam) {
-	Update(checked_range_cast<unsigned long>(_fParam));
+void CSpellFx::SetDuration(GameDuration ulaDuration) {
+	m_duration = ulaDuration;
+
+	if(m_duration <= 0)
+		m_duration = GameDurationMs(100);
+	
+	m_elapsed = 0;
 }
 
-//-----------------------------------------------------------------------------
-void Draw3DLineTex(Vec3f s, Vec3f e, Color color, float fStartSize, float fEndSize) {
+void Draw3DLineTexNew(const RenderMaterial & mat, Vec3f startPos, Vec3f endPos, Color startColor, Color endColor, float startSize, float endSize) {
 	
-	float fBeta = MAKEANGLE(player.angle.b);
-	float xxs = (float)(fStartSize * cos(radians(fBeta)));
-	float xxe = (float)(fEndSize * cos(radians(fBeta)));
-	float zzs = fStartSize;
-	float zze = fEndSize;
+	float fBeta = MAKEANGLE(player.angle.getYaw());
+	float xxs = startSize * glm::cos(glm::radians(fBeta));
+	float xxe = endSize * glm::cos(glm::radians(fBeta));
+	float zzs = startSize;
+	float zze = endSize;
 	
-	TexturedVertex v[4];
-	TexturedVertex v2[4];
+	{
+	TexturedQuad q1;
+	q1.v[0].color = q1.v[1].color = startColor.toRGBA();
+	q1.v[2].color = q1.v[3].color = endColor.toRGBA();
 	
-	v2[0].color = v2[1].color = v2[2].color = v2[3].color = color.toBGRA();
+	q1.v[0].uv = Vec2f_ZERO;
+	q1.v[1].uv = Vec2f_X_AXIS;
+	q1.v[2].uv = Vec2f_ONE;
+	q1.v[3].uv = Vec2f_Y_AXIS;
 	
-	// version 2 faces
-	v2[0].uv = Vec2f::ZERO;
-	v2[1].uv = Vec2f::X_AXIS;
-	v2[2].uv = Vec2f::ONE;
-	v2[3].uv = Vec2f::Y_AXIS;
+	q1.v[0].p = startPos + Vec3f(0.f, zzs, 0.f);
+	q1.v[1].p = startPos + Vec3f(0.f, -zzs, 0.f);
+	q1.v[2].p = endPos + Vec3f(0.f, -zze, 0.f);
+	q1.v[3].p = endPos + Vec3f(0.f, zze, 0.f);
 	
-	v[0].p.x = s.x;
-	v[0].p.y = s.y + zzs;
-	v[0].p.z = s.z;
+	drawQuadRTP(mat, q1);
+	}
 	
-	v[1].p.x = s.x;
-	v[1].p.y = s.y - zzs;
-	v[1].p.z = s.z;
+	zzs *= glm::sin(glm::radians(fBeta));
+	zze *= glm::sin(glm::radians(fBeta));
 	
-	v[2].p.x = e.x;
-	v[2].p.y = e.y - zze;
-	v[2].p.z = e.z;
+	{
+	TexturedQuad q2;
 	
-	v[3].p.x = e.x;
-	v[3].p.y = e.y + zze;
-	v[3].p.z = e.z;
+	q2.v[0].color = q2.v[1].color = startColor.toRGBA();
+	q2.v[2].color = q2.v[3].color = endColor.toRGBA();
 	
-	EE_RT2(&v[0], &v2[0]);
-	EE_RT2(&v[1], &v2[1]);
-	EE_RT2(&v[2], &v2[2]);
-	EE_RT2(&v[3], &v2[3]);
-	ARX_DrawPrimitive(&v2[0], &v2[1], &v2[2]);
-	ARX_DrawPrimitive(&v2[0], &v2[2], &v2[3]);
+	q2.v[0].uv = Vec2f_ZERO;
+	q2.v[1].uv = Vec2f_X_AXIS;
+	q2.v[2].uv = Vec2f_ONE;
+	q2.v[3].uv = Vec2f_Y_AXIS;
 	
-	zzs *= (float) sin(radians(fBeta));
-	zze *= (float) sin(radians(fBeta));
+	q2.v[0].p = startPos + Vec3f(xxs, 0.f, zzs);
+	q2.v[1].p = startPos + Vec3f(-xxs, 0.f, -zzs);
+	q2.v[2].p = endPos + Vec3f(-xxe, 0.f, -zze);
+	q2.v[3].p = endPos + Vec3f(xxe, 0.f, zze);
 	
-	v[0].p.x = s.x + xxs;
-	v[0].p.y = s.y;
-	v[0].p.z = s.z + zzs;
-	
-	v[1].p.x = s.x - xxs;
-	v[1].p.y = s.y;
-	v[1].p.z = s.z - zzs;
-	
-	v[2].p.x = e.x - xxe;
-	v[2].p.y = e.y;
-	v[2].p.z = e.z - zze;
-	
-	v[3].p.x = e.x + xxe;
-	v[3].p.y = e.y;
-	v[3].p.z = e.z + zze;
-	
-	EE_RT2(&v[0], &v2[0]);
-	EE_RT2(&v[1], &v2[1]);
-	EE_RT2(&v[2], &v2[2]);
-	EE_RT2(&v[3], &v2[3]);
-	ARX_DrawPrimitive(&v2[0], &v2[1], &v2[2]);
-	ARX_DrawPrimitive(&v2[0], &v2[2], &v2[3]);
+	drawQuadRTP(mat, q2);
+	}
 }
 
-void Draw3DLineTex2(Vec3f s, Vec3f e, float fSize, Color color, Color color2) {
-	
-	float fBeta = MAKEANGLE(player.angle.b);
-	float zz = fSize; 
-	float xx = (float)(fSize * cos(radians(fBeta)));
-	
-	TexturedVertex v[4];
-	TexturedVertex v2[4];
-	
-	v2[0].color = v2[1].color = color.toBGRA();
-	v2[2].color = v2[3].color = color2.toBGRA();
-	
-	// version 2 faces
-	v2[0].uv = Vec2f::ZERO;
-	v2[1].uv = Vec2f::X_AXIS;
-	v2[2].uv = Vec2f::ONE;
-	v2[3].uv = Vec2f::Y_AXIS;
-	
-	v[0].p.x = s.x;
-	v[0].p.y = s.y + zz;
-	v[0].p.z = s.z;
-	
-	v[1].p.x = s.x;
-	v[1].p.y = s.y - zz;
-	v[1].p.z = s.z;
-	
-	v[2].p.x = e.x;
-	v[2].p.y = e.y - zz;
-	v[2].p.z = e.z;
-	
-	v[3].p.x = e.x;
-	v[3].p.y = e.y + zz;
-	v[3].p.z = e.z;
-	
-	EE_RT2(&v[0], &v2[0]);
-	EE_RT2(&v[1], &v2[1]);
-	EE_RT2(&v[2], &v2[2]);
-	EE_RT2(&v[3], &v2[3]);
-	ARX_DrawPrimitive(&v2[0], &v2[1], &v2[3]);
-	ARX_DrawPrimitive(&v2[1], &v2[2], &v2[3]);
-	
-	zz *= (float) sin(radians(fBeta));
-	
-	v[0].p.x = s.x + xx;
-	v[0].p.y = s.y;
-	v[0].p.z = s.z + zz;
-	
-	v[1].p.x = s.x - xx;
-	v[1].p.y = s.y;
-	v[1].p.z = s.z - zz;
-	
-	v[2].p.x = e.x - xx;
-	v[2].p.y = e.y;
-	v[2].p.z = e.z - zz;
-	
-	v[3].p.x = e.x + xx;
-	v[3].p.y = e.y;
-	v[3].p.z = e.z + zz;
-	
-	EE_RT2(&v[0], &v2[0]);
-	EE_RT2(&v[1], &v2[1]);
-	EE_RT2(&v[2], &v2[2]);
-	EE_RT2(&v[3], &v2[3]);
-	ARX_DrawPrimitive(&v2[0], &v2[1], &v2[3]);
-	ARX_DrawPrimitive(&v2[1], &v2[2], &v2[3]);
-}
 
-void Split(TexturedVertex * v, int a, int b, float fX, float fMulX, float fY, float fMulY, float fZ, float fMulZ)
+void Split(Vec3f * v, int a, int b, Vec3f f)
 {
 	if (a != b)
 	{
@@ -242,17 +124,16 @@ void Split(TexturedVertex * v, int a, int b, float fX, float fMulX, float fY, fl
 
 		if ((i != a) && (i != b))
 		{
-			v[i].p.x = (v[a].p.x + v[b].p.x) * 0.5f + fX * frand2();
-			v[i].p.y = (v[a].p.y + v[b].p.y) * 0.5f + fY * frand2(); 
-			v[i].p.z = (v[a].p.z + v[b].p.z) * 0.5f + fZ * frand2(); 
-			Split(v, a, i, fX, fMulX, fY, fMulY, fZ, fMulZ);
-			Split(v, i, b, fX, fMulX, fY, fMulY, fZ, fMulZ);
+			v[i].x = (v[a].x + v[b].x) * 0.5f + f.x * Random::getf(-1.f, 1.f);
+			v[i].y = (v[a].y + v[b].y) * 0.5f + f.y * Random::getf(-1.f, 1.f);
+			v[i].z = (v[a].z + v[b].z) * 0.5f + f.z * Random::getf(-1.f, 1.f);
+			Split(v, a, i, f);
+			Split(v, i, b, f);
 		}
 	}
 }
 
-//-----------------------------------------------------------------------------
-void Split(TexturedVertex * v, int a, int b, float yo, float fMul)
+void Split(Vec3f * v, int a, int b, float yo, float fMul)
 {
 	if (a != b)
 	{
@@ -260,10 +141,50 @@ void Split(TexturedVertex * v, int a, int b, float yo, float fMul)
 
 		if ((i != a) && (i != b))
 		{
-			v[i].p = (v[a].p + v[b].p) * 0.5f + randomVec(-yo, yo);
+			v[i] = (v[a] + v[b]) * 0.5f + arx::randomVec(-yo, yo);
 			Split(v, a, i, yo * fMul);
 			Split(v, i, b, yo * fMul);
 		}
 	}
 }
 
+EERIE_3DOBJ * cabal = NULL;
+EERIE_3DOBJ * ssol = NULL;
+EERIE_3DOBJ * slight = NULL;
+EERIE_3DOBJ * srune = NULL;
+EERIE_3DOBJ * smotte = NULL;
+EERIE_3DOBJ * stite = NULL;
+EERIE_3DOBJ * smissile = NULL;
+EERIE_3DOBJ * spapi = NULL;
+EERIE_3DOBJ * svoodoo = NULL;
+EERIE_3DOBJ * stone0 = NULL;
+EERIE_3DOBJ * stone1 = NULL;
+
+void LoadSpellModels() {
+	// TODO Load dynamically
+	cabal = loadObject("editor/obj3d/cabal.teo");
+	ssol = loadObject("graph/obj3d/interactive/fix_inter/fx_rune_guard/fx_rune_guard.teo");
+	slight = loadObject("graph/obj3d/interactive/fix_inter/fx_rune_guard/fx_rune_guard02.teo");
+	srune = loadObject("graph/obj3d/interactive/fix_inter/fx_rune_guard/fx_rune_guard03.teo");
+	smotte = loadObject("graph/obj3d/interactive/fix_inter/stalagmite/motte.teo");
+	stite = loadObject("graph/obj3d/interactive/fix_inter/stalagmite/stalagmite.teo");
+	smissile = loadObject("graph/obj3d/interactive/fix_inter/fx_magic_missile/fx_magic_missile.teo");
+	spapi = loadObject("graph/obj3d/interactive/fix_inter/fx_papivolle/fx_papivolle.teo");
+	svoodoo = loadObject("graph/obj3d/interactive/fix_inter/fx_voodoodoll/fx_voodoodoll.teo");
+	stone0 = loadObject("graph/obj3d/interactive/fix_inter/fx_raise_dead/stone01.teo");
+	stone1 = loadObject("graph/obj3d/interactive/fix_inter/fx_raise_dead/stone02.teo");
+}
+
+void ReleaseSpellModels() {
+	delete cabal, cabal = NULL;
+	delete ssol, ssol = NULL;
+	delete slight, slight = NULL;
+	delete srune, srune = NULL;
+	delete smotte, smotte = NULL;
+	delete stite, stite = NULL;
+	delete smissile, smissile = NULL;
+	delete spapi, spapi = NULL;
+	delete svoodoo, svoodoo = NULL;
+	delete stone0, stone0 = NULL;
+	delete stone1, stone1 = NULL;
+}

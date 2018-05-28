@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -21,29 +21,66 @@
 
 #include "io/fs/FilePath.h"
 
-using std::string;
+#include "platform/Platform.h"
+#include "platform/WindowsUtils.h"
 
 namespace fs {
 
-ifstream::ifstream(const path & p, openmode mode) : std::ifstream(p.string().c_str(), mode) { }
+#if ARX_COMPILER_MSVC
+
+ifstream::ifstream(const path & p, openmode mode)
+	: std::ifstream(platform::WideString(p.string()), mode)
+{ }
+
+void ifstream::open(const path & p, openmode mode) {
+	std::ifstream::open(platform::WideString(p.string()), mode);
+}
+
+ofstream::ofstream(const path & p, openmode mode)
+	: std::ofstream(platform::WideString(p.string()), mode)
+{ }
+
+void ofstream::open(const path & p, openmode mode) {
+	std::ofstream::open(platform::WideString(p.string()), mode);
+}
+
+fstream::fstream(const path & p, openmode mode)
+	: std::fstream(platform::WideString(p.string()), mode)
+{ }
+
+void fstream::open(const path & p, openmode mode) {
+	std::fstream::open(platform::WideString(p.string()), mode);
+}
+
+#else
+
+ifstream::ifstream(const path & p, openmode mode)
+	: std::ifstream(p.string().c_str(), mode)
+{ }
 
 void ifstream::open(const path & p, openmode mode) {
 	std::ifstream::open(p.string().c_str(), mode);
 }
 
-ofstream::ofstream(const path & p, openmode mode) : std::ofstream(p.string().c_str(), mode) { }
+ofstream::ofstream(const path & p, openmode mode)
+	: std::ofstream(p.string().c_str(), mode)
+{ }
 
 void ofstream::open(const path & p, openmode mode) {
 	std::ofstream::open(p.string().c_str(), mode);
 }
 
-fstream::fstream(const path & p, openmode mode) : std::fstream(p.string().c_str(), mode) { }
+fstream::fstream(const path & p, openmode mode)
+	: std::fstream(p.string().c_str(), mode)
+{ }
 
 void fstream::open(const path & p, openmode mode) {
 	std::fstream::open(p.string().c_str(), mode);
 }
 
-std::istream & read(std::istream & ifs, string & buf) {
+#endif
+
+std::istream & read(std::istream & ifs, std::string & buf) {
 	while(ifs.good()) {
 		char c = static_cast<char>(ifs.get());
 		if(c == '\0') {

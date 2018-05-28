@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,17 +51,16 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/Math.h"
 #include "graphics/data/Mesh.h"
 #include "graphics/particle/ParticleEffects.h"
+
+#include "gui/Hud.h"
 #include "gui/Interface.h"
+#include "gui/hud/SecondaryInventory.h"
 #include "io/resource/ResourcePath.h"
 #include "scene/Interactive.h"
 #include "scene/GameSound.h"
 #include "script/ScriptEvent.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-
-extern float InventoryDir;
-extern Entity * CURRENT_TORCH;
 
 namespace script {
 
@@ -149,7 +148,7 @@ public:
 
 class RuneCommand : public Command {
 	
-	typedef std::map<string, RuneFlag> Runes;
+	typedef std::map<std::string, RuneFlag> Runes;
 	Runes runes;
 	
 public:
@@ -184,7 +183,7 @@ public:
 			add = (flg & flag('r')) ? -1 : ((flg & flag('a')) ? 1 : 0);
 		}
 		
-		string name = context.getWord();
+		std::string name = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << name);
 		
@@ -230,11 +229,12 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string name = loadUnlocalized(context.getWord());
+		std::string name = loadUnlocalized(context.getWord());
 		
 		DebugScript(' ' << name);
 		
 		ARX_PLAYER_Quest_Add(name);
+		g_hudRoot.bookIconGui.requestHalo();
 		
 		return Success;
 	}
@@ -249,7 +249,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string command = context.getWord();
+		std::string command = context.getWord();
 		
 		Entity * io = context.getEntity();
 		if(!io->tweakerinfo) {
@@ -287,6 +287,7 @@ public:
 	Result execute(Context & context) {
 		
 		player.hunger = context.getFloat();
+		player.hunger = std::min(player.hunger, 100.f);
 		
 		DebugScript(' ' << player.hunger);
 		
@@ -297,10 +298,12 @@ public:
 
 class SetPlayerControlsCommand : public Command {
 	
-	static void Stack_SendMsgToAllNPC_IO(ScriptMessage msg, const char * dat) {
+	static void Stack_SendMsgToAllNPC_IO(Entity * sender, const ScriptEventName & event) {
 		for(size_t i = 0; i < entities.size(); i++) {
-			if(entities[i] && (entities[i]->ioflags & IO_NPC)) {
-				Stack_SendIOScriptEvent(entities[i], msg, dat);
+			const EntityHandle handle = EntityHandle(i);
+			Entity * entity = entities[handle];
+			if(entity && (entity->ioflags & IO_NPC)) {
+				Stack_SendIOScriptEvent(sender, entity, event);
 			}
 		}
 	}
@@ -311,29 +314,41 @@ public:
 	
 	Result execute(Context & context) {
 		
-		Entity * oes = EVENT_SENDER;
-		EVENT_SENDER = context.getEntity();
-		
 		bool enable = context.getBool();
 		
 		DebugScript(' ' << enable);
 		
 		if(enable) {
 			if(BLOCK_PLAYER_CONTROLS) {
-				Stack_SendMsgToAllNPC_IO(SM_CONTROLS_ON, "");
+				Stack_SendMsgToAllNPC_IO(context.getEntity(), SM_CONTROLS_ON);
 			}
-			BLOCK_PLAYER_CONTROLS = 0;
+			BLOCK_PLAYER_CONTROLS = false;
 		} else {
 			if(!BLOCK_PLAYER_CONTROLS) {
-				ARX_PLAYER_PutPlayerInNormalStance(0);
-				Stack_SendMsgToAllNPC_IO(SM_CONTROLS_OFF, "");
-				ARX_SPELLS_FizzleAllSpellsFromCaster(0);
+				ARX_PLAYER_PutPlayerInNormalStance();
+				
+				for(size_t i = 0; i < MAX_SPELLS; i++) {
+					SpellBase * spell = spells[SpellHandle(i)];
+					
+					if(spell && (spell->m_caster == EntityHandle_Player || spell->m_target == EntityHandle_Player)) {
+						switch(spell->m_type) {
+							case SPELL_MAGIC_SIGHT:
+							case SPELL_LEVITATE:
+							case SPELL_SPEED:
+							case SPELL_FLYING_EYE:
+								spells.endSpell(spell);
+								break;
+							default: break;
+						}
+					}
+				}
+				
+				Stack_SendMsgToAllNPC_IO(context.getEntity(), SM_CONTROLS_OFF);
+				spells.endByCaster(EntityHandle_Player);
 			}
-			BLOCK_PLAYER_CONTROLS = 1;
+			BLOCK_PLAYER_CONTROLS = true;
 			player.Interface &= ~INTER_COMBATMODE;
 		}
-		
-		EVENT_SENDER = oes;
 		
 		return Success;
 	}
@@ -351,11 +366,12 @@ public:
 		DebugScript("");
 		
 		if(player.Interface & INTER_STEAL) {
-			SendIOScriptEvent(ioSteal, SM_STEAL, "off");
+			// TODO This sender does not make sense
+			SendIOScriptEvent(context.getSender(), ioSteal, SM_STEAL, "off");
 		}
 		
 		player.Interface |= INTER_STEAL;
-		InventoryDir = 1;
+		g_secondaryInventoryHud.m_fadeDirection = SecondaryInventoryHud::Fade_right;
 		ioSteal = context.getEntity();
 		
 		return Success;
@@ -371,7 +387,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		Entity * io = context.getEntity();
 		
@@ -398,9 +414,9 @@ public:
 			DebugScript(" heal " << val);
 			
 			if(!BLOCK_PLAYER_CONTROLS) {
-				player.life += val;
+				player.lifePool.current += val;
 			}
-			player.life = clamp(player.life, 0.f, player.Full_maxlife);
+			player.lifePool.current = glm::clamp(player.lifePool.current, 0.f, player.Full_maxlife);
 			
 		} else if(type == "mana") {
 			
@@ -408,7 +424,7 @@ public:
 			
 			DebugScript(" mana " << val);
 			
-			player.mana = clamp(player.mana + val, 0.f, player.Full_maxmana);
+			player.manaPool.current = glm::clamp(player.manaPool.current + val, 0.f, player.Full_maxmana);
 			
 		} else if(type == "newspell") {
 			
@@ -416,9 +432,7 @@ public:
 			
 			DebugScript(" newspell");
 			
-			MakeBookFX(Vec3f(DANAESIZX - INTERFACE_RATIO(35), DANAESIZY - INTERFACE_RATIO(148),
-			                 0.00001f));
-			
+			g_hudRoot.bookIconGui.requestFX();
 		} else if(type == "torch") {
 			
 			DebugScript(" torch");
@@ -461,8 +475,8 @@ public:
 			
 		} else if(type == "torchoff") {
 			DebugScript(" torchoff");
-			if(CURRENT_TORCH) {
-				ARX_PLAYER_ClickedOnTorch(CURRENT_TORCH);
+			if(player.torch) {
+				ARX_PLAYER_ClickedOnTorch(player.torch);
 			}
 			
 		} else {
@@ -483,7 +497,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string key = context.getStringVar(context.getWord());
+		std::string key = context.getStringVar(context.getWord());
 		
 		DebugScript(' ' << key);
 		
@@ -502,7 +516,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
@@ -534,20 +548,20 @@ public:
 			if(flg & flag('d')) {
 				spflags |= SPELLCAST_FLAG_NOCHECKCANCAST;
 				duration = (long)context.getFloat();
-				dur = 1;
+				dur = true;
 			}
 			if(flg & flag('f')) {
 				spflags |= SPELLCAST_FLAG_NOCHECKCANCAST | SPELLCAST_FLAG_NOMANA;
 			}
 		}
 		
-		long level = clamp((long)context.getFloat(), 1l, 10l);
+		long level = glm::clamp((long)context.getFloat(), 1l, 10l);
 		
-		string spellname = context.getWord();
+		std::string spellname = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << duration << ' ' << level << ' ' << spellname);
 		
-		Spell spellid = GetSpellId(spellname);
+		SpellType spellid = GetSpellId(spellname);
 		if(spellid == SPELL_NONE) {
 			ScriptWarning << "unknown spell: " << spellname;
 			return Failed;
@@ -561,7 +575,7 @@ public:
 			spflags |= SPELLCAST_FLAG_NOCHECKCANCAST;
 		}
 		
-		TryToCastSpell(entities.player(), spellid, level, -1, spflags, duration);
+		TryToCastSpell(entities.player(), spellid, level, EntityHandle(), spflags, GameDurationMs(duration));
 		
 		return Success;
 	}
@@ -653,7 +667,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedPlayer() {
 	

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -23,10 +23,16 @@
 #include <ios>
 
 #include <boost/algorithm/string/case_conv.hpp>
+#include <boost/lexical_cast.hpp>
 
 #include "io/log/Logger.h"
 
 int IniKey::getValue(int defaultValue) const {
+	
+	if(value == "false")
+		return 0;
+	else if(value == "true")
+		return 1;
 	
 	std::istringstream iss(value);
 	
@@ -40,32 +46,21 @@ int IniKey::getValue(int defaultValue) const {
 
 float IniKey::getValue(float defaultValue) const {
 	
-	std::istringstream iss(value);
-	
-	float val;
-	if((iss >> val).fail()) {
+	try {
+		return boost::lexical_cast<float>(value);
+	} catch(boost::bad_lexical_cast &) {
 		return defaultValue;
 	}
-	
-	return val;
 }
 
 bool IniKey::getValue(bool defaultValue) const {
 	
-	std::istringstream iss(value);
-	
-	// Support either boolean specified as strings (true, false) or 0, 1
-	bool val;
-	if((iss >> std::boolalpha >> val).fail()) {
-		iss.clear();
-		int intVal;
-		if((iss >> intVal).fail()) {
-			return defaultValue;
-		}
-		val = (intVal != 0);
-	}
-	
-	return val;
+	if("false" == value || "0" == value)
+		return false;
+	else if("true" == value || "1" == value)
+		return true;
+	else
+		return defaultValue;
 }
 
 const IniKey * IniSection::getKey(const std::string & name) const {
@@ -83,12 +78,9 @@ const IniKey * IniSection::getKey(const std::string & name) const {
 
 void IniSection::addKey(const std::string & key, const std::string & value) {
 	
-	keys.resize(keys.size() + 1);
-	
-	keys.back().name = key;
-	keys.back().value = value;
-	
-	boost::to_lower(keys.back().name);
+	IniKey k = IniKey(key, value);
+	boost::to_lower(k.name);
+	keys.push_back(k);
 	
 	LogDebug("found key " << key << "=\"" << value << "\"");
-};
+}

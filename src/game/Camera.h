@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,10 +20,74 @@
 #ifndef ARX_GAME_CAMERA_H
 #define ARX_GAME_CAMERA_H
 
-#include "graphics/data/Mesh.h"
+#include "graphics/GraphicsTypes.h"
+#include "math/Rectangle.h"
+#include "platform/Alignment.h"
+
+struct Camera {
+	
+	Vec3f m_pos;
+	float focal;
+	Anglef angle;
+	float cdepth;
+	
+	Camera()
+		: m_pos(Vec3f_ZERO)
+		, focal(0.f)
+		, angle(Anglef::ZERO)
+		, cdepth(0.f)
+	{ }
+	
+	void lookAt(const Vec3f & target) {
+		if(m_pos != target) {
+			angle = getLookAtAngle(m_pos, target);
+		}
+	}
+	
+	static Anglef getLookAtAngle(const Vec3f & origin, const Vec3f & target);
+	
+};
 
 struct IO_CAMDATA {
-	EERIE_CAMERA cam;
+	
+	Camera cam;
+	
+	Vec3f lasttarget;
+	Vec3f translatetarget;
+	bool lastinfovalid;
+	float smoothing;
+	
+	IO_CAMDATA()
+		: lasttarget(Vec3f_ZERO)
+		, translatetarget(Vec3f_ZERO)
+		, lastinfovalid(false)
+		, smoothing(0.f)
+	{ }
+	
 };
+
+struct PreparedCamera {
+	
+	glm::mat4x4 m_worldToView;
+	glm::mat4x4 m_viewToClip;
+	glm::mat4x4 m_viewToScreen;
+	glm::mat4x4 m_worldToScreen;
+	
+	ARX_USE_ALIGNED_NEW(PreparedCamera) // for matrices
+};
+
+extern Entity * g_cameraEntity;
+extern PreparedCamera g_preparedCamera;
+extern Camera * g_camera;
+extern Camera g_playerCamera;
+
+void PrepareCamera(Camera * cam, const Rect & viewport, const Vec2i & projectionCenter);
+inline void PrepareCamera(Camera * cam, const Rect & viewport) {
+	PrepareCamera(cam, viewport, viewport.center());
+}
+
+void SetActiveCamera(Camera * cam);
+
+ARX_USE_ALIGNED_ALLOCATOR(PreparedCamera) // for matrices
 
 #endif // ARX_GAME_CAMERA_H

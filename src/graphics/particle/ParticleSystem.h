@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -46,22 +46,20 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <list>
 
+#include "core/TimeTypes.h"
 #include "graphics/BaseGraphicsTypes.h"
 #include "graphics/Renderer.h"
-#include "math/MathFwd.h"
-#include "math/Vector3.h"
-#include "platform/Flags.h"
+#include "graphics/Draw.h"
+#include "graphics/particle/ParticleParams.h"
+#include "math/Types.h"
+#include "math/Vector.h"
+#include "math/Quantizer.h"
+#include "platform/Alignment.h"
+#include "util/Flags.h"
  
 class Particle;
 class ParticleParams;
 class TextureContainer;
-
-enum ParticleSpawnFlag {
-	PARTICLE_CIRCULAR = (1<<0),
-	PARTICLE_BORDER   = (1<<1)
-};
-DECLARE_FLAGS(ParticleSpawnFlag, ParticleSpawn)
-DECLARE_FLAGS_OPERATORS(ParticleSpawn)
 
 class ParticleSystem {
 	
@@ -69,11 +67,26 @@ public:
 	
 	std::list<Particle *> listParticle;
 	
-	Vec3f p3Pos;
+	// these are used for the particles it creates
+	ParticleParams m_parameters;
 	
-	unsigned int uMaxParticles;
-	unsigned int uParticlesPerSec;
+	ParticleSystem();
+	~ParticleSystem();
 	
+	void SetParams(const ParticleParams & app);
+	
+	void SetPos(const Vec3f & pos);
+	
+	void Render();
+	
+	void StopEmission();
+	bool IsAlive();
+	
+	void Update(GameDuration delta);
+	
+private:
+	
+	Vec3f m_nextPosition;
 	int iParticleNbAlive;
 	
 	TextureContainer * tex_tab[20];
@@ -81,70 +94,19 @@ public:
 	int iTexTime;
 	bool bTexLoop;
 	
-	EERIEMATRIX eMat;
+	glm::mat4x4 eMat;
 	
-	unsigned long ulTime;
-	unsigned long ulNbParticleGen;
+	math::Quantizer m_storedTime;
 	
-	// these are used for the particles it creates
-	Vec3f p3ParticlePos;
-	int iParticleNbMax;
-	float fParticleFreq;
-	
-	float fParticleFlash;
-	float fParticleRotation;
-	bool bParticleRotationRandomDirection;
-	bool bParticleRotationRandomStart;
-	
-	ParticleSpawn ulParticleSpawn;
-	
-	Vec3f p3ParticleDirection;
-	Vec3f p3ParticleGravity;
-	float fParticleLife;
-	float fParticleLifeRandom;
-	float fParticleAngle;
-	float fParticleSpeed;
-	float fParticleSpeedRandom;
-	
-	bool bParticleStartColorRandomLock;
-	float fParticleStartSize;
-	float fParticleStartSizeRandom;
-	float fParticleStartColor[4];
-	float fParticleStartColorRandom[4];
-	
-	bool bParticleEndColorRandomLock;
-	float fParticleEndSize;
-	float fParticleEndSizeRandom;
-	float fParticleEndColor[4];
-	float fParticleEndColorRandom[4];
-	
-	Renderer::PixelBlendingFactor iSrcBlend;
-	Renderer::PixelBlendingFactor iDstBlend;
-	
-	bool bParticleFollow;
-	
-	long lLightId;
-	
-	// editor
-	float fMinx, fMaxx, fMiny, fMaxy;
-	
-	ParticleSystem();
-	~ParticleSystem();
-	
-	void SpawnParticle(Particle * particle);
 	void SetParticleParams(Particle * particle);
 	
-	void SetParams(const ParticleParams & app);
+	void SetTexture(const char * _pszTex, int _iNbTex, int _iTime);
 	
-	void SetTexture(const char *, int, int, bool _bLoop = true);
-	void SetPos(const Vec3f & ap3);
-	void SetColor(float, float, float);
+public:
 	
-	void Render();
-	bool IsAlive();
-	void Update(long);
-	void RecomputeDirection();
-	
+	ARX_USE_ALIGNED_NEW(ParticleSystem) // for eMat
 };
+
+ARX_USE_ALIGNED_ALLOCATOR(ParticleSystem) // for eMat
 
 #endif // ARX_GRAPHICS_PARTICLE_PARTICLESYSTEM_H

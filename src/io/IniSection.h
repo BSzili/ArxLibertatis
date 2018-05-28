@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -23,28 +23,33 @@
 #include <string>
 #include <vector>
 
-struct IniKey {
-	
-	inline const std::string & getName() const { return name; }
-	inline const std::string & getValue() const { return value; }
-	
-	int getValue(int defaultValue) const;
-	
-	float getValue(float defaultValue) const;
-	
-	bool getValue(bool defaultValue) const;
-	
-private:
+class IniKey {
 	
 	std::string name;
 	std::string value;
 	
 	friend class IniSection;
+	
+public:
+	
+	IniKey(const std::string & _name, const std::string & _value)
+		: name(_name)
+		, value(_value)
+	{}
+	
+	const std::string & getName() const { return name; }
+	const std::string & getValue() const { return value; }
+	
+	int getValue(int defaultValue) const;
+	
+	float getValue(float defaultValue) const;
+	
+	//! Support either boolean specified as strings (true, false) or 0, 1
+	bool getValue(bool defaultValue) const;
+	
 };
 
 class IniSection {
-	
-private:
 	
 	typedef std::vector<IniKey> Keys;
 	Keys keys;
@@ -61,10 +66,10 @@ public:
 	
 	typedef Keys::const_iterator iterator;
 	
-	inline iterator begin() const { return keys.begin(); }
-	inline iterator end() const { return keys.end(); }
-	inline bool empty() const { return keys.empty(); }
-	inline size_t size() const { return keys.size(); }
+	iterator begin() const { return keys.begin(); }
+	iterator end() const { return keys.end(); }
+	bool empty() const { return keys.empty(); }
+	size_t size() const { return keys.size(); }
 	
 	const IniKey * getKey(const std::string & name) const;
 	

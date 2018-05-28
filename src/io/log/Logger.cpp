@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -36,8 +36,6 @@
 
 #include "Configure.h"
 
-using std::string;
-
 namespace {
 
 struct LogManager {
@@ -54,7 +52,7 @@ struct LogManager {
 	typedef std::vector<logger::Backend *> Backends;
 	static Backends backends;
 	
-	typedef boost::unordered_map<string, Logger::LogLevel> Rules;
+	typedef boost::unordered_map<std::string, Logger::LogLevel> Rules;
 	static Rules rules;
 	
 	static logger::Source * getSource(const char * file);
@@ -70,9 +68,11 @@ Lock LogManager::lock;
 
 logger::Source * LogManager::getSource(const char * file) {
 	
-	LogManager::Sources::iterator i = LogManager::sources.find(file);
-	if(i != sources.end()) {
-		return &i->second;
+	{
+		LogManager::Sources::iterator i = LogManager::sources.find(file);
+		if(i != sources.end()) {
+			return &i->second;
+		}
 	}
 	
 	logger::Source * source = &LogManager::sources[file];
@@ -81,14 +81,14 @@ logger::Source * LogManager::getSource(const char * file) {
 	
 	const char * end = file + strlen(file);
 	bool first = true;
-	for(const char * p = end; p != file; p--) {
-		if(*p == '/' || *p == '\\') {
+	for(const char * p = end; ; p--) {
+		if(p == file || *(p - 1) == '/' || *(p - 1) == '\\') {
 			
-			string component(p + 1, end);
+			std::string component(p, end);
 			
 			if(first) {
 				size_t pos = component.find_last_of('.');
-				if(pos != string::npos) {
+				if(pos != std::string::npos) {
 					component.resize(pos);
 				}
 				source->name = component;
@@ -101,11 +101,11 @@ logger::Source * LogManager::getSource(const char * file) {
 				break;
 			}
 			
-			if(component == "src" || component == "tools") {
+			if(p == file || component == "src" || component == "tools") {
 				break;
 			}
 			
-			end = p;
+			end = p - 1;
 		}
 	}
 	
@@ -151,7 +151,7 @@ bool Logger::isEnabled(const char * file, LogLevel level) {
 	return (LogManager::getSource(file)->level <= level);
 }
 
-void Logger::log(const char * file, int line, LogLevel level, const string & str) {
+void Logger::log(const char * file, int line, LogLevel level, const std::string & str) {
 	
 	if(level == None) {
 		return;
@@ -169,7 +169,7 @@ void Logger::log(const char * file, int line, LogLevel level, const string & str
 	LogManager::lock.unlock();
 }
 
-void Logger::set(const string & prefix, Logger::LogLevel level) {
+void Logger::set(const std::string & prefix, Logger::LogLevel level) {
 	
 	Autolock lock(LogManager::lock);
 	
@@ -201,7 +201,7 @@ void Logger::set(const string & prefix, Logger::LogLevel level) {
 	LogManager::sources.clear();
 }
 
-void Logger::reset(const string & prefix) {
+void Logger::reset(const std::string & prefix) {
 	
 	Autolock lock(LogManager::lock);
 	
@@ -213,8 +213,8 @@ void Logger::reset(const string & prefix) {
 	if(i->second < LogManager::defaultLevel) {
 		// minimum log level may have changed
 		LogManager::minimumLevel = LogManager::defaultLevel;
-		BOOST_FOREACH(const LogManager::Rules::value_type & i, LogManager::rules) {
-			LogManager::minimumLevel = std::min(LogManager::minimumLevel, i.second);
+		BOOST_FOREACH(const LogManager::Rules::value_type & entry, LogManager::rules) {
+			LogManager::minimumLevel = std::min(LogManager::minimumLevel, entry.second);
 		}
 	}
 	
@@ -233,27 +233,27 @@ void Logger::flush() {
 	}
 }
 
-void Logger::configure(const string config) {
+void Logger::configure(const std::string & settings) {
 	
 	size_t start = 0;
 	
-	while(start < config.length()) {
+	while(start < settings.length()) {
 		
-		size_t pos = config.find(',', start);
-		if(pos == string::npos) {
-			pos = config.length();
+		size_t pos = settings.find(',', start);
+		if(pos == std::string::npos) {
+			pos = settings.length();
 		}
 		if(pos == start) {
 			start++;
 			continue;
 		}
 		
-		string entry = config.substr(start, pos - start);
+		std::string entry = settings.substr(start, pos - start);
 		start = pos + 1;
 		
 		size_t eq = entry.find('=');
-		string level;
-		if(eq != string::npos) {
+		std::string level;
+		if(eq != std::string::npos) {
 			level = entry.substr(eq + 1), entry.resize(eq);
 		}
 		
@@ -281,7 +281,7 @@ void Logger::initialize() {
 	
 	add(logger::Console::get());
 	
-#ifdef ARX_HAVE_WINAPI
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
 	add(logger::MsvcDebugger::get());
 #endif
 	
@@ -311,4 +311,4 @@ void Logger::quickShutdown() {
 	}
 }
 
-ARX_PROGRAM_OPTION("debug", "g", "Log level settings", &Logger::configure, "LEVELS");
+ARX_PROGRAM_OPTION_ARG("debug", "g", "Log level settings", &Logger::configure, "LEVELS")

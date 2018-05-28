@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,13 +44,28 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GUI_CREDITS_H
 #define ARX_GUI_CREDITS_H
 
-class Credits {
-	
-public:
-	
-	static void render();
-	static void reset();
-	
-};
+#include <string>
+
+namespace credits {
+
+//! Set additional credits for used libraries
+void setLibraryCredits(const std::string & subsystem, const std::string & credits);
+
+void setMessage(const std::string & message);
+
+/*!
+ * Render the credits.
+ *
+ * Credits are loaded if needed.
+ *
+ * Once the end of the credits is reached, all resources are free an the menu mode
+ * is reset to the main menu.
+ */
+void render();
+
+//! Reset credits state and free allocated resources
+void reset();
+
+} // namespace credits
 
 #endif // ARX_GUI_CREDITS_H

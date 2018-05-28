@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -19,9 +19,7 @@
 
 #include "platform/Lock.h"
 
-#include "platform/Platform.h"
-
-#if defined(ARX_HAVE_PTHREADS)
+#if ARX_HAVE_PTHREADS
 
 Lock::Lock() : locked(false) {
 	const pthread_mutex_t mutex_init = PTHREAD_MUTEX_INITIALIZER;
@@ -55,7 +53,7 @@ void Lock::unlock() {
 	pthread_mutex_unlock(&mutex);
 }
 
-#elif defined(ARX_HAVE_WINAPI)
+#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 
 Lock::Lock() {
 	mutex = CreateMutex(NULL, false, NULL);

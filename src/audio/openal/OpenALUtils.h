@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -28,27 +28,19 @@
 #include <al.h>
 #endif
 
-#include "math/Vector3.h"
+#include "math/Vector.h"
 
 const char * getAlcErrorString(ALenum error);
 
 const char * getAlErrorString(ALenum error);
 
-#define AL_CHECK_ERROR(desc) { ALenum error = alGetError(); \
+#define AL_CHECK_ERROR_C(desc, todo) { ALenum error = alGetError(); \
 	if(error != AL_NO_ERROR) { \
-		ALError << "error " desc ": " << error << " = " << getAlErrorString(error); \
-		return AAL_ERROR_SYSTEM; \
-	}}
-
-#define AL_CHECK_ERROR_N(desc, todo) { ALenum error = alGetError(); \
-	if(error != AL_NO_ERROR) { \
-		ALError << "error " desc ": " << error << " = " << getAlErrorString(error); \
+		ALError << "Error " desc << ": " << error << " = " << getAlErrorString(error); \
 		todo \
 	}}
 
-template <class T>
-inline bool isallfinite(Vector3<T> vec) {
-	return (boost::math::isfinite)(vec.x) && (boost::math::isfinite)(vec.y)  && (boost::math::isfinite)(vec.z);
-}
+#define AL_CHECK_ERROR_N(desc) AL_CHECK_ERROR_C(desc, (void)0;)
+#define AL_CHECK_ERROR(desc) AL_CHECK_ERROR_C(desc, return AAL_ERROR_SYSTEM;)
 
 #endif // ARX_AUDIO_OPENAL_OPENALUTILS_H

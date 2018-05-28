@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -43,6 +43,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 // TODO header file
 
+#include "animation/Intro.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -65,18 +67,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "window/RenderWindow.h"
 
-using std::min;
-using std::max;
-
-extern float PROGRESS_BAR_TOTAL;
-extern float PROGRESS_BAR_COUNT;
-extern float OLD_PROGRESS_BAR_COUNT;
-
 static TextureContainer * FISHTANK_img = NULL;
 static TextureContainer * ARKANE_img = NULL;
 
 void LoadScreen() {
-	GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer);
+	GRenderer->Clear(Renderer::ColorBuffer);
 }
 
 bool ARX_INTERFACE_InitFISHTANK() {
@@ -105,33 +100,30 @@ void ARX_INTERFACE_KillARKANE() {
 }
 
 static void DrawCenteredImage(TextureContainer * tc) {
-	EERIEDrawBitmap2(DANAECENTERX - (tc->m_dwWidth * 0.5f),
-	                 DANAECENTERY - (tc->m_dwHeight * 0.5f),
-	                 static_cast<float>((int)(tc->m_dwWidth)),
-	                 static_cast<float>((int)(tc->m_dwHeight)),
-	                 0.001f, tc, Color::white);
+	
+	UseRenderState state(render2D().noBlend());
+	
+	Vec2f size = Vec2f(tc->size());
+	
+	Vec2f pos = Vec2f(g_size.center());
+	pos += -size * 0.5f;
+	
+	EERIEDrawBitmap(Rectf(pos, size.x, size.y), 0.001f, tc, Color::white);
 }
 
-void ARX_INTERFACE_ShowLogo(TextureContainer * logo) {
+static void ARX_INTERFACE_ShowLogo(TextureContainer * logo) {
 	
 	if(logo == NULL) {
 		return;
 	}
 	
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapClamp); 
-	GRenderer->SetRenderState(Renderer::ColorKey, false);
+	GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapClamp);
 	
-	GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer);
+	GRenderer->Clear(Renderer::ColorBuffer);
 	
-	GRenderer->BeginScene();
-	
-	GRenderer->SetRenderState(Renderer::Fog, false);
 	DrawCenteredImage(logo);
 	
-	GRenderer->EndScene();
-	
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
-	GRenderer->SetRenderState(Renderer::ColorKey, true);
+	GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 }
 
 void ARX_INTERFACE_ShowFISHTANK() {
@@ -142,111 +134,11 @@ void ARX_INTERFACE_ShowARKANE() {
 	ARX_INTERFACE_ShowLogo(ARKANE_img);
 }
 
-static long lastloadednum = -1;
-static TextureContainer * tc = NULL;
-static TextureContainer * pbar = NULL;
-static long nopbar = -1;
-static long lastnum = -1;
 
-void LoadLevelScreen(long num) {
-	
-	// resets status
-	if(num < -1) {
-		delete tc, tc = NULL;
-		lastloadednum = -1;
-		lastnum = -1;
-		PROGRESS_BAR_TOTAL = 0;
-		return;
-	}
-	
-	if(num == -1) {
-		num = lastnum;
-	}
-	lastnum = num;
-	
-	if(num < 0) {
-		return;
-	}
-	
-	static u32 last_progress_bar_update = Time::getMs();
-	
-	// only update if time since last update to progress bar > 16ms
-	// and progress bar's value has actually changed
-	if (Time::getElapsedMs(last_progress_bar_update) > 16 &&
-		 OLD_PROGRESS_BAR_COUNT != PROGRESS_BAR_COUNT)
-	{
-		GRenderer->GetTextureStage(0)->SetMinFilter(TextureStage::FilterLinear);
-		GRenderer->GetTextureStage(0)->SetMagFilter(TextureStage::FilterLinear);
-
-		float ratio = (PROGRESS_BAR_TOTAL > 0.f ? PROGRESS_BAR_COUNT / PROGRESS_BAR_TOTAL : 0); 
-
-		if (ratio > 1.f) ratio = 1.f;
-		else if (ratio < 0.f) ratio = 0.f;
-
-		GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer);
-		
-		GRenderer->BeginScene();
-		
-		GRenderer->SetRenderState(Renderer::DepthTest, true);
-		GRenderer->SetCulling(Renderer::CullNone);
-		GRenderer->SetRenderState(Renderer::DepthWrite, true);
-		GRenderer->SetRenderState(Renderer::Fog, false);
-		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-		
-		if (num == 10) {
-			pbar = TextureContainer::LoadUI("graph/interface/menus/load_full");
-		} else {
-			pbar = TextureContainer::LoadUI("graph/interface/menus/load_full_level");
-		}
-		
-		nopbar = 1;
-		
-		if(num != lastloadednum) {
-			delete tc, tc = NULL;
-			lastloadednum = num;
-			char temp[256];
-			char tx[256];
-			GetLevelNameByNum(num, tx);
-			sprintf(temp, "graph/levels/level%s/loading", tx);
-			tc = TextureContainer::LoadUI(temp, TextureContainer::NoColorKey);
-		}
-		
-		float scale = minSizeRatio();
-		
-		if(tc) {
-			GRenderer->SetRenderState(Renderer::ColorKey, false);
-			
-			Vec2f size = (num == 10) ? Vec2f(640, 480) : Vec2f(320, 390);
-			size *= scale;
-			EERIEDrawBitmap2(DANAECENTERX - size.x * 0.5f, DANAECENTERY - size.y * 0.5f,
-												size.x, size.y, 0.001f, tc, Color::white);
-			
-			GRenderer->SetRenderState(Renderer::ColorKey, true);
-		}
-		
-		if(pbar) {
-			float px = DANAECENTERX - 100 * scale;
-			float py = DANAECENTERY + ((num == 10) ? 221 : 35) * scale;
-			float px2 = ratio * 200 * scale;
-			float py2 = 8 * scale;
-			EERIEDrawBitmap_uv(px, py, px2, py2, 0.f, pbar, Color::gray(1.0f), 0.f, 0.f, ratio, 1.f);
-		}
-		
-		GRenderer->EndScene();
-		mainApp->GetWindow()->showFrame();
-		
-		OLD_PROGRESS_BAR_COUNT = PROGRESS_BAR_COUNT;
-		last_progress_bar_update = Time::getMs();
-	}
-}
-
-void LoadLevelScreen() {
-	LoadLevelScreen(-1);
-}
 
 //-----------------------------------------------------------------------------
 void ARX_INTERFACE_EndIntro()
 {
 	ARX_SOUND_MixerStop(ARX_SOUND_MixerGame);
-	ARX_MENU_Launch();
+	ARX_MENU_Launch(false);
 }

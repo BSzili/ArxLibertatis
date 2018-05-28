@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -37,15 +37,13 @@
 
 #include "util/Unicode.h"
 
-using std::string;
-
 namespace {
-IniReader localisation;
-}
 
-static PakFile * autodetectLanguage() {
+IniReader g_localisation;
+
+PakFile * autodetectLanguage() {
 	
-	PakDirectory * dir = resources->getDirectory("localisation");
+	PakDirectory * dir = g_resources->getDirectory("localisation");
 	if(!dir) {
 		LogCritical << "Missing 'localisation' directory. Is 'loc.pak' present?";
 		return NULL;
@@ -109,11 +107,13 @@ static PakFile * autodetectLanguage() {
 	return localisation;
 }
 
+} // anonymous namespace
+
 bool initLocalisation() {
 	
 	LogDebug("Starting localization");
 	
-	localisation.clear();
+	g_localisation.clear();
 	
 	PakFile * file;
 	
@@ -125,7 +125,7 @@ bool initLocalisation() {
 		
 		// Attempt to load localisation for the configured language.
 		std::string filename = "localisation/utext_" + config.language + ".ini";
-		file = resources->getFile(filename);
+		file = g_resources->getFile(filename);
 		
 		if(!file) {
 			LogWarning << "Localisation file " << filename << " not found, autodetecting language.";
@@ -149,13 +149,13 @@ bool initLocalisation() {
 	}
 	
 	LogDebug("Loaded localisation file of size " << file->size());
-	std::string out = util::convertUTF16LEToUTF8(data, data + file->size());
+	std::string out = util::convert<util::UTF16LE, util::UTF8>(data, data + file->size());
 	LogDebug("Converted to UTF8 string of length " << out.size());
 	
 	if(!out.empty()) {
 		LogDebug("Preparing to parse localisation file");
 		std::istringstream iss(out);
-		if(!::localisation.read(iss)) {
+		if(!::g_localisation.read(iss)) {
 			LogWarning << "Error parsing localisation file localisation/utext_"
 			           << config.language << ".ini";
 		}
@@ -166,13 +166,13 @@ bool initLocalisation() {
 	return true;
 }
 
-long getLocalisedKeyCount(const string & sectionname) {
-	return localisation.getKeyCount(sectionname);
+long getLocalisedKeyCount(const std::string & sectionname) {
+	return g_localisation.getKeyCount(sectionname);
 }
 
-string getLocalised(const string & name, const string & default_value) {
+std::string getLocalised(const std::string & name, const std::string & default_value) {
 	
-	arx_assert(name.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ[]") == string::npos);
+	arx_assert(name.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ[]") == std::string::npos);
 	
-	return localisation.getKey(name, string(), default_value);
+	return g_localisation.getKey(name, std::string(), default_value);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,7 +22,6 @@
 #include <string>
 #include <vector>
 #include <list>
-#include <iostream>
 #include <set>
 #include <sstream>
 #include <algorithm>
@@ -36,17 +35,11 @@
 #endif
 
 #include <boost/foreach.hpp>
+#include <boost/version.hpp>
 
-/*
- * Under OS X we want SDLmain to replace the entry point with its own.
- * This is needed to initialize NSApplication - otherwise we will later
- * crash when trying to use SDL windowing functions.
- */
-#if ARX_PLATFORM == ARX_PLATFORM_MACOSX
-	#include <SDL_main.h>
-#else
-	#undef main /* in case SDL.h was already included */
-#endif
+#include <glm/glm.hpp>
+
+#include <zlib.h>
 
 #if defined(__AROS__) || defined(__MORPHOS__)
 #include <locale.h>
@@ -56,68 +49,42 @@ extern "C" const int __stack __attribute__((used)) = 0x100000;
 extern "C" const char * __attribute__((used)) stack = "$STACK: 1048576";
 #endif
 
+#include "core/Benchmark.h"
 #include "core/Config.h"
 #include "core/Core.h"
 #include "core/Version.h"
+
+#include "gui/Console.h"
+#include "gui/Credits.h"
+
 #include "io/fs/Filesystem.h"
 #include "io/fs/SystemPaths.h"
 #include "io/log/CriticalLogger.h"
 #include "io/log/FileLogger.h"
 #include "io/log/Logger.h"
+
 #include "math/Random.h"
+
 #include "platform/Compiler.h"
 #include "platform/CrashHandler.h"
-#include "platform/Environment.h"
-#include "platform/ProgramOptions.h"
+#include "platform/profiler/Profiler.h"
+#include "platform/Thread.h"
 #include "platform/Time.h"
+#include "platform/WindowsMain.h"
+
 #include "util/String.h"
-#include "util/cmdline/Parser.h"
+#include "util/cmdline/CommandLine.h"
 
-static void showCommandLineHelp(const util::cmdline::interpreter<std::string> & options,
-                                std::ostream & os) {
-	
-	os << "Usage: arx [options]\n\n";
-	
-	os << "Arx Libertatis Options:\n";
-	os << options << std::endl;
-	
-}
-
-static void handleHelpOption() {
-	
-	// Register all program options in the command line interpreter
-	util::cmdline::interpreter<std::string> cli;
-	BaseOption::registerAll(cli);
-	
-	showCommandLineHelp(cli, std::cout);
-	
-	std::exit(EXIT_SUCCESS);
-}
-
-ARX_PROGRAM_OPTION("help", "h", "Show supported options", &handleHelpOption);
-
-static ExitStatus parseCommandLine(int argc, char ** argv) {
-	
-	defineSystemDirectories(argv[0]);
-	
-	// Register all program options in the command line interpreter
-	util::cmdline::interpreter<std::string> cli;
-	BaseOption::registerAll(cli);
-	
-	try {
-		
-		util::cmdline::parse(cli, argc, argv);
-		
-	} catch(util::cmdline::error & e) {
-		
-		std::cerr << e.what() << "\n\n";
-		showCommandLineHelp(cli, std::cerr);
-		
-		return ExitFailure;
-	}
-	
-	return RunProgram;
-}
+/*
+ * Under macOS we want SDLmain to replace the entry point with its own.
+ * This is needed to initialize NSApplication - otherwise we will later
+ * crash when trying to use SDL windowing functions.
+ */
+#if ARX_PLATFORM == ARX_PLATFORM_MACOS
+	#include <SDL_main.h>
+#else
+	#undef main /* in case SDL.h was already included */
+#endif
 
 #if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
 #include <SDL.h>
@@ -131,19 +98,13 @@ void threadCleanup(void)
 }
 #endif
 
-#if ARX_PLATFORM != ARX_PLATFORM_WIN32
-extern int main(int argc, char ** argv) {
+int main(int argc, char ** argv) {
 #else
-// For windows we can't use main() in a GUI application
-INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
-                   INT nCmdShow) {
-	ARX_UNUSED(hInstance);
-	ARX_UNUSED(hPrevInstance);
-	ARX_UNUSED(lpCmdLine);
-	ARX_UNUSED(nCmdShow);
-	int argc = __argc;
-	char ** argv = __argv;
+int utf8_main(int argc, char ** argv) {
 #endif
+	
+	// GCC -ffast-math disables denormal before main() - do the same for other compilers
+	Thread::disableFloatDenormals();
 	
 #ifdef __MORPHOS__
 	setlocale(LC_NUMERIC, "C"); /* so parsing floats won't be screwed up on MorphOS */
@@ -158,15 +119,42 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
 	
 	// Initialize the crash handler
 	{
-		CrashHandler::initialize();
-		CrashHandler::setVariable("Compiler", ARX_COMPILER_VERNAME);
-		CrashHandler::setVariable("Boost version", BOOST_LIB_VERSION);
+		CrashHandler::initialize(argc, argv);
 		std::string command_line;
 		for(int i = 1; i < argc; i++) {
 			command_line += util::escapeString(argv[i], "\\\" '$!");
 			command_line += ' ';
 		}
 		CrashHandler::setVariable("Command line", command_line);
+	}
+	
+	{
+		std::ostringstream oss;
+		oss << ARX_COMPILER_VERNAME;
+		CrashHandler::setVariable("Compiler", oss.str());
+		credits::setLibraryCredits("compiler", oss.str());
+		oss.str(std::string());
+		oss << ARX_STDLIB_VERNAME;
+		CrashHandler::setVariable("stdlib", oss.str());
+		credits::setLibraryCredits("stdlib", oss.str());
+		CrashHandler::setVariable("CMake", cmake_version);
+		credits::setLibraryCredits("build", "CMake " + cmake_version);
+		oss.str(std::string());
+		oss << (BOOST_VERSION / 100000) << '.' << (BOOST_VERSION / 100 % 1000)
+		    << '.' << (BOOST_VERSION % 100);
+		CrashHandler::setVariable("Boost version", oss.str());
+		credits::setLibraryCredits("boost", "Boost " + oss.str());
+		oss.str(std::string());
+		oss << GLM_VERSION_MAJOR << '.' << GLM_VERSION_MINOR << '.' << GLM_VERSION_PATCH
+		    << '.' << GLM_VERSION_REVISION;
+		CrashHandler::setVariable("GLM version", oss.str());
+		credits::setLibraryCredits("math", "GLM " + oss.str());
+		oss.str(std::string());
+		oss << zlibVersion();
+		CrashHandler::setVariable("zlib version (headers)", ZLIB_VERSION);
+		CrashHandler::setVariable("zlib version (runtime)", oss.str());
+		credits::setLibraryCredits("deflate", "zlib " + oss.str());
+		credits::setLibraryCredits("image", "stb_image");
 	}
 	
 	// Also intialize the logging system early as we might need it
@@ -177,37 +165,46 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
 	// Parse the command line and process options
 	ExitStatus status = parseCommandLine(argc, argv);
 	
+	platform::initializeTime();
+	benchmark::begin(benchmark::Startup);
+	
 	// Setup user, config and data directories
 	if(status == RunProgram) {
-		status = fs::paths.init();
+		status = fs::initSystemPaths();
 	}
 	
 	if(status == RunProgram) {
 		
 		// Configure the crash report location
-		CrashHandler::setReportLocation(fs::paths.user / "crashes");
-		CrashHandler::deleteOldReports(/* nb to keep = */5);
+		CrashHandler::setReportLocation(fs::getUserDir() / "crashes");
+		CrashHandler::deleteOldReports(/* nb to keep = */1);
 		
 		// Now that data directories are initialized, create a log file
 		{
-			fs::path logFile = fs::paths.user / "arx.log";
+			fs::path logFile = fs::getUserDir() / "arx.log";
 			Logger::add(new logger::File(logFile));
 			CrashHandler::addAttachedFile(logFile);
 		}
 		
-		Time::init();
+		Logger::add(new MemoryLogger(&g_console.buffer()));
+		
+		profiler::initialize();
 		
 		// 14: Start the game already!
-		LogInfo << "Starting " << arx_version;
+		LogInfo << "Starting " << arx_name << ' ' << arx_version;
 		runGame();
 		
 	}
+	
+	benchmark::shutdown();
 	
 	// Shutdown the logging system
 	// If there has been a critical error, a dialog will be shown now
 	Logger::shutdown();
 	
 	CrashHandler::shutdown();
+	
+	Random::shutdown();
 	
 	return (status == ExitFailure) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,60 +49,32 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "graphics/GraphicsTypes.h"
 
-enum ActionType {
-	ACT_FIRE = 1,
-	ACT_FIREOFF = 2,
-	ACT_FIRE2 = 3,
-	ACT_FIRE2OFF = 4
-};
-
-struct ACTIONSTRUCT {
-	EERIE_LIGHT light;
-	Vec3f pos;
-	long dl;
-	ActionType type;
-	short exist;
-};
-
-const size_t MAX_ACTIONS = 100;
-
-extern TexturedVertex	vert_list[4];
-extern ACTIONSTRUCT actions[MAX_ACTIONS];
-
-#ifdef BUILD_EDIT_LOADSAVE
-EERIE_MULTI3DSCENE * PAK_MultiSceneToEerie(const res::path & dir);
-void ReleaseMultiScene(EERIE_MULTI3DSCENE * ms);
-#endif
+template <class T>
+static T * allocStructZero(size_t n = 1) {
+	T * result = static_cast<T *>(malloc(n * sizeof(T)));
+	memset(result, 0, n * sizeof(T));
+	return result;
+}
 
 void MakeUserFlag(TextureContainer * tc);
-long EERIE_OBJECT_GetGroup(const EERIE_3DOBJ * obj, const std::string & groupname);
-long EERIE_OBJECT_GetSelection(const EERIE_3DOBJ * obj, const std::string & selname);
- 
-long GetGroupOriginByName(const EERIE_3DOBJ * eobj, const std::string & text);
-long GetActionPointIdx(const EERIE_3DOBJ * eobj, const std::string & text);
-long GetActionPointGroup(const EERIE_3DOBJ * eobj, long idx);
+ObjVertGroup EERIE_OBJECT_GetGroup(const EERIE_3DOBJ * obj, const std::string & groupname);
+ObjSelection EERIE_OBJECT_GetSelection(const EERIE_3DOBJ * obj, const std::string & selname);
+
+ObjVertHandle GetGroupOriginByName(const EERIE_3DOBJ * eobj, const std::string & text);
+ActionPoint GetActionPointIdx(const EERIE_3DOBJ * eobj, const std::string & text);
+ObjVertGroup GetActionPointGroup(const EERIE_3DOBJ * eobj, ActionPoint idx);
 
 /*!
  * Load a possibly cached 3D object using the default texture path.
  * 
- * @param pbox true if the object should have a physics box.
+ * \param pbox true if the object should have a physics box.
  */
 EERIE_3DOBJ * loadObject(const res::path & file, bool pbox = true);
-
-/*!
- * @param texpath texture path relative to file
- */
-EERIE_3DOBJ * LoadTheObj(const res::path & file, const res::path & texpath = res::path());
-
-EERIE_ANIM * TheaToEerie(const char * adr, size_t size, const res::path & fic);
-
-void ReleaseAnim(EERIE_ANIM * ea);
 
 EERIE_3DOBJ * Eerie_Copy(const EERIE_3DOBJ * obj);
 void EERIE_Object_Precompute_Fast_Access(EERIE_3DOBJ * obj);
 void EERIE_3DOBJ_RestoreTextures(EERIE_3DOBJ * eobj);
 void EERIE_OBJECT_CenterObjectCoordinates(EERIE_3DOBJ * ret);
 void EERIE_CreateCedricData(EERIE_3DOBJ * eobj);
-void RemoveAllBackgroundActions();
 
 #endif // ARX_SCENE_OBJECT_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,16 +47,16 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <algorithm>
 #include <cstring>
 
-#include <boost/static_assert.hpp>
-
 #include "gui/MiniMap.h"
 #include "game/Item.h"
 #include "game/NPC.h"
+#include "graphics/GlobalFog.h"
 #include "graphics/GraphicsFormat.h"
-#include "graphics/GraphicsModes.h"
+#include "graphics/GraphicsTypes.h"
 #include "graphics/data/Mesh.h"
 #include "graphics/data/MeshManipulation.h"
 #include "platform/Platform.h"
+#include "util/String.h"
 
 const s32 SAVEFLAGS_EXTRA_ROTATE = 1;
 const float ARX_GAMESAVE_VERSION = 1.005f;
@@ -70,44 +70,43 @@ enum SavedIOType {
 };
 
 enum SystemFlag {
-	SYSTEM_FLAG_TWEAKER_INFO  = (1<<0),
-	SYSTEM_FLAG_INVENTORY     = (1<<1),
-	SYSTEM_FLAG_EQUIPITEMDATA = (1<<2),
-	SYSTEM_FLAG_USEPATH       = (1<<3)
+	SYSTEM_FLAG_TWEAKER_INFO  = 1 << 0,
+	SYSTEM_FLAG_INVENTORY     = 1 << 1,
+	SYSTEM_FLAG_EQUIPITEMDATA = 1 << 2,
+	SYSTEM_FLAG_USEPATH       = 1 << 3
 };
 
 enum SavePlayerFlag {
-	SP_MAX  = (1<<0),
-	SP_RF   = (1<<2),
-	SP_WEP  = (1<<3),
-	SP_MR   = (1<<4),
-	SP_ARM1 = (1<<5),
-	SP_ARM2 = (1<<6),
-	SP_ARM3 = (1<<7),
-	SP_SP   = (1<<8),
-	SP_SP2  = (1<<9)
+	SP_MAX  = 1 << 0,
+	SP_RF   = 1 << 2,
+	SP_WEP  = 1 << 3,
+	SP_MR   = 1 << 4,
+	SP_ARM1 = 1 << 5,
+	SP_ARM2 = 1 << 6,
+	SP_ARM3 = 1 << 7,
+	SP_SP   = 1 << 8,
+	SP_SP2  = 1 << 9
+};
+
+enum VariableType {
+	TYPE_UNKNOWN = 0, // does not exist !
+	TYPE_G_TEXT = 1,
+	TYPE_L_TEXT = 2,
+	TYPE_G_LONG = 4,
+	TYPE_L_LONG = 8,
+	TYPE_G_FLOAT = 16,
+	TYPE_L_FLOAT = 32
 };
 
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 
 
+const size_t SAVED_QUEST_SLOT_SIZE = 80;
 const size_t SAVED_KEYRING_SLOT_SIZE = 64;
 const size_t MAX_LINKED_SAVE = 16;
 const size_t SIZE_ID = 64;
 const size_t SAVED_MAX_STACKED_BEHAVIOR = 5;
-
-struct ARX_VARIABLE_SAVE {
-	s32 type;
-	f32 fval;
-	char name[SIZE_ID];
-};
-
-struct ARX_SCRIPT_SAVE {
-	s32 nblvar;
-	u32 lastcall;
-	s32 allowevents;
-};
 
 struct SavedGlobalMods {
 	
@@ -116,7 +115,7 @@ struct SavedGlobalMods {
 	f32 zclip;
 	char padding[136];
 	
-	inline SavedGlobalMods & operator=(const GLOBAL_MODS & b) {
+	SavedGlobalMods & operator=(const GLOBAL_MODS & b) {
 		flags = b.flags;
 		depthcolor = b.depthcolor;
 		zclip = b.zclip;
@@ -124,7 +123,7 @@ struct SavedGlobalMods {
 		return *this;
 	}
 	
-	inline operator GLOBAL_MODS() const {
+	operator GLOBAL_MODS() const {
 		GLOBAL_MODS a;
 		a.flags = GMODFlags::load(flags); // TODO save/load flags
 		a.depthcolor = depthcolor;
@@ -183,11 +182,11 @@ struct SavedMapMarkerData {
 	char name[STRING_SIZE];
 	
 	/* implicit */ SavedMapMarkerData(const MiniMap::MapMarkerData & b) {
-		x = b.m_x;
-		y = b.m_y;
+		x = b.m_pos.x;
+		y = b.m_pos.y;
 		lvl = b.m_lvl;
 		arx_assert(STRING_SIZE > b.m_name.length());
-		strncpy(name, b.m_name.c_str(), STRING_SIZE);
+		util::storeString(name, b.m_name);
 	}
 	
 };
@@ -198,13 +197,13 @@ struct SavedCylinder {
 	f32 radius;
 	f32 height;
 	
-	inline operator EERIE_CYLINDER() const {
-		EERIE_CYLINDER a;
-		a.origin = origin, a.radius = radius, a.height = height;
+	operator Cylinder() const {
+		Cylinder a;
+		a.origin = origin.toVec3(), a.radius = radius, a.height = height;
 		return a;
 	}
 	
-	inline SavedCylinder & operator=(const EERIE_CYLINDER & b) {
+	SavedCylinder & operator=(const Cylinder & b) {
 		origin = b.origin, radius = b.radius, height = b.height;
 		return *this;
 	}
@@ -219,17 +218,17 @@ struct SavedIOPhysics {
 	SavedVec3 velocity;
 	SavedVec3 forces;
 	
-	inline operator IO_PHYSICS() const {
+	operator IO_PHYSICS() const {
 		IO_PHYSICS a;
 		a.cyl = cyl;
-		a.startpos = startpos;
-		a.targetpos = targetpos;
-		a.velocity = velocity;
-		a.forces = forces;
+		a.startpos = startpos.toVec3();
+		a.targetpos = targetpos.toVec3();
+		a.velocity = velocity.toVec3();
+		a.forces = forces.toVec3();
 		return a;
 	}
 	
-	inline SavedIOPhysics & operator=(const IO_PHYSICS & b) {
+	SavedIOPhysics & operator=(const IO_PHYSICS & b) {
 		cyl = b.cyl;
 		startpos = b.startpos;
 		targetpos = b.targetpos;
@@ -257,31 +256,31 @@ struct SavedMiniMap {
 	f32 height;
 	u8 revealed[MAX_X][MAX_Z];
 	
-	inline operator MiniMap::MiniMapData() const {
+	operator MiniMap::MiniMapData() const {
 		MiniMap::MiniMapData a;
 		a.m_texContainer = NULL;
-		a.m_offsetX = offsetx;
-		a.m_offsetY = offsety;
-		a.m_ratioX = xratio;
-		a.m_ratioY = yratio;
-		a.m_width = width;
-		a.m_height = height;
-		BOOST_STATIC_ASSERT(SavedMiniMap::MAX_X == MINIMAP_MAX_X);
-		BOOST_STATIC_ASSERT(SavedMiniMap::MAX_Z == MINIMAP_MAX_Z);
+		a.m_offset.x = offsetx;
+		a.m_offset.y = offsety;
+		a.m_ratio.x = xratio;
+		a.m_ratio.y = yratio;
+		a.m_size.x = width;
+		a.m_size.y = height;
+		ARX_STATIC_ASSERT(SavedMiniMap::MAX_X == MINIMAP_MAX_X, "array size mismatch");
+		ARX_STATIC_ASSERT(SavedMiniMap::MAX_Z == MINIMAP_MAX_Z, "array size mismatch");
 		std::copy(&revealed[0][0], &revealed[0][0] + (SavedMiniMap::MAX_X * SavedMiniMap::MAX_Z), &a.m_revealed[0][0]);
 		return a;
 	}
 	
-	inline SavedMiniMap & operator=(const MiniMap::MiniMapData & b) {
+	SavedMiniMap & operator=(const MiniMap::MiniMapData & b) {
 		padding = 0;
-		offsetx = b.m_offsetX;
-		offsety = b.m_offsetY;
-		xratio = b.m_ratioX;
-		yratio = b.m_ratioY;
-		width = b.m_width;
-		height = b.m_height;
-		BOOST_STATIC_ASSERT(SavedMiniMap::MAX_X == MINIMAP_MAX_X);
-		BOOST_STATIC_ASSERT(SavedMiniMap::MAX_Z == MINIMAP_MAX_Z);
+		offsetx = b.m_offset.x;
+		offsety = b.m_offset.y;
+		xratio = b.m_ratio.x;
+		yratio = b.m_ratio.y;
+		width = b.m_size.x;
+		height = b.m_size.y;
+		ARX_STATIC_ASSERT(SavedMiniMap::MAX_X == MINIMAP_MAX_X, "array size mismatch");
+		ARX_STATIC_ASSERT(SavedMiniMap::MAX_Z == MINIMAP_MAX_Z, "array size mismatch");
 		std::copy(&b.m_revealed[0][0], &b.m_revealed[0][0] + (SavedMiniMap::MAX_X * SavedMiniMap::MAX_Z), &revealed[0][0]);
 		return *this;
 	}
@@ -298,27 +297,36 @@ struct SavedPrecast {
 	s32 flags;
 	s32 duration;
 	
-	inline operator PRECAST_STRUCT() const {
+	operator PRECAST_STRUCT() const {
 		PRECAST_STRUCT a;
-		a.typ = (typ < 0) ? SPELL_NONE : (Spell)typ; // TODO save/load enum
+		a.typ = (typ < 0) ? SPELL_NONE : (SpellType)typ; // TODO save/load enum
 		a.level = level;
-		a.launch_time = launch_time;
+		a.launch_time = GameInstantMs(launch_time); // TODO save/load time
 		a.flags = SpellcastFlags::load(flags); // TODO save/load flags
-		a.duration = duration;
+		if(duration >= 0) {
+			a.duration = GameDurationMs(duration); // TODO save/load time
+		} else {
+			a.duration = GameDuration::ofRaw(-1);
+		}
 		return a;
 	}
 	
-	inline SavedPrecast & operator=(const PRECAST_STRUCT & b) {
+	SavedPrecast & operator=(const PRECAST_STRUCT & b) {
 		typ = (b.typ == SPELL_NONE) ? -1 : b.typ;
 		level = b.level;
-		launch_time = b.launch_time;
+		launch_time = toMsi(b.launch_time); // TODO save/load time
 		flags = b.flags;
-		duration = b.duration;
+		if(b.duration >= 0) {
+			duration = toMsi(b.duration); // TODO save/load time
+		} else {
+			duration = -1;
+		}
 		return *this;
 	}
 	
 };
 
+const size_t SAVED_INVENTORY_BAGS = 3;
 const size_t SAVED_INVENTORY_X = 16;
 const size_t SAVED_INVENTORY_Y = 3;
 const size_t SAVED_MAX_MINIMAPS = 32;
@@ -349,8 +357,8 @@ struct ARX_CHANGELEVEL_PLAYER {
 	f32 Skill_Close_Combat;
 	f32 Skill_Defense;
 	
-	f32 Critical_Hit;
-	s32 AimTime;
+	f32 Critical_Hit; // TODO remove
+	s32 AimTime; // TODO remove
 	f32 life;
 	f32 maxlife;
 	f32 mana;
@@ -359,13 +367,13 @@ struct ARX_CHANGELEVEL_PLAYER {
 	s16 Attribute_Redistribute;
 	s16 Skill_Redistribute;
 	
-	f32 armor_class;
-	f32 resist_magic;
-	f32 resist_poison;
+	f32 armor_class; // TODO remove
+	f32 resist_magic; // TODO remove
+	f32 resist_poison; // TODO remove
 	s32 xp;
 	s32 skin;
 	u32 rune_flags;
-	f32 damages;
+	f32 damages; // TODO remove
 	f32 poison;
 	f32 hunger;
 	SavedVec3 pos;
@@ -373,25 +381,25 @@ struct ARX_CHANGELEVEL_PLAYER {
 	SavedVec3 size;
 	
 	char inzone[SIZE_ID];
-	char rightIO[SIZE_ID];
-	char leftIO[SIZE_ID];
-	char equipsecondaryIO[SIZE_ID];
-	char equipshieldIO[SIZE_ID];
+	char rightIO[SIZE_ID]; // TODO remove
+	char leftIO[SIZE_ID]; // TODO remove
+	char equipsecondaryIO[SIZE_ID]; // TODO remove
+	char equipshieldIO[SIZE_ID]; // TODO remove
 	char curtorch[SIZE_ID];
 	s32 gold;
 	s32 falling;
 	
-	s16	doingmagic;
-	s16	Interface;
+	s16 doingmagic;
+	s16 Interface;
 	f32 invisibility;
 	s8 useanim[36]; // padding
 	SavedIOPhysics physics;
 	// Jump Sub-data
 	u32 jumpstarttime;
-	s32 jumpphase;	// 0 no jump, 1 doing anticipation anim
+	s32 jumpphase; // 0 no jump, 1 doing anticipation anim
 	
-	char id_inventory[3][SAVED_INVENTORY_X][SAVED_INVENTORY_Y][SIZE_ID];
-	s32 inventory_show[3][SAVED_INVENTORY_X][SAVED_INVENTORY_Y];
+	char id_inventory[SAVED_INVENTORY_BAGS][SAVED_INVENTORY_X][SAVED_INVENTORY_Y][SIZE_ID];
+	s32 inventory_show[SAVED_INVENTORY_BAGS][SAVED_INVENTORY_X][SAVED_INVENTORY_Y];
 	SavedMiniMap minimap[SAVED_MAX_MINIMAPS];
 	char equiped[SAVED_MAX_EQUIPED][SIZE_ID];
 	s32 nb_PlayerQuest;
@@ -420,7 +428,6 @@ struct ARX_CHANGELEVEL_INVENTORY_DATA_SAVE {
 	char slot_io[20][20][SIZE_ID];
 	s32 slot_show[20][20];
 	char initio[20][20][SIZE_ID];
-	/// limit...
 	char weapon[SIZE_ID];
 	char targetinfo[SIZE_ID];
 	char linked_id[MAX_LINKED_SAVE][SIZE_ID];
@@ -431,10 +438,10 @@ struct ARX_CHANGELEVEL_INVENTORY_DATA_SAVE {
 struct ARX_CHANGELEVEL_TIMERS_SAVE {
 	
 	char name[SIZE_ID];
-	s32 times;
-	s32 msecs;
+	s32 count;
+	s32 interval;
 	s32 pos;
-	s32 tim;
+	s32 remaining;
 	s32 script; // 0 = global ** 1 = local
 	s32 longinfo;
 	s32 flags;
@@ -458,6 +465,7 @@ struct ARX_CHANGELEVEL_VARIABLE_SAVE {
 	char name[SIZE_ID];
 };
 
+// TODO Remove
 struct SavedModInfo {
 	
 	s32 link_origin;
@@ -465,26 +473,6 @@ struct SavedModInfo {
 	SavedVec3 scale;
 	SavedAnglef rot;
 	u32 flags;
-	
-	inline operator EERIE_MOD_INFO() const {
-		EERIE_MOD_INFO a;
-		a.link_origin = link_origin;
-		a.link_position = link_position;
-		a.scale = scale;
-		a.rot = rot;
-		a.flags = flags;
-		return a;
-	}
-	
-	inline SavedModInfo & operator=(const EERIE_MOD_INFO & b) {
-		link_origin = b.link_origin;
-		link_position = b.link_position;
-		scale = b.scale;
-		rot = b.rot;
-		flags = b.flags;
-		return *this;
-	}
-	
 };
 
 struct IO_LINKED_DATA {
@@ -510,32 +498,29 @@ struct SavedAnimUse {
 	f32 pour;
 	s32 fr;
 	
-	inline operator ANIM_USE() const {
-		ANIM_USE a;
-		a.next_anim = NULL;
+	operator AnimLayer() const {
+		AnimLayer a;
 		a.cur_anim = NULL;
-		a.altidx_next = altidx_next;
 		a.altidx_cur = altidx_cur;
-		a.ctime = ctime;
-		a.flags = flags;
-		a.nextflags = nextflags;
+		a.ctime = AnimationDurationMs(ctime);
+		a.flags = AnimUseType::load(flags);
 		a.lastframe = lastframe;
-		a.pour = pour;
-		a.fr = fr;
+		a.currentInterpolation = pour;
+		a.currentFrame = fr;
 		return a;
 	}
 	
-	inline SavedAnimUse & operator=(const ANIM_USE & b) {
-		next_anim = 0;
+	SavedAnimUse & operator=(const AnimLayer & b) {
+		next_anim = -1;
 		cur_anim = 0;
-		altidx_next = b.altidx_next;
+		altidx_next = 0;
 		altidx_cur = b.altidx_cur;
-		ctime = b.ctime;
+		ctime = toMsi(b.ctime);
 		flags = b.flags;
-		nextflags = b.nextflags;
+		nextflags = 0;
 		lastframe = b.lastframe;
-		pour = b.pour;
-		fr = b.fr;
+		pour = b.currentInterpolation;
+		fr = b.currentFrame;
 		return *this;
 	}
 	
@@ -550,29 +535,29 @@ struct SavedSpellcastData {
 	s32 target;
 	s32 duration;
 	
-	inline operator IO_SPELLCAST_DATA() const {
+	operator IO_SPELLCAST_DATA() const {
 		IO_SPELLCAST_DATA a;
-		a.castingspell = (castingspell < 0) ? SPELL_NONE : (Spell)castingspell; // TODO save/load enum
-		BOOST_STATIC_ASSERT(ARRAY_SIZE(a.symb) == 4);
+		a.castingspell = (castingspell < 0) ? SPELL_NONE : (SpellType)castingspell; // TODO save/load enum
+		ARX_STATIC_ASSERT(ARRAY_SIZE(a.symb) == 4, "array size mismatch");
 		a.symb[0] = (Rune)symb[0]; // TODO save/load enum
 		a.symb[1] = (Rune)symb[1];
 		a.symb[2] = (Rune)symb[2];
 		a.symb[3] = (Rune)symb[3];
 		a.spell_flags = SpellcastFlags::load(spell_flags); // TODO save/load flags
 		a.spell_level = spell_level;
-		a.target = target; // TODO saved internum not valid after loading
-		a.duration = duration;
+		a.target = EntityHandle(target); // TODO saved internum not valid after loading
+		a.duration = GameDurationMs(duration); // TODO save/load time
 		return a;
 	}
 	
-	inline SavedSpellcastData & operator=(const IO_SPELLCAST_DATA & b) {
+	SavedSpellcastData & operator=(const IO_SPELLCAST_DATA & b) {
 		castingspell = (b.castingspell == SPELL_NONE) ? -1 : b.castingspell;
-		BOOST_STATIC_ASSERT(ARRAY_SIZE(b.symb) == 4);
+		ARX_STATIC_ASSERT(ARRAY_SIZE(b.symb) == 4, "array size mismatch");
 		std::copy(b.symb, b.symb + 4, symb);
 		spell_flags = b.spell_flags;
 		spell_level = b.spell_level;
-		target = b.target;
-		duration = b.duration;
+		target = b.target.handleData();
+		duration = toMsi(b.duration); // TODO save/load time
 		return *this;
 	}
 	
@@ -583,24 +568,22 @@ struct SavedHalo {
 	SavedColor color;
 	f32 radius;
 	u32 flags;
-	s32 dynlight;
+	s32 dynlight; // unused
 	SavedVec3 offset;
 	
-	inline operator IO_HALO() const {
+	operator IO_HALO() const {
 		IO_HALO a;
 		a.color = color;
 		a.radius = radius;
 		a.flags = HaloFlags::load(flags); // TODO save/load flags
-		a.dynlight = dynlight;
-		a.offset = offset;
+		a.offset = offset.toVec3();
 		return a;
 	}
 	
-	inline SavedHalo & operator=(const IO_HALO & b) {
+	SavedHalo & operator=(const IO_HALO & b) {
 		color = b.color;
 		radius = b.radius;
 		flags = b.flags;
-		dynlight = b.dynlight;
 		offset = b.offset;
 		return *this;
 	}
@@ -639,7 +622,7 @@ struct ARX_CHANGELEVEL_IO_SAVE {
 	s16 collision;
 	char mainevent[64];
 	// Physics data
-	SavedVec3 velocity;
+	SavedVec3 velocity; // unused
 	s32 stopped;
 	SavedIOPhysics physics;
 	f32 original_radius;
@@ -680,7 +663,7 @@ struct ARX_CHANGELEVEL_IO_SAVE {
 	s16 Tweak_nb;
 	s16 padd;
 	SavedHalo halo;
-	char secretvalue;
+	s8 secretvalue;
 	char paddd[3];
 	char shop_category[128];
 	f32 shop_multiply;
@@ -708,27 +691,27 @@ struct SavedBehaviour {
 	s32 movemode;
 	SavedAnimUse animlayer[SAVED_MAX_ANIM_LAYERS];
 	
-	inline operator IO_BEHAVIOR_DATA() const {
+	operator IO_BEHAVIOR_DATA() const {
 		IO_BEHAVIOR_DATA a;
 		a.exist = exist;
 		a.behavior = Behaviour::load(behavior); // TODO save/load flags
 		a.behavior_param = behavior_param;
 		a.tactics = tactics;
-		a.target = target;
+		a.target = EntityHandle(target);
 		a.movemode = (MoveMode)movemode; // TODO save/load enum
-		BOOST_STATIC_ASSERT(SAVED_MAX_ANIM_LAYERS == MAX_ANIM_LAYERS);
+		ARX_STATIC_ASSERT(SAVED_MAX_ANIM_LAYERS == MAX_ANIM_LAYERS, "array size mismatch");
 		std::copy(animlayer, animlayer + SAVED_MAX_ANIM_LAYERS, a.animlayer);
 		return a;
 	}
-
-	inline SavedBehaviour & operator=(const IO_BEHAVIOR_DATA & b) {
+	
+	SavedBehaviour & operator=(const IO_BEHAVIOR_DATA & b) {
 		exist = b.exist;
 		behavior = b.behavior;
 		behavior_param = b.behavior_param;
 		tactics = b.tactics;
-		target = b.target;
+		target = b.target.handleData();
 		movemode = b.movemode;
-		BOOST_STATIC_ASSERT(SAVED_MAX_ANIM_LAYERS == MAX_ANIM_LAYERS);
+		ARX_STATIC_ASSERT(SAVED_MAX_ANIM_LAYERS == MAX_ANIM_LAYERS, "array size mismatch");
 		std::copy(b.animlayer, b.animlayer + SAVED_MAX_ANIM_LAYERS, animlayer);
 		return *this;
 	}
@@ -740,18 +723,18 @@ struct SavedPathfindTarget {
 	u32 padding[4];
 	s32 truetarget;
 	
-	inline operator IO_PATHFIND() const {
+	operator IO_PATHFIND() const {
 		IO_PATHFIND a;
 		a.flags = 0;
 		a.listnb = a.listpos = a.pathwait = 0;
 		a.list = NULL;
-		a.truetarget = truetarget;
+		a.truetarget = EntityHandle(truetarget);
 		return a;
 	}
 	
-	inline SavedPathfindTarget & operator=(const IO_PATHFIND & b) {
+	SavedPathfindTarget & operator=(const IO_PATHFIND & b) {
 		padding[0] = padding[1] = padding[2] = padding[3] = 0;
-		truetarget = b.truetarget;
+		truetarget = b.truetarget.handleData();
 		return *this;
 	}
 	
@@ -759,25 +742,32 @@ struct SavedPathfindTarget {
 
 const size_t SAVED_MAX_EXTRA_ROTATE = 4;
 
+inline ObjVertGroup saved_toObjGroup(short value) {
+	return ObjVertGroup(value);
+}
+
+inline short saved_fromObjGroup(ObjVertGroup value) {
+	return value.handleData();
+}
+
 struct SavedExtraRotate {
 	
 	s32 flags;
 	s16 group_number[SAVED_MAX_EXTRA_ROTATE];
 	SavedAnglef group_rotate[SAVED_MAX_EXTRA_ROTATE];
 	
-	inline operator EERIE_EXTRA_ROTATE() const {
+	operator EERIE_EXTRA_ROTATE() const {
 		EERIE_EXTRA_ROTATE a;
-		a.flags = ExtraRotateFlags::load(flags); // TODO save/load flags
-		BOOST_STATIC_ASSERT(SAVED_MAX_EXTRA_ROTATE == MAX_EXTRA_ROTATE);
-		std::copy(group_number, group_number + SAVED_MAX_EXTRA_ROTATE, a.group_number);
+		ARX_STATIC_ASSERT(SAVED_MAX_EXTRA_ROTATE == MAX_EXTRA_ROTATE, "array size mismatch");
+		std::transform(group_number, group_number + SAVED_MAX_EXTRA_ROTATE, a.group_number, saved_toObjGroup);
 		std::copy(group_rotate, group_rotate + SAVED_MAX_EXTRA_ROTATE, a.group_rotate);
 		return a;
 	}
 	
-	inline SavedExtraRotate & operator=(const EERIE_EXTRA_ROTATE & b) {
-		flags = b.flags;
-		BOOST_STATIC_ASSERT(SAVED_MAX_EXTRA_ROTATE == MAX_EXTRA_ROTATE);
-		std::copy(b.group_number, b.group_number + SAVED_MAX_EXTRA_ROTATE, group_number);
+	SavedExtraRotate & operator=(const EERIE_EXTRA_ROTATE & b) {
+		flags = 0;
+		ARX_STATIC_ASSERT(SAVED_MAX_EXTRA_ROTATE == MAX_EXTRA_ROTATE, "array size mismatch");
+		std::transform(b.group_number, b.group_number + SAVED_MAX_EXTRA_ROTATE, group_number, saved_fromObjGroup);
 		std::copy(b.group_rotate, b.group_rotate + SAVED_MAX_EXTRA_ROTATE, group_rotate);
 		return *this;
 	}
@@ -826,7 +816,7 @@ struct ARX_CHANGELEVEL_NPC_IO_SAVE {
 	u8 resist_fire;
 	u8 padd;
 	
-	s16 strike_time;
+	s16 strike_time; // TODO Remove
 	s16 walk_start_time;
 	s32 aiming_start;
 	s32 npcflags;
@@ -847,7 +837,7 @@ struct SavedEquipItemElement {
 	s16 flags;
 	s16 special;
 	
-	inline operator IO_EQUIPITEM_ELEMENT() const {
+	operator IO_EQUIPITEM_ELEMENT() const {
 		IO_EQUIPITEM_ELEMENT a;
 		a.value = value;
 		a.flags = EquipmentModifierFlags::load(flags); // TODO save/load flags
@@ -855,7 +845,7 @@ struct SavedEquipItemElement {
 		return a;
 	}
 	
-	inline SavedEquipItemElement & operator=(const IO_EQUIPITEM_ELEMENT & b) {
+	SavedEquipItemElement & operator=(const IO_EQUIPITEM_ELEMENT & b) {
 		value = b.value;
 		flags = b.flags;
 		special = b.special;
@@ -870,15 +860,17 @@ struct SavedEquipItem {
 	
 	SavedEquipItemElement elements[SAVED_IO_EQUIPITEM_ELEMENT_Number];
 	
-	inline operator IO_EQUIPITEM() const {
+	operator IO_EQUIPITEM() const {
 		IO_EQUIPITEM a;
-		BOOST_STATIC_ASSERT(SAVED_IO_EQUIPITEM_ELEMENT_Number == IO_EQUIPITEM_ELEMENT_Number);
+		ARX_STATIC_ASSERT(SAVED_IO_EQUIPITEM_ELEMENT_Number == IO_EQUIPITEM_ELEMENT_Number,
+		                  "array size mismatch");
 		std::copy(elements, elements + SAVED_IO_EQUIPITEM_ELEMENT_Number, a.elements);
 		return a;
 	}
 	
-	inline SavedEquipItem & operator=(const IO_EQUIPITEM & b) {
-		BOOST_STATIC_ASSERT(SAVED_IO_EQUIPITEM_ELEMENT_Number == IO_EQUIPITEM_ELEMENT_Number);
+	SavedEquipItem & operator=(const IO_EQUIPITEM & b) {
+		ARX_STATIC_ASSERT(SAVED_IO_EQUIPITEM_ELEMENT_Number == IO_EQUIPITEM_ELEMENT_Number,
+		                  "array size mismatch");
 		std::copy(b.elements, b.elements + SAVED_IO_EQUIPITEM_ELEMENT_Number, elements);
 		return *this;
 	}
@@ -898,7 +890,7 @@ struct ARX_CHANGELEVEL_ITEM_IO_SAVE {
 };
 
 struct ARX_CHANGELEVEL_FIX_IO_SAVE {
-	char trapvalue;
+	s8 trapvalue;
 	char padd[3];
 	s32 paddd[64]; // new...
 };
@@ -914,7 +906,7 @@ struct SavedRect {
 	s32 right;
 	s32 bottom;
 	
-	inline operator Rect() const {
+	operator Rect() const {
 		Rect a;
 		a.left = left;
 		a.top = top;
@@ -923,7 +915,7 @@ struct SavedRect {
 		return a;
 	}
 	
-	inline SavedRect & operator=(const Rect & b) {
+	SavedRect & operator=(const Rect & b) {
 		left = b.left;
 		top = b.top;
 		right = b.right;
@@ -943,11 +935,11 @@ struct SavedTweakerInfo {
 	
 	/* implicit */ SavedTweakerInfo(const IO_TWEAKER_INFO & b) {
 		arx_assert(b.filename.string().length() <= sizeof(filename));
-		strncpy(filename, b.filename.string().c_str(), sizeof(filename));
+		util::storeString(filename, b.filename.string());
 		arx_assert(b.skintochange.length() <= sizeof(skintochange));
-		strncpy(skintochange, b.skintochange.c_str(), sizeof(skintochange));
+		util::storeString(skintochange, b.skintochange);
 		arx_assert(b.skinchangeto.filename().length() <= sizeof(skinchangeto));
-		strncpy(skinchangeto, b.skinchangeto.string().c_str(), sizeof(skinchangeto));
+		util::storeString(skinchangeto, b.skinchangeto.string());
 	}
 	
 };
@@ -971,9 +963,9 @@ struct SavedTweakInfo {
 	/* implicit */ SavedTweakInfo(const TWEAK_INFO & b) {
 		type = b.type;
 		arx_assert(b.param1.string().length() <= PARAM_SIZE);
-		strncpy(param1, b.param1.string().c_str(), sizeof(param1));
-		arx_assert(b.param2.string().length() <=PARAM_SIZE);
-		strncpy(param2, b.param2.string().c_str(), sizeof(param2));
+		util::storeString(param1, b.param1.string());
+		arx_assert(b.param2.string().length() <= PARAM_SIZE);
+		util::storeString(param2, b.param2.string());
 	}
 	
 };
@@ -985,180 +977,157 @@ struct SavedMatrix {
 	f32 _31, _32, _33, _34;
 	f32 _41, _42, _43, _44;
 	
-	inline operator EERIEMATRIX() const {
-		EERIEMATRIX a;
-		a._11 = _11, a._12 = _12, a._13 = _13, a._14 = _14;
-		a._21 = _21, a._22 = _22, a._23 = _23, a._24 = _24;
-		a._31 = _31, a._32 = _32, a._33 = _33, a._34 = _34;
-		a._41 = _41, a._42 = _42, a._43 = _43, a._44 = _44;
+	operator glm::mat4x4() const {
+		glm::mat4x4 a;
+		a[0][0] = _11, a[0][1] = _12, a[0][2] = _13, a[0][3] = _14;
+		a[1][0] = _21, a[1][1] = _22, a[1][2] = _23, a[1][3] = _24;
+		a[2][0] = _31, a[2][1] = _32, a[2][2] = _33, a[2][3] = _34;
+		a[3][0] = _41, a[3][1] = _42, a[3][2] = _43, a[3][3] = _44;
 		return a;
 	}
 	
-	inline SavedMatrix & operator=(const EERIEMATRIX & b) {
-		_11 = b._11, _12 = b._12, _13 = b._13, _14 = b._14;
-		_21 = b._21, _22 = b._22, _23 = b._23, _24 = b._24;
-		_31 = b._31, _32 = b._32, _33 = b._33, _34 = b._34;
-		_41 = b._41, _42 = b._42, _43 = b._43, _44 = b._44;
+	SavedMatrix & operator=(const glm::mat4x4 & b) {
+		_11 = b[0][0], _12 = b[0][1], _13 = b[0][2], _14 = b[0][3];
+		_21 = b[1][0], _22 = b[1][1], _23 = b[1][2], _24 = b[1][3];
+		_31 = b[2][0], _32 = b[2][1], _33 = b[2][2], _34 = b[2][3];
+		_41 = b[3][0], _42 = b[3][1], _43 = b[3][2], _44 = b[3][3];
 		return *this;
 	}
 	
 };
 
-struct SavedTransform {
-	
-	SavedVec3 pos;
-	f32 ycos;
-	f32 ysin;
-	f32 xsin;
-	f32 xcos;
-	f32 use_focal;
-	f32 xmod;
-	f32 ymod;
-	f32 zmod;
-	
-	inline operator EERIE_TRANSFORM() const {
-		EERIE_TRANSFORM a;
-		a.pos = pos;
-		a.ycos = ycos, a.ysin = ysin, a.xsin = xsin, a.xcos = xcos;
-		a.use_focal = use_focal;
-		a.mod.x = xmod, a.mod.y = ymod;
-		return a;
-	}
-	
-	inline SavedTransform & operator=(const EERIE_TRANSFORM & b) {
-		pos = b.pos;
-		ycos = b.ycos, ysin = b.ysin, xsin = b.xsin, xcos = b.xcos;
-		use_focal = b.use_focal;
-		xmod = b.mod.x, ymod = b.mod.y, zmod = 0.f;
-		return *this;
-	}
-	
-};
+#define CAM_SUBJVIEW 0
+#define CAM_TOPVIEW  1
 
 struct SavedCamera {
 	
-	SavedTransform transform;
 	SavedVec3 pos;
-	f32 Ycos;
-	f32 Ysin;
-	f32 Xcos;
-	f32 Xsin;
-	f32 Zcos;
-	f32 Zsin;
-	f32 focal;
-	f32 use_focal;
-	f32 Zmul;
-	f32 posleft;
-	f32 postop;
+	f32 ycos; // TODO Remove
+	f32 ysin; // TODO Remove
+	f32 xsin; // TODO Remove
+	f32 xcos; // TODO Remove
+	f32 use_focal1; //TODO Remove
+	f32 xmod; // TODO Remove
+	f32 ymod; // TODO Remove
+	f32 zmod; // TODO Remove
 	
-	f32 xmod;
-	f32 ymod;
-	SavedMatrix matrix;
+	SavedVec3 pos2; // TODO Remove
+	f32 Ycos; // TODO Remove
+	f32 Ysin; // TODO Remove
+	f32 Xcos; // TODO Remove
+	f32 Xsin; // TODO Remove
+	f32 Zcos; // TODO Remove
+	f32 Zsin; // TODO Remove
+	f32 focal;
+	f32 use_focal; // TODO Remove
+	f32 Zmul; // TODO Remove
+	f32 posleft; // TODO Remove
+	f32 postop; // TODO Remove
+	
+	f32 xmod2; // TODO Remove
+	f32 ymod2; // TODO Remove
+	SavedMatrix matrix; // TODO Remove
 	SavedAnglef angle;
 	
-	SavedVec3 d_pos;
-	SavedAnglef d_angle;
+	SavedVec3 d_pos; // TODO Remove
+	SavedAnglef d_angle; // TODO Remove
 	SavedVec3 lasttarget;
-	SavedVec3 lastpos;
+	SavedVec3 lastpos; // TODO Remove
 	SavedVec3 translatetarget;
 	s32 lastinfovalid;
-	SavedVec3 norm;
-	SavedColor fadecolor;
-	SavedRect clip;
-	f32 clipz0;
-	f32 clipz1;
-	s32 centerx;
-	s32 centery;
+	SavedVec3 norm; // TODO Remove
+	SavedColor fadecolor; // TODO Remove
+	SavedRect clip; // TODO Remove
+	f32 clipz0; // TODO Remove
+	f32 clipz1; // TODO Remove
+	s32 centerx; // TODO Remove
+	s32 centery; // TODO Remove
 	
 	f32 smoothing;
-	f32 AddX;
-	f32 AddY;
-	s32 Xsnap;
-	s32 Zsnap;
-	f32 Zdiv;
+	f32 AddX; // TODO Remove
+	f32 AddY; // TODO Remove
+	s32 Xsnap; // TODO Remove
+	s32 Zsnap; // TODO Remove
+	f32 Zdiv; // TODO Remove
 	
-	s32 clip3D;
-	s32 type;
-	s32 bkgcolor;
-	s32 nbdrawn;
+	s32 clip3D; // TODO Remove
+	s32 type; // TODO Remove
+	u32 bkgcolor; // TODO Remove
+	s32 nbdrawn; // TODO Remove
 	f32 cdepth;
 	
-	SavedAnglef size;
+	SavedAnglef size; // TODO Remove
 	
-	inline operator EERIE_CAMERA() const {
+	operator Camera() const {
 		
-		EERIE_CAMERA a;
+		Camera a;
 		
-		a.transform = transform;
-		a.pos = pos;
-		a.Ycos = Ycos, a.Ysin = Ysin;
-		a.Xcos = Xcos, a.Xsin = Xsin;
-		a.Zcos = Zcos, a.Zsin = Zsin;
-		a.focal = focal, a.use_focal = use_focal;
-		a.Zmul = Zmul;
-		a.pos2.x = posleft, a.pos2.y = postop;
-		
-		a.matrix = matrix;
+		a.m_pos = pos.toVec3();
+		a.focal = focal;
 		a.angle = angle;
-		
-		a.d_pos = d_pos, a.d_angle = d_angle;
-		a.lasttarget = lasttarget, a.lastpos = lastpos;
-		a.translatetarget = translatetarget;
-		a.lastinfovalid = lastinfovalid != 0;
-		a.norm = norm;
-		a.fadecolor = fadecolor, a.clip = clip;
-		a.clipz0 = clipz0, a.clipz1 = clipz1;
-		a.center = Vec2i(centerx, centery);
-		
-		a.smoothing = smoothing;
-		a.Xsnap = Xsnap, a.Zsnap = Zsnap, a.Zdiv = Zdiv;
-		
-		a.clip3D = clip3D;
-		a.type = type;
-		a.bkgcolor = Color::fromBGRA(bkgcolor);
-		a.nbdrawn = nbdrawn;
 		a.cdepth = cdepth;
-		
-		a.size = size;
 		
 		return a;
 	}
 	
-	inline SavedCamera & operator=(const EERIE_CAMERA & b) {
+	SavedCamera & operator=(const Camera & b) {
 		
-		transform = b.transform;
-		pos = b.pos;
-		Ycos = b.Ycos, Ysin = b.Ysin;
-		Xcos = b.Xcos, Xsin = b.Xsin;
-		Zcos = b.Zcos, Zsin = b.Zsin;
-		focal = b.focal, use_focal = b.use_focal;
-		Zmul = b.Zmul;
-		posleft = b.pos2.x, postop = b.pos2.y;
-		
-		xmod = 0.f, ymod = 0.f;
-		matrix = b.matrix;
+		pos = b.m_pos;
+		pos2 = b.m_pos;
+		lastpos = b.m_pos;
+		focal = b.focal;
 		angle = b.angle;
-		
-		d_pos = b.d_pos, d_angle = b.d_angle;
-		lasttarget = b.lasttarget, lastpos = b.lastpos;
-		translatetarget = b.translatetarget;
-		lastinfovalid = b.lastinfovalid;
-		norm = b.norm;
-		fadecolor = b.fadecolor, clip = b.clip;
-		clipz0 = b.clipz0, clipz1 = b.clipz1;
-		centerx = b.center.x, centery = b.center.y;
-		
-		smoothing = b.smoothing;
-		AddX = 0.f, AddY = 0.f;
-		Xsnap = b.Xsnap, Zsnap = b.Zsnap, Zdiv = b.Zdiv;
-		
-		clip3D = b.clip3D;
-		type = b.type;
-		bkgcolor = b.bkgcolor.toBGRA();
-		nbdrawn = b.nbdrawn;
 		cdepth = b.cdepth;
 		
-		size = b.size;
+		ycos = 0.f;
+		ysin = 0.f;
+		xsin = 0.f;
+		xcos = 0.f;
+		use_focal1 = 0.f;
+		xmod = 0.f;
+		ymod = 0.f;
+		zmod = 0.f;
+		
+		Ycos = 0.f;
+		Ysin = 0.f;
+		Xcos = 0.f;
+		Xsin = 0.f;
+		Zcos = 0.f;
+		Zsin = 0.f;
+		
+		use_focal = 0.f;
+		
+		posleft = 0.f;
+		postop = 0.f;
+		
+		Zmul = 0.f;
+		
+		xmod2 = 0.f;
+		ymod2 = 0.f;
+		matrix = glm::mat4x4();
+		
+		d_pos = Vec3f_ZERO;
+		d_angle = Anglef::ZERO;
+		norm = Vec3f_ZERO;
+		fadecolor = Color3f::black;
+		clip = Rect::ZERO;
+		clipz0 = 0.0f;
+		clipz1 = 0.0f;
+		centerx = 0.f;
+		centery = 0.f;
+		
+		AddX = 0.f;
+		AddY = 0.f;
+		Xsnap = 0;
+		Zsnap = 0;
+		Zdiv = 0.f;
+		
+		clip3D = 0;
+		type = CAM_SUBJVIEW;
+		bkgcolor = Color::none.toBGRA().t;
+		nbdrawn = 0;
+		
+		size = Anglef::ZERO;
 		
 		return *this;
 	}
@@ -1166,15 +1135,49 @@ struct SavedCamera {
 };
 
 struct ARX_CHANGELEVEL_CAMERA_IO_SAVE {
+	
 	SavedCamera cam;
+	
+	operator IO_CAMDATA() const {
+		
+		IO_CAMDATA a;
+		
+		a.cam = cam;
+		
+		a.lasttarget = cam.lasttarget.toVec3();
+		a.translatetarget = cam.translatetarget.toVec3();
+		a.lastinfovalid = cam.lastinfovalid != 0;
+		a.smoothing = cam.smoothing;
+		
+		return a;
+	}
+	
+	ARX_CHANGELEVEL_CAMERA_IO_SAVE & operator=(const IO_CAMDATA & b) {
+		
+		cam = b.cam;
+		
+		cam.lasttarget = b.lasttarget;
+		cam.translatetarget = b.translatetarget;
+		cam.lastinfovalid = b.lastinfovalid;
+		cam.smoothing = b.smoothing;
+		
+		return *this;
+	}
+	
 };
 
 struct ARX_CHANGELEVEL_PLAYER_LEVEL_DATA {
 	f32 version;
 	char name[256];
 	s32 level;
-	u32 time;
-	s32 padd[32];
+	s64 time; // 32-bit before Arx Libertatis 1.2
+	s64 playthroughStart; // new in Arx Libertatis 1.2
+	u64 playthroughId; // new in Arx Libertatis 1.2
+	u64 oldestALVersion; // new in Arx Libertatis 1.2
+	u64 newestALVersion; // new in Arx Libertatis 1.2
+	u64 lastALVersion; // new in Arx Libertatis 1.2
+	char lastEngineVersion[64]; // new in Arx Libertatis 1.2
+	s32 padd[5];
 };
 
 

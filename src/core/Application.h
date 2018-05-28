@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -45,111 +45,34 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 //
 // Copyright (c) 1999 ARKANE Studios SA. All rights reserved
 
-#ifndef  ARX_CORE_APPLICATION_H
-#define  ARX_CORE_APPLICATION_H
-
-#include <string>
-
-#include "graphics/Color.h"
-#include "platform/Flags.h"
+#ifndef ARX_CORE_APPLICATION_H
+#define ARX_CORE_APPLICATION_H
 
 class RenderWindow;
 
-enum ViewModeFlag {
-	VIEWMODE_WIRE           = (1<<0),
-	VIEWMODE_NORMALS        = (1<<1),
-	VIEWMODE_FLAT           = (1<<2),
-	VIEWMODE_NOLIGHTSOURCES = (1<<3),
-	VIEWMODE_INFOTEXT       = (1<<4)
-};
-DECLARE_FLAGS(ViewModeFlag, ViewModeFlags);
-DECLARE_FLAGS_OPERATORS(ViewModeFlags);
-
-enum LightModeFlag {
-	MODE_STATICLIGHT  = (1<<0),
-	MODE_DEPTHCUEING  = (1<<1),
-	MODE_DYNAMICLIGHT = (1<<2),
-	MODE_NORMALS      = (1<<3),
-	MODE_RAYLAUNCH    = (1<<4),
-	MODE_SMOOTH       = (1<<5)
-};
-DECLARE_FLAGS(LightModeFlag, LightMode);
-DECLARE_FLAGS_OPERATORS(LightMode);
-
-struct PROJECT {
-	
-	PROJECT() : improve(0), telekinesis(0), demo(0), torch(Color3f::black) { }
-	
-	long improve;
-	long telekinesis;
-	long demo;
-	Color3f torch;
-	
-};
-
-extern PROJECT Project;
 extern float FPS;
-extern LightMode ModeLight;
-
-extern ViewModeFlags ViewMode;
-
-extern long EERIEMouseButton, EERIEMouseGrab;
 
 class Application {
-
-protected:
-	
-	RenderWindow * m_MainWindow;
-	
-	/* Virtual functions to be overriden for the 3D scene in the Application */
-	virtual bool DeleteDeviceObjects() { return true; }
-	virtual void FrameMove() { }
-	virtual bool BeforeRun() { return true; }
 	
 public:
-	
-	virtual bool Initialize();
-	virtual void Shutdown();
-	
-private:
-	
-	virtual bool InitConfig();
-	virtual bool InitWindow() = 0;
-	virtual bool InitInput() = 0;
-	virtual bool InitSound() = 0;
-	
-public:
-	
-	RenderWindow * GetWindow() { return m_MainWindow; }
-	
-	// Class constructor
 	Application();
 	virtual ~Application();
 	
-
+	virtual bool initialize() = 0;
+	virtual void shutdown();
+	
+	RenderWindow * getWindow() const { return m_MainWindow; }
+	
 	//! Ask the game to quit at the end of the current frame.
-	void Quit();
+	void quit();
 	
-	/* Virtual functions which may be overridden for specific implementations */
+	virtual void run() = 0;
 	
-	/*!
-	 * Writes text to the window
-	 * @param x The x coordinate for the text in pixels
-	 * @param y The y coordinate for the text in pixels
-	 * @param str The string of text to be written
-	 */
-	virtual void OutputText(int, int, const std::string &) {}
-	virtual void OutputTextGrid(float, float, const std::string &, const Color &color = Color(255,255,255)) { ARX_UNUSED(color); }
-	
-	virtual void Run() = 0;
-	virtual void Pause(bool bPause);
-	virtual void Render() { }
-	virtual bool FinalCleanup() = 0;
-	virtual void Cleanup3DEnvironment() = 0;
-	
-	virtual void setFullscreen(bool fullscreen) = 0;
+	virtual void setWindowSize(bool fullscreen) = 0;
 
 protected:
+	RenderWindow * m_MainWindow;
+	
 	bool m_RunLoop;
 	bool m_bReady;
 };
@@ -157,6 +80,5 @@ protected:
 extern Application * mainApp;
 
 void CalcFPS(bool reset = false);
-void SetZBias(int newZBias);
 
 #endif // ARX_CORE_APPLICATION_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -57,27 +57,31 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/image/Image.h"
 #include "io/fs/Filesystem.h"
 
-using std::ostringstream;
-
 static SnapShot * pSnapShot;
 
-SnapShot::SnapShot(const fs::path & name, bool replace) {
-	
-	int num = 0;
-	
-	do {
-		
-		ostringstream oss;
-		oss << name.filename() << '_' << num << ".bmp";
-		
-		file = name.parent() / oss.str();
-		
-		num++;
-	} while(!replace && fs::exists(file));
-	
+SnapShot::SnapShot(const fs::path & name)
+	: m_basePath(name)
+{
 }
 
 SnapShot::~SnapShot() { }
+
+fs::path SnapShot::getNextFilePath() {
+	int num = 0;
+
+	fs::path file;
+
+	do {
+		std::ostringstream oss;
+		oss << m_basePath.filename() << '_' << num << ".bmp";
+
+		file = m_basePath.parent() / oss.str();
+
+		num++;
+	} while(fs::exists(file));
+
+	return file;
+}
 
 bool SnapShot::GetSnapShot() {
 	
@@ -87,17 +91,8 @@ bool SnapShot::GetSnapShot() {
 		return false;
 	}
 	
-	return image.save(file);
-}
+	fs::path file = getNextFilePath();
 
-bool SnapShot::GetSnapShotDim(int width, int height) {
-	
-	Image image;
-	
-	if(!GRenderer->getSnapshot(image, width, height)) {
-		return false;
-	}
-	
 	return image.save(file);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,18 +47,18 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_SCENE_SCENE_H
 #define ARX_SCENE_SCENE_H
 
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 class Entity;
+struct Sphere;
 
-long ARX_PORTALS_GetRoomNumForPosition(Vec3f * pos, long flag = 0);
+long ARX_PORTALS_GetRoomNumForPosition(const Vec3f & pos, long flag = 0);
 
-void ARX_SCENE_Render(long flag);
-bool ARX_SCENE_PORTAL_ClipIO(Entity * io, Vec3f * position);
+void ARX_SCENE_Update();
+void ARX_SCENE_Render();
+bool ARX_SCENE_PORTAL_ClipIO(Entity * io, const Vec3f & position);
 void RoomDrawRelease();
-bool ARX_SCENE_PORTAL_Basic_ClipIO(Entity * io);
 
-bool VisibleSphere(float x, float y, float z, float radius);
-void ClearTileLights();
+bool VisibleSphere(const Sphere & shpere);
 
 #endif // ARX_SCENE_SCENE_H

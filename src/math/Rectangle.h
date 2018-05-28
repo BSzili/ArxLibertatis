@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,71 +22,66 @@
 
 #include <algorithm>
 
-#include "math/Vector2.h"
+#include "math/Vector.h"
 
 // name Rectangle is used in windows headers
-template<class T>
+template <class T>
 class Rectangle_ {
 	
 public:
 	
-	// TODO can be removed for C++0x
-	class DummyVec2 {
-		
-	public:
-		
-		T x;
-		T y;
-		
-		operator Vector2<T>() {
-			return Vector2<T>(x, y);
-		}
-		
-		DummyVec2 & operator=(const Vector2<T> & vec) {
-			x = vec.x, y = vec.y;
-			return *this;
-		}
-		
-	};
-	
 	typedef T Num;
 	typedef std::numeric_limits<T> Limits;
+	typedef typename vec2_traits<T>::type Vec2;
 	
-	union {
-		struct {
-			T left;
-			T top;
-		};
-		DummyVec2 origin;
-	};
+	T left;
+	T top;
+	T right;
+	T bottom;
 	
-	union {
-		struct {
-			T right;
-			T bottom;
-		};
-		DummyVec2 end;
-	};
-	
-	Rectangle_(const Rectangle_ & other) : origin(other.origin), end(other.end) { }
+	template <class U>
+	explicit Rectangle_(Rectangle_<U> const & other)
+		: left(T(other.left))
+		, top(T(other.top))
+		, right(T(other.right))
+		, bottom(T(other.bottom))
+	{ }
 	
 	Rectangle_() { }
 	
-	Rectangle_(T _left, T _top, T _right, T _bottom) : left(_left), top(_top), right(_right), bottom(_bottom) { }
+	Rectangle_(T _left, T _top, T _right, T _bottom)
+		: left(_left)
+		, top(_top)
+		, right(_right)
+		, bottom(_bottom)
+	{ }
 	
-	Rectangle_(const Vector2<T> & _origin, T width = T(0), T height = T(0)) : left(_origin.x), top(_origin.y), right(_origin.x + width), bottom(_origin.y + height) { }
+	Rectangle_(const Vec2 & _origin, T width, T height)
+		: left(_origin.x)
+		, top(_origin.y)
+		, right(_origin.x + width)
+		, bottom(_origin.y + height)
+	{ }
 	
-	Rectangle_(const Vector2<T> & _origin, const Vector2<T> & _end) : left(_origin.x), top(_origin.y), right(_end.x), bottom(_end.y) { }
+	Rectangle_(const Vec2 & topLeft, const Vec2 & bottomRight)
+		: left(topLeft.x)
+		, top(topLeft.y)
+		, right(bottomRight.x)
+		, bottom(bottomRight.y)
+	{ }
 	
-	Rectangle_(T width, T height) : left(T(0)), top(T(0)), right(width), bottom(height) { }
+	Rectangle_(T width, T height)
+		: left(T(0))
+		, top(T(0))
+		, right(width)
+		, bottom(height)
+	{ }
 	
 	bool operator==(const Rectangle_ & o) const {
-		return (origin == o.origin && end == o.end);
-	}
-	
-	Rectangle_ & operator=(const Rectangle_ & other) {
-		origin = other.origin, end = other.end;
-		return *this;
+		return left   == o.left
+		    && top    == o.top
+		    && right  == o.right
+		    && bottom == o.bottom;
 	}
 	
 	T width() const {
@@ -97,33 +92,52 @@ public:
 		return bottom - top;
 	}
 	
-	Rectangle_ operator+(const Vector2<T> & offset) const {
-		return Rectangle_(origin + offset, end + offset);
+	Rectangle_ operator+(const Vec2 & offset) const {
+		return Rectangle_(topLeft() + offset, bottomRight() + offset);
 	}
 	
-	Rectangle_ & operator+=(const Vector2<T> & offset) {
-		origin += offset, end += offset;
+	Rectangle_ & operator+=(const Vec2 & offset) {
+		left   += offset.x;
+		top    += offset.y;
+		right  += offset.x;
+		bottom += offset.y;
+		
 		return *this;
 	}
 	
 	void move(T dx, T dy) {
-		left += dx, top += dy, right += dx, bottom += dy;
+		left   += dx;
+		top    += dy;
+		right  += dx;
+		bottom += dy;
 	}
 	
-	bool contains(const Vector2<T> & point) const {
-		return (point.x >= left && point.x < right && point.y >= top && point.y < bottom);
+	bool contains(const Vec2 & point) const {
+		return point.x >= left
+		    && point.x <  right
+		    && point.y >= top
+		    && point.y <  bottom;
 	}
 	
 	bool contains(T x, T y) const {
-		return (x >= left && x < right && y >= top && y < bottom);
+		return x >= left
+		    && x <  right
+		    && y >= top
+		    && y <  bottom;
 	}
 	
 	bool contains(const Rectangle_ & other) const {
-		return (other.left >= left && other.right <= right && other.top >= top && other.bottom <= bottom);
+		return other.left   >= left
+		    && other.right  <= right
+		    && other.top    >= top
+		    && other.bottom <= bottom;
 	}
 	
 	bool overlaps(const Rectangle_ & other) const {
-		return (left < other.right && other.left < right && top < other.bottom && bottom < other.top);
+		return left       < other.right
+		    && other.left < right
+		    && top        < other.bottom
+		    && bottom     > other.top;
 	}
 	
 	/*!
@@ -131,7 +145,12 @@ public:
 	 * Assumes that both rectangles are valid.
 	 */
 	Rectangle_ operator&(const Rectangle_ & other) const {
-		Rectangle_ result(std::max(left, other.left), std::max(top, other.top), std::min(right, other.right), std::min(bottom, other.bottom));
+		Rectangle_ result(
+			std::max(left,   other.left),
+			std::max(top,    other.top),
+			std::min(right,  other.right),
+			std::min(bottom, other.bottom)
+		);
 		if(result.left > result.right) {
 			result.left = result.right = T(0);
 		}
@@ -146,25 +165,56 @@ public:
 	 * Assumes that both rectangles are valid.
 	 */
 	Rectangle_ operator|(const Rectangle_ & other) const {
-		return Rectangle_(std::min(left, other.left), std::min(top, other.top), std::max(right, other.right), std::max(bottom, other.bottom));
+		return Rectangle_(
+			std::min(left,   other.left),
+			std::min(top,    other.top),
+			std::max(right,  other.right),
+			std::max(bottom, other.bottom)
+		);
 	}
 	
 	bool empty() const {
 		return (left == right || top == bottom);
 	}
 	
-	bool valid() const {
-		return (left <= right && top <= bottom);
+	bool isValid() const {
+		return left < right && top < bottom;
 	}
 	
-	Vector2<T> center() const {
-		return Vector2<T>(left + (right - left) / 2, top + (bottom - top) / 2);
+	
+	Vec2 topLeft() const {
+		return Vec2(left, top);
+	}
+	Vec2 topCenter() const {
+		return Vec2(left + (right - left) / 2, top);
+	}
+	Vec2 topRight() const {
+		return Vec2(right, top);
+	}
+	
+	Vec2 center() const {
+		return Vec2(left + (right - left) / 2, top + (bottom - top) / 2);
+	}
+	
+	Vec2 bottomLeft() const {
+		return Vec2(left, bottom);
+	}
+	Vec2 bottomCenter() const {
+		return Vec2(left + (right - left) / 2, bottom);
+	}
+	Vec2 bottomRight() const {
+		return Vec2(right, bottom);
+	}
+	
+	
+	Vec2 size() const {
+		return Vec2(right - left, bottom - top);
 	}
 	
 	static const Rectangle_ ZERO;
 	
 };
 
-template<class T> const Rectangle_<T> Rectangle_<T>::ZERO(T(0), T(0), T(0), T(0));
+template <class T> const Rectangle_<T> Rectangle_<T>::ZERO(T(0), T(0), T(0), T(0));
 
 #endif // ARX_MATH_RECTANGLE_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -38,11 +38,13 @@
 #include "io/fs/Filesystem.h"
 #include "io/fs/FileStream.h"
 
+#include "util/String.h"
+
 namespace {
 
 const size_t PAK_READ_BUF_SIZE = 1024;
 
-static PakReader::ReleaseType guessReleaseType(u32 first_bytes) {
+PakReader::ReleaseType guessReleaseType(u32 first_bytes) {
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 	first_bytes = SDL_SwapLE32(first_bytes);
 #endif
@@ -56,7 +58,7 @@ static PakReader::ReleaseType guessReleaseType(u32 first_bytes) {
 	}
 }
 
-static void pakDecrypt(char * fat, size_t fat_size, PakReader::ReleaseType keyId) {
+void pakDecrypt(char * fat, size_t fat_size, PakReader::ReleaseType keyId) {
 	
 	static const char PAK_KEY_DEMO[] = "NSIARKPRQPHBTE50GRIH3AYXJP2AMF3FCEYAVQO5Q"
 		"GA0JGIIH2AYXKVOA1VOGGU5GSQKKYEOIAQG1XRX0J4F5OEAEFI4DD3LL45VJTVOA1VOGGUKE50GRI";
@@ -180,13 +182,13 @@ size_t UncompressedFileHandle::tell() {
 /*! Compressed file in a .pak file archive. */
 class CompressedFile : public PakFile {
 	
-	std::ifstream & archive;
+	fs::ifstream & archive;
 	size_t offset;
 	size_t storedSize;
 	
 public:
 	
-	explicit CompressedFile(std::ifstream * _archive, size_t _offset, size_t size,
+	explicit CompressedFile(fs::ifstream * _archive, size_t _offset, size_t size,
 	                        size_t _storedSize)
 		: PakFile(size), archive(*_archive), offset(_offset), storedSize(_storedSize) { }
 	
@@ -220,19 +222,19 @@ public:
 
 struct BlastFileInBuffer : private boost::noncopyable {
 	
-	std::ifstream & file;
+	fs::ifstream & file;
 	size_t remaining;
 	
 	unsigned char readbuf[PAK_READ_BUF_SIZE];
 	
-	explicit BlastFileInBuffer(std::ifstream * f, size_t count)
+	explicit BlastFileInBuffer(fs::ifstream * f, size_t count)
 		: file(*f), remaining(count) { }
 	
 };
 
 size_t blastInFile(void * Param, const unsigned char ** buf) {
 	
-	BlastFileInBuffer * p = (BlastFileInBuffer *)Param;
+	BlastFileInBuffer * p = static_cast<BlastFileInBuffer *>(Param);
 	
 	*buf = p->readbuf;
 	
@@ -274,7 +276,7 @@ struct BlastMemOutBufferOffset {
 
 int blastOutMemOffset(void * Param, unsigned char * buf, size_t len) {
 	
-	BlastMemOutBufferOffset * p = (BlastMemOutBufferOffset *)Param;
+	BlastMemOutBufferOffset * p = static_cast<BlastMemOutBufferOffset *>(Param);
 	
 	arx_assert(p->currentOffset <= p->endOffset);
 	
@@ -394,7 +396,7 @@ public:
 	explicit  PlainFileHandle(const fs::path & path)
 		: ifs(path, fs::fstream::in | fs::fstream::binary) {
 		arx_assert(ifs.is_open());
-	};
+	}
 	
 	size_t read(void * buf, size_t size);
 	
@@ -496,7 +498,7 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 		pakDecrypt(fat, fat_size, key);
 	} else {
 		LogWarning << pakfile << ": unknown PAK key ID 0x" << std::hex << std::setfill('0')
-		           << std::setw(8) << *(u32*)fat << ", assuming no key";
+		           << std::setw(8) << *reinterpret_cast<u32 *>(fat) << ", assuming no key";
 	}
 	release |= key;
 	
@@ -506,7 +508,7 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 	
 	while(fat_size) {
 		
-		char * dirname = safeGetString(pos, fat_size);
+		char * dirname = util::safeGetString(pos, fat_size);
 		if(!dirname) {
 			LogError << pakfile << ": error reading directory name from FAT, wrong key?";
 			goto error;
@@ -515,7 +517,7 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 		PakDirectory * dir = addDirectory(res::path::load(dirname));
 		
 		u32 nfiles;
-		if(!safeGet(nfiles, pos, fat_size)) {
+		if(!util::safeGet(nfiles, pos, fat_size)) {
 			LogError << pakfile << ": error reading file count from FAT, wrong key?";
 			goto error;
 		}
@@ -525,7 +527,7 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 		
 		while(nfiles--) {
 			
-			char * filename =  safeGetString(pos, fat_size);
+			char * filename =  util::safeGetString(pos, fat_size);
 			if(!filename) {
 				LogError << pakfile << ": error reading file name from FAT, wrong key?";
 				goto error;
@@ -538,8 +540,9 @@ bool PakReader::addArchive(const fs::path & pakfile) {
 			u32 flags;
 			u32 uncompressedSize;
 			u32 size;
-			if(!safeGet(offset, pos, fat_size) || !safeGet(flags, pos, fat_size)
-			   || !safeGet(uncompressedSize, pos, fat_size) || !safeGet(size, pos, fat_size)) {
+			if(!util::safeGet(offset, pos, fat_size) || !util::safeGet(flags, pos, fat_size)
+			   || !util::safeGet(uncompressedSize, pos, fat_size)
+				 || !util::safeGet(size, pos, fat_size)) {
 				LogError << pakfile << ": error reading file attributes from FAT, wrong key?";
 				goto error;
 			}
@@ -625,10 +628,11 @@ PakFileHandle * PakReader::open(const res::path & name) {
 bool PakReader::addFiles(const fs::path & path, const res::path & mount) {
 	
 	if(fs::is_directory(path)) {
-			
+		
 		bool ret = addFiles(addDirectory(mount), path);
-	
+		
 		if(ret) {
+			release |= External;
 			LogInfo << "Added dir " << path;
 		}
 		
@@ -671,7 +675,7 @@ bool PakReader::addFile(PakDirectory * dir, const fs::path & path,
 	}
 	
 	u64 size = fs::file_size(path);
-	if(size == (u64)-1) {
+	if(size == u64(-1)) {
 		return false;
 	}
 	
@@ -686,6 +690,12 @@ bool PakReader::addFiles(PakDirectory * dir, const fs::path & path) {
 	for(fs::directory_iterator it(path); !it.end(); ++it) {
 		
 		std::string name = it.name();
+		
+		if(name.empty() || name[0] == '.') {
+			// Ignore
+			continue;
+		}
+		
 		fs::path entry = path / name;
 		
 		boost::to_lower(name);
@@ -701,4 +711,4 @@ bool PakReader::addFiles(PakDirectory * dir, const fs::path & path) {
 	return ret;
 }
 
-PakReader * resources;
+PakReader * g_resources;

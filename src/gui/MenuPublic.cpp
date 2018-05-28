@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -53,8 +53,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/image/Image.h"
 #endif
 #include "animation/Animation.h"
+#include "animation/AnimationRender.h"
 
 #include "core/Application.h"
+#include "core/ArxGame.h"
 #include "core/Config.h"
 #include "core/Core.h"
 #include "core/GameTime.h"
@@ -65,6 +67,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "gui/Interface.h"
 #include "gui/Menu.h"
 #include "gui/MenuWidgets.h"
+#include "gui/menu/MenuFader.h"
 
 #include "graphics/Math.h"
 #include "graphics/Renderer.h"
@@ -75,152 +78,139 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "io/resource/ResourcePath.h"
 #include "io/log/Logger.h"
 
-#include "math/MathFwd.h"
-#include "math/Vector2.h"
+#include "math/Types.h"
+#include "math/Vector.h"
 
-#include "scene/ChangeLevel.h"
 #include "scene/GameSound.h"
 #include "scene/LoadLevel.h"
+#include "scene/Light.h"
 
 #include "window/RenderWindow.h"
 
 extern bool bQuickGenFirstClick;
-extern long DANAESIZX;
-extern long DANAESIZY;
 
-extern long REFUSE_GAME_RETURN;
-
-extern bool bFade;
-extern bool	bFadeInOut;
-extern int iFadeAction;
-
-extern long ZMAPMODE;
-extern long FRAME_COUNT;
-
-void ARX_SOUND_PushAnimSamples();
-void ARX_SOUND_PopAnimSamples();
-
-//-----------------------------------------------------------------------------
-void ARXMenu_Private_Options_Video_SetResolution(bool fullscreen, int _iWidth, int _iHeight, int _iBpp) {
+void ARXMenu_Private_Options_Video_SetResolution(bool fullscreen, int _iWidth, int _iHeight) {
 	
 	if(!GRenderer) {
 		return;
 	}
 	
 	config.video.resolution = Vec2i(_iWidth, _iHeight);
-	config.video.bpp = _iBpp;
 	
 	if(!fullscreen) {
-		if(config.video.resolution == Vec2i::ZERO) {
+		if(config.video.resolution == Vec2i_ZERO) {
 			LogInfo << "Configuring automatic fullscreen resolution selection";
 		} else {
-			LogInfo << "Configuring fullscreen resolution to " << _iWidth << 'x' << _iHeight << '@' << _iBpp;
+			LogInfo << "Configuring fullscreen resolution to " << DisplayMode(config.video.resolution);
 		}
 	}
 	
-	RenderWindow * window = mainApp->GetWindow();
+	RenderWindow * window = mainApp->getWindow();
 	
 	if(window->isFullScreen() != fullscreen || fullscreen) {
 		
-		GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer);
-		GRenderer->EndScene();
+		GRenderer->Clear(Renderer::ColorBuffer);
 		
-		mainApp->GetWindow()->showFrame();
+		mainApp->getWindow()->showFrame();
 		
-		mainApp->setFullscreen(fullscreen);
-		
-		GRenderer->BeginScene();
+		mainApp->setWindowSize(fullscreen);
 		
 	}
 }
 
-void ARXMenu_Options_Video_SetFogDistance(int _iFog) {
-	config.video.fogDistance = clamp(_iFog, 0, 10);
+void ARXMenu_Options_Video_SetFogDistance(float distance) {
+	config.video.fogDistance = glm::clamp(distance, 0.f, 10.f);
 }
 
-extern long MAX_FRAME_COUNT;
-extern long USEINTERNORM;
-//-----------------------------------------------------------------------------
-void ARXMenu_Options_Video_SetDetailsQuality(int _iQuality)
-{
-	if (_iQuality > 3) _iQuality = 2;
-
-	if (_iQuality < 0) _iQuality = 0;
-
-	config.video.levelOfDetail = _iQuality;
-
-	switch (config.video.levelOfDetail)
-	{
-		case 0:
-			ZMAPMODE = 0;
-			MAX_LLIGHTS = 6; 
-			MAX_FRAME_COUNT = 3;
-			USEINTERNORM = 1; 
+void ARXMenu_Options_Video_SetDetailsQuality(int _iQuality) {
+	config.video.levelOfDetail = glm::clamp(_iQuality, 0, 2);
+	
+	switch(config.video.levelOfDetail) {
+		case 0: {
+			setMaxLLights(6);
 			break;
-		case 1:
-			ZMAPMODE = 1;
-			MAX_LLIGHTS = 10; 
-			MAX_FRAME_COUNT = 2;
-			USEINTERNORM = 1; 
+		}
+		case 1: {
+			setMaxLLights(10);
 			break;
-		case 2:
-			ZMAPMODE = 1;
-			MAX_LLIGHTS = 15; 
-			MAX_FRAME_COUNT = 1;
-			USEINTERNORM = 1; 
+		}
+		case 2: {
+			setMaxLLights(15);
 			break;
+		}
 	}
 }
 
-//OPTIONS AUDIO
+void ARXMenu_Options_Video_SetGamma(float gamma) {
+	config.video.gamma = glm::clamp(gamma, 0.f, 10.f);
+	mainApp->getWindow()->setGamma(1.f + (gamma / 5.f - 1.f) * 0.5f);
+}
 
-void ARXMenu_Options_Audio_SetMasterVolume(int _iVolume) {
-	if (_iVolume > 10) _iVolume = 10;
-	else if (_iVolume < 0) _iVolume = 0;
-	float fVolume = ((float)_iVolume) * 0.1f;
+void ARXMenu_Options_Audio_SetMasterVolume(float volume) {
+	
+	config.audio.volume = glm::clamp(volume, 0.f, 10.f);
+	
+	float fVolume = config.audio.volume * 0.1f;
+	if(config.audio.muteOnFocusLost && !mainApp->getWindow()->hasFocus()) {
+		fVolume = 0.f;
+	}
+	
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerMenu, fVolume);
-	config.audio.volume = _iVolume;
 }
 
-void ARXMenu_Options_Audio_SetSfxVolume(int _iVolume) {
-	if (_iVolume > 10) _iVolume = 10;
-	else if (_iVolume < 0) _iVolume = 0;
-	float fVolume = ((float)_iVolume) * 0.1f;
+void ARXMenu_Options_Audio_SetSfxVolume(float volume) {
+	
+	config.audio.sfxVolume = glm::clamp(volume, 0.f, 10.f);
+	
+	float fVolume = config.audio.sfxVolume * 0.1f;
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerMenuSample, fVolume);
-	config.audio.sfxVolume = _iVolume;
 }
 
-void ARXMenu_Options_Audio_SetSpeechVolume(int _iVolume) {
-	if (_iVolume > 10) _iVolume = 10;
-	else if (_iVolume < 0) _iVolume = 0;
-
-	float fVolume = ((float)_iVolume) * 0.1f;
+void ARXMenu_Options_Audio_SetSpeechVolume(float volume) {
+	
+	config.audio.speechVolume = glm::clamp(volume, 0.f, 10.f);
+	
+	float fVolume = config.audio.speechVolume * 0.1f;
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerMenuSpeech, fVolume);
-	config.audio.speechVolume = _iVolume;
 }
 
-void ARXMenu_Options_Audio_SetAmbianceVolume(int _iVolume) {
-	if (_iVolume > 10) _iVolume = 10;
-	else if (_iVolume < 0) _iVolume = 0;
-
-	float fVolume = ((float)_iVolume) * 0.1f;
+void ARXMenu_Options_Audio_SetAmbianceVolume(float volume) {
+	
+	config.audio.ambianceVolume = glm::clamp(volume, 0.f, 10.f);
+	
+	float fVolume = config.audio.ambianceVolume * 0.1f;
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerMenuAmbiance, fVolume);
-	config.audio.ambianceVolume = _iVolume;
 }
 
 void ARXMenu_Options_Audio_ApplyGameVolumes() {
 	ARX_SOUND_MixerSwitch(ARX_SOUND_MixerMenu, ARX_SOUND_MixerGame);
-	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGame, config.audio.volume * 0.1f);
+	float volume = config.audio.volume * 0.1f;
+	if(config.audio.muteOnFocusLost && !mainApp->getWindow()->hasFocus()) {
+		volume = 0.f;
+	}
+	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGame, volume);
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGameSample, config.audio.sfxVolume * 0.1f);
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGameSpeech, config.audio.speechVolume * 0.1f);
 	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGameAmbiance, config.audio.ambianceVolume * 0.1f);
 }
 
-bool ARXMenu_Options_Audio_SetEAX(bool _bEnable) {
+void ARXMenu_Options_Audio_SetMuted(bool mute) {
+	float volume = mute ? 0.f : config.audio.volume * 0.1f;
+	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerMenu, volume);
+	ARX_SOUND_MixerSetVolume(ARX_SOUND_MixerGame, volume);
+}
+
+void ARXMenu_Options_Audio_SetDevice(const std::string & device) {
 	
-	config.audio.eax = _bEnable;
+	config.audio.device = device;
 	
-	ARX_SOUND_PushAnimSamples();
+	/*
+	 * TODO This is ugly and doesn't save all currently playing samples - only looping ones,
+	 * and those aren't restored at the same playback position. Ideally the audio subsystem
+	 * should be able to switch backends internally.
+	 */
+	
+	std::vector< std::pair<res::path, size_t> > animationSamples = ARX_SOUND_PushAnimSamples();
 	size_t ulSizeAmbiancePlayList;
 	char * pAmbiancePlayList = ARX_SOUND_AmbianceSavePlayList(ulSizeAmbiancePlayList);
 	
@@ -240,107 +230,18 @@ bool ARXMenu_Options_Audio_SetEAX(bool _bEnable) {
 		free(pAmbiancePlayList);
 	}
 
-	ARX_SOUND_PopAnimSamples();
-
-	return config.audio.eax;
+	ARX_SOUND_PopAnimSamples(animationSamples);
 }
 
-void ARXMenu_Options_Control_GetInvertMouse(bool & enabled) {
-	enabled = (INVERTMOUSE == 1);
-}
-
-void ARXMenu_Options_Control_SetInvertMouse(bool enable) {
-	INVERTMOUSE = enable ? 1 : 0;
-	config.input.invertMouse = enable;
-}
-
-void ARXMenu_Options_Control_SetMouseSensitivity(int sensitivity) {
-	config.input.mouseSensitivity = clamp(sensitivity, 0, 10);
-	GInput->setMouseSensitivity(config.input.mouseSensitivity);
-}
-
-//-----------------------------------------------------------------------------
-//RESUME GAME
-//-----------------------------------------------------------------------------
-void ARXMenu_GetResumeGame(bool & allowResume) {
-	allowResume = !REFUSE_GAME_RETURN;
-}
-
-//-----------------------------------------------------------------------------
-void ARXMenu_ResumeGame()
-{
+void ARXMenu_ResumeGame() {
 	ARX_Menu_Resources_Release();
-	arxtime.resume();
+	g_gameTime.resume(GameTime::PauseMenu);
 	EERIEMouseButton = 0;
 }
 
-//-----------------------------------------------------------------------------
-//NEW QUEST
-//-----------------------------------------------------------------------------
-void ARXMenu_NewQuest()
-{
-	bFadeInOut = true;	//fade out
-	bFade = true;			//active le fade
-	iFadeAction = AMCM_NEWQUEST;	//action a la fin du fade
+void ARXMenu_NewQuest() {
+	MenuFader_start(Fade_In, Mode_CharacterCreation);
 	bQuickGenFirstClick = true;
 	player.gold = 0;
 	ARX_PLAYER_MakeFreshHero();
-}
-
-//-----------------------------------------------------------------------------
-//LOAD QUEST
-//-----------------------------------------------------------------------------
-extern float PROGRESS_BAR_TOTAL;
-extern float OLD_PROGRESS_BAR_COUNT;
-extern float PROGRESS_BAR_COUNT;
-extern long NEED_SPECIAL_RENDEREND;
-void ARXMenu_LoadQuest(size_t num) {
-	
-	GRenderer->EndScene();
-	
-	ARX_SOUND_MixerPause(ARX_SOUND_MixerMenu);
-	
-	ARX_SOUND_PlayMenu(SND_MENU_CLICK);
-	LoadLevelScreen();
-	PROGRESS_BAR_TOTAL = 238;
-	OLD_PROGRESS_BAR_COUNT = PROGRESS_BAR_COUNT = 0;
-	PROGRESS_BAR_COUNT += 1.f;
-	LoadLevelScreen(savegames[num].level);
-	DanaeClearLevel();
-	ARX_CHANGELEVEL_Load(savegames[num].savefile);
-	REFUSE_GAME_RETURN = 0;
-	NEED_SPECIAL_RENDEREND = 1;
-	ARX_MENU_Clicked_QUIT();
-	
-	GRenderer->BeginScene();
-}
-
-//SAVE QUEST
-//-----------------------------------------------------------------------------
-void ARXMenu_SaveQuest(const std::string & name, size_t num) {
-	
-	ARX_SOUND_MixerPause(ARX_SOUND_MixerMenu);
-	
-	savegames.save(name, num, savegame_thumbnail);
-	
-	ARX_SOUND_MixerResume(ARX_SOUND_MixerMenu);
-}
-
-//CREDITS
-//-----------------------------------------------------------------------------
-void ARXMenu_Credits()
-{
-	bFadeInOut = true;	//fade out
-	bFade = true;			//active le fade
-	iFadeAction = AMCM_CREDITS;	//action a la fin du fade
-}
-
-//QUIT
-//-----------------------------------------------------------------------------
-void ARXMenu_Quit()
-{
-
-	bFadeInOut = true;		//fade out
-	bFade = true;				//active le fade
-	iFadeAction = AMCM_OFF;	//action a la fin du fade
 }

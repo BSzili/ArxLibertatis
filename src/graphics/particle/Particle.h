@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,8 +44,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_PARTICLE_PARTICLE_H
 #define ARX_GRAPHICS_PARTICLE_PARTICLE_H
 
+#include "core/TimeTypes.h"
 #include "graphics/Color.h"
-#include "math/Vector3.h"
+#include "math/Vector.h"
 
 class Particle {
 	
@@ -55,9 +56,8 @@ public:
 	Vec3f p3Velocity;
 	
 	// time
-	float fOneOnTTL;
-	long ulTime; //!< Age
-	long ulTTL; //!< Time to Live
+	GameDuration m_age;
+	GameDuration m_timeToLive;
 	
 	// size
 	float fSize;
@@ -65,14 +65,13 @@ public:
 	float fSizeEnd;
 	
 	// color
-	float fColorStart[4];
-	float fColorEnd[4];
+	Color4f fColorStart;
+	Color4f fColorEnd;
 	Color ulColor;
 	
 	// rotation
 	int iRot;
 	float fRotStart;
-	float fRotation;
 	
 	// tex infos
 	int iTexTime;
@@ -84,11 +83,12 @@ public:
 	~Particle();
 	
 	void Regen();
-	void Update(long);
+	void Update(GameDuration delta);
 	
 	bool isAlive() {
-		return (ulTime < ulTTL);
-	};
+		return (m_age < m_timeToLive);
+	}
+	
 	void Validate();
 	
 };

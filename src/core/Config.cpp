@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -33,10 +33,8 @@
 #include "io/IniSection.h"
 #include "io/IniWriter.h"
 #include "io/log/Logger.h"
-#include "math/Vector2.h"
+#include "math/Vector.h"
 #include "platform/CrashHandler.h"
-
-using std::string;
 
 // To avoid conflicts with potential other classes/namespaces
 namespace {
@@ -46,44 +44,75 @@ namespace Default {
 
 #define ARX_DEFAULT_WIDTH 640
 #define ARX_DEFAULT_HEIGHT 480
+#define THUMBNAIL_DEFAULT_WIDTH 320
+#define THUMBNAIL_DEFAULT_HEIGHT 200
 
-const string
-	language = string(),
+const std::string
+	language = std::string(),
+	renderer = "auto",
 	resolution = "auto",
 	audioBackend = "auto",
-	windowFramework = "auto",
+	audioDevice = "auto",
 	windowSize = BOOST_PP_STRINGIZE(ARX_DEFAULT_WIDTH) "x"
 	             BOOST_PP_STRINGIZE(ARX_DEFAULT_HEIGHT),
-	inputBackend = "auto",
-	debugLevels = "";
+	debugLevels,
+	bufferUpload,
+	
+	thumbnailSize = BOOST_PP_STRINGIZE(THUMBNAIL_DEFAULT_WIDTH) "x"
+	                BOOST_PP_STRINGIZE(THUMBNAIL_DEFAULT_HEIGHT);
 
 const int
-	bpp = 16,
 	levelOfDetail = 2,
-	fogDistance = 10,
-	volume = 10,
-	sfxVolume = 10,
-	speechVolume = 10,
-	ambianceVolume = 10,
+	vsync = -1,
+	fpsLimit = 240,
+	maxAnisotropicFiltering = 9001,
+	alphaCutoutAntialiasing = 2,
+	cinematicWidescreenMode = CinematicFadeEdges,
+	hudScaleFilter = UIFilterBilinear,
+	hrtf = audio::HRTFDefault,
+	autoReadyWeapon = AutoReadyWeaponNearEnemies,
 	mouseSensitivity = 6,
+	mouseAcceleration = 0,
 	migration = Config::OriginalAssets,
-	quicksaveSlots = 3;
+	quicksaveSlots = 3,
+	bufferSize = 0,
+	quickLevelTransition = JumpToChangeLevel;
 
 const bool
-	first_run = true,
 	fullscreen = true,
 	showCrosshair = true,
 	antialiasing = true,
-	vsync = true,
-	eax = false,
+	colorkeyAntialiasing = true,
+	limitSpeechWidth = true,
+	hudScaleInteger = true,
+	scaleCursorWithHud = true,
+	minimizeOnFocusLost = true,
+	eax = true,
+	muteOnFocusLost = false,
 	invertMouse = false,
-	autoReadyWeapon = false,
 	mouseLookToggle = true,
 	autoDescription = true,
-	linkMouseLookToUse = false,
-	forceToggle = false;
+	forceToggle = false,
+	rawMouseInput = true,
+	borderTurning = true,
+	useAltRuneRecognition = true;
 
-ActionKey actions[NUM_ACTION_KEY] = {
+#ifdef ARX_DEBUG
+const bool allowConsole = true;
+#else
+const bool allowConsole = false;
+#endif
+
+const float
+	fogDistance = 10.f,
+	gamma = 5.f,
+	hudScale = 0.5f,
+	volume = 10.f,
+	sfxVolume = 10.f,
+	speechVolume = 10.f,
+	ambianceVolume = 10.f;
+
+const ActionKey actions[NUM_ACTION_KEY] = {
 	ActionKey(Keyboard::Key_Spacebar), // JUMP
 	ActionKey(Keyboard::Key_LeftCtrl, Keyboard::Key_RightCtrl), // MAGICMODE
 	ActionKey(Keyboard::Key_LeftShift, Keyboard::Key_RightShift), // STEALTHMODE
@@ -94,7 +123,7 @@ ActionKey actions[NUM_ACTION_KEY] = {
 	ActionKey(Keyboard::Key_Q), // LEANLEFT
 	ActionKey(Keyboard::Key_E), // LEANRIGHT
 	ActionKey(Keyboard::Key_X), // CROUCH
-	ActionKey(Keyboard::Key_F, Keyboard::Key_Enter), // MOUSELOOK
+	ActionKey(Keyboard::Key_F, Keyboard::Key_Enter), // USE
 	ActionKey(Mouse::Button_0), // ACTION
 	ActionKey(Keyboard::Key_I), // INVENTORY
 	ActionKey(Keyboard::Key_Backspace), // BOOK
@@ -104,6 +133,7 @@ ActionKey actions[NUM_ACTION_KEY] = {
 	ActionKey(Keyboard::Key_F4), // BOOKQUEST
 	ActionKey(Keyboard::Key_H), // DRINKPOTIONLIFE
 	ActionKey(Keyboard::Key_G), // DRINKPOTIONMANA
+	ActionKey(),                // DRINKPOTIONCURE
 	ActionKey(Keyboard::Key_T), // TORCH
 	ActionKey(Keyboard::Key_1), // PRECAST1
 	ActionKey(Keyboard::Key_2), // PRECAST2
@@ -125,64 +155,91 @@ ActionKey actions[NUM_ACTION_KEY] = {
 	ActionKey(Keyboard::Key_4), // CANCELCURSPELL
 	ActionKey(Keyboard::Key_R, Keyboard::Key_M), // MINIMAP
 	ActionKey((Keyboard::Key_LeftAlt << 16) | Keyboard::Key_Enter, (Keyboard::Key_RightAlt << 16) | Keyboard::Key_Enter), // TOGGLE_FULLSCREEN
+	ActionKey(Keyboard::Key_Grave), // CONSOLE
 };
 
 } // namespace Default
 
 namespace Section {
 
-const string
+const std::string
 	Language = "language",
 	Video = "video",
+	Interface = "interface",
 	Window = "window",
 	Audio = "audio",
 	Input = "input",
 	Key = "key",
 	Misc = "misc";
-}
+
+} // namespace Section
 
 namespace Key {
 
 // Language options
-const string language = "string";
+const std::string language = "string";
 
 // Video options
-const string
+const std::string
+	renderer = "renderer",
 	resolution = "resolution",
-	bpp = "bpp",
 	fullscreen = "full_screen",
 	levelOfDetail = "others_details",
 	fogDistance = "fog",
-	showCrosshair = "show_crosshair",
+	gamma = "gamma",
 	antialiasing = "antialiasing",
-	vsync = "vsync";
+	vsync = "vsync",
+	fpsLimit = "fps_limit",
+	maxAnisotropicFiltering = "max_anisotropic_filtering",
+	colorkeyAntialiasing = "colorkey_antialiasing",
+	alphaCutoutAntialiasing = "alpha_cutout_antialiasing",
+	bufferSize = "buffer_size",
+	bufferUpload = "buffer_upload";
+
+// Interface options
+const std::string
+	showCrosshair = "show_crosshair",
+	limitSpeechWidth = "limit_speech_width",
+	cinematicWidescreenMode = "cinematic_widescreen_mode",
+	hudScale = "hud_scale",
+	hudScaleInteger = "hud_scale_integer",
+	scaleCursorWithHud = "scale_cursor_with_hud",
+	hudScaleFilter = "hud_scale_filter",
+	thumbnailSize = "save_thumbnail_size";
 
 // Window options
-const string
+const std::string
 	windowSize = "size",
-	windowFramework = "framework";
+	minimizeOnFocusLost = "minimize_on_focus_lost";
 
 // Audio options
-const string
+const std::string
+	audioBackend = "backend",
+	audioDevice = "device",
 	volume = "master_volume",
 	sfxVolume = "effects_volume",
 	speechVolume = "speech_volume",
 	ambianceVolume = "ambiance_volume",
 	eax = "eax",
-	audioBackend = "backend";
+	hrtf = "hrtf",
+	muteOnFocusLost = "mute_on_focus_lost";
 
 // Input options
-const string
+const std::string
 	invertMouse = "invert_mouse",
 	autoReadyWeapon = "auto_ready_weapon",
 	mouseLookToggle = "mouse_look_toggle",
 	mouseSensitivity = "mouse_sensitivity",
+	mouseAcceleration = "mouse_acceleration",
+	rawMouseInput = "raw_mouse_input",
 	autoDescription = "auto_description",
-	linkMouseLookToUse = "link_mouse_look_to_use",
-	inputBackend = "backend";
+	borderTurning = "border_turning",
+	useAltRuneRecognition = "improved_rune_recognition",
+	quickLevelTransition = "quick_level_transition",
+	allowConsole = "allow_console";
 
 // Input key options
-const string actions[NUM_ACTION_KEY] = {
+const std::string actions[NUM_ACTION_KEY] = {
 	"jump",
 	"magic_mode",
 	"stealth_mode",
@@ -193,7 +250,7 @@ const string actions[NUM_ACTION_KEY] = {
 	"lean_left",
 	"lean_right",
 	"crouch",
-	"mouselook",
+	"mouselook", // TODO rename to "use"?
 	"action_combine",
 	"inventory",
 	"book",
@@ -203,6 +260,7 @@ const string actions[NUM_ACTION_KEY] = {
 	"quest_book",
 	"drink_potion_life",
 	"drink_potion_mana",
+	"drink_potion_cure",
 	"torch",
 	"precast_1",
 	"precast_2",
@@ -223,11 +281,12 @@ const string actions[NUM_ACTION_KEY] = {
 	"unequip_weapon",
 	"cancel_current_spell",
 	"minimap",
-	"toggle_fullscreen"
+	"toggle_fullscreen",
+	"console"
 };
 
 // Misc options
-const string
+const std::string
 	forceToggle = "forcetoggle",
 	migration = "migration",
 	quicksaveSlots = "quicksave_slots",
@@ -238,7 +297,10 @@ const string
 class ConfigReader : public IniReader {
 	
 public:
-	ActionKey getActionKey(const string & section, ControlAction index) const;
+	
+	void getActionKey(const std::string & section, const std::string & key, InputKeyId & binding) const;
+	
+	ActionKey getActionKey(const std::string & section, ControlAction index) const;
 	
 };
 
@@ -254,37 +316,39 @@ public:
 
 void ConfigWriter::writeActionKey(ControlAction index, const ActionKey & actionKey) {
 	
-	string v1 = Input::getKeyName(actionKey.key[0]);
+	std::string v1 = Input::getKeyName(actionKey.key[0]);
 	writeKey(Key::actions[index] + "_k0", v1);
 	
-	string v2 = Input::getKeyName(actionKey.key[1]);
+	std::string v2 = Input::getKeyName(actionKey.key[1]);
 	writeKey(Key::actions[index] + "_k1", v2);
 }
 
-ActionKey ConfigReader::getActionKey(const string & section, ControlAction index) const {
+void ConfigReader::getActionKey(const std::string & section, const std::string & key,
+                                InputKeyId & binding) const {
 	
-	const string & key = Key::actions[index];
+	const IniKey * setting = getKey(section, key);
+	if(setting) {
+		InputKeyId id = Input::getKeyId(setting->getValue());
+		if(id == ActionKey::UNUSED && !setting->getValue().empty() && setting->getValue() != Input::KEY_NONE) {
+			LogWarning << "Error parsing key name for " <<  key << ": \"" << setting->getValue()
+			           << "\", resetting to \"" << Input::getKeyName(binding) << "\"";
+		} else if(id == InputKeyId(Keyboard::Key_Escape)) {
+			LogWarning << "Invalid key for " <<  key << ": \"" << setting->getValue()
+			           << "\", resetting to \"" << Input::getKeyName(binding) << "\"";
+		} else {
+			binding = id;
+		}
+	}
+	
+}
+
+ActionKey ConfigReader::getActionKey(const std::string & section, ControlAction index) const {
+	
+	const std::string & key = Key::actions[index];
 	ActionKey action_key = Default::actions[index];
 	
-	const IniKey * k0 = getKey(section, key + "_k0");
-	if(k0) {
-		InputKeyId id = Input::getKeyId(k0->getValue());
-		if(id == -1 && !k0->getValue().empty() && k0->getValue() != Input::KEY_NONE) {
-			LogWarning << "Error parsing key name for " <<  key << "_k0: \"" << k0->getValue() << "\", resetting to \"" << Input::getKeyName(action_key.key[0]) << "\"";
-		} else {
-			action_key.key[0] = id;
-		}
-	}
-	
-	const IniKey * k1 = getKey(section, key + "_k1");
-	if(k1) {
-		InputKeyId id = Input::getKeyId(k1->getValue());
-		if(id == -1 && !k1->getValue().empty() && k1->getValue() != Input::KEY_NONE) {
-			LogWarning << "Error parsing key name for " <<  key << "_k1: \"" << k1->getValue() << "\", resetting to \"" << Input::getKeyName(action_key.key[1]) << "\"";
-		} else {
-			action_key.key[1] = id;
-		}
-	}
+	getActionKey(section, key + "_k0", action_key.key[0]);
+	getActionKey(section, key + "_k1", action_key.key[1]);
 	
 	LogDebug("[" << section << "] " << key << " = \"" << Input::getKeyName(action_key.key[0]) << "\", \"" << Input::getKeyName(action_key.key[1]) << "\"");
 	
@@ -300,60 +364,37 @@ void Config::setDefaultActionKeys() {
 	for(size_t i = 0; i < NUM_ACTION_KEY; i++) {
 		actions[i] = Default::actions[i];
 	}
-	
-	config.input.linkMouseLookToUse = false;
 }
 
-bool Config::setActionKey(ControlAction actionId, int index, InputKeyId key) {
+void Config::setActionKey(ControlAction actionId, size_t index, InputKeyId key) {
 	
-	if(actionId < 0 || (size_t)actionId >= NUM_ACTION_KEY || index > 1 || index < 0) {
-		return false;
+	if(actionId >= NUM_ACTION_KEY || index > 1) {
+		arx_assert(false);
+		return;
 	}
 	
-	ActionKey & action = actions[actionId];
-	
-	InputKeyId oldKey = action.key[index];
-	action.key[index] = key;
-	
-	int otherIndex = 1 - index;
-	
-	if(action.key[otherIndex] == -1) {
-		action.key[otherIndex] = oldKey;
-		oldKey = -1;
-	}
-	
-	if(action.key[otherIndex] == key) {
-		action.key[otherIndex] = -1;
-	}
-	
-	// remove double key assignments
+	// remove existing key assignments
 	for(size_t i = 0; i < NUM_ACTION_KEY; i++) {
-		
-		if(i == (size_t)actionId) {
-			continue;
-		}
-		
-		for(int k = 0; i < 2; i++) {
+		for(int k = 0; k < 2; k++) {
 			if(actions[i].key[k] == key) {
-				actions[i].key[k] = oldKey;
-				oldKey = -1;
+				actions[i].key[k] = ActionKey::UNUSED;
 			}
 		}
-		
 	}
-	
-	return true;
+
+	ActionKey & action = actions[actionId];
+	action.key[index] = key;
 }
 
-void Config::setOutputFile(const fs::path & _file) {
-	file = _file;
-	CrashHandler::addAttachedFile(file);
+void Config::setOutputFile(const fs::path & file) {
+	m_file = file;
+	CrashHandler::addAttachedFile(m_file);
 }
 
 bool Config::save() {
 	
 	// Finally save it all to file/stream
-	fs::ofstream out(file);
+	fs::ofstream out(m_file);
 	if(!out.is_open()) {
 		return false;
 	}
@@ -366,46 +407,75 @@ bool Config::save() {
 	
 	// video
 	writer.beginSection(Section::Video);
-	if(video.resolution == Vec2i::ZERO) {
+	writer.writeKey(Key::renderer, video.renderer);
+	if(video.resolution == Vec2i_ZERO) {
 		writer.writeKey(Key::resolution, Default::resolution);
 	} else {
 		std::ostringstream oss;
 		oss << video.resolution.x << 'x' << video.resolution.y;
 		writer.writeKey(Key::resolution, oss.str());
 	}
-	writer.writeKey(Key::bpp, video.bpp);
 	writer.writeKey(Key::fullscreen, video.fullscreen);
 	writer.writeKey(Key::levelOfDetail, video.levelOfDetail);
 	writer.writeKey(Key::fogDistance, video.fogDistance);
-	writer.writeKey(Key::showCrosshair, video.showCrosshair);
+	writer.writeKey(Key::gamma, video.gamma);
 	writer.writeKey(Key::antialiasing, video.antialiasing);
 	writer.writeKey(Key::vsync, video.vsync);
+	writer.writeKey(Key::fpsLimit, video.fpsLimit);
+	writer.writeKey(Key::maxAnisotropicFiltering, video.maxAnisotropicFiltering);
+	writer.writeKey(Key::colorkeyAntialiasing, video.colorkeyAntialiasing);
+	writer.writeKey(Key::alphaCutoutAntialiasing, video.alphaCutoutAntialiasing);
+	writer.writeKey(Key::bufferSize, video.bufferSize);
+	writer.writeKey(Key::bufferUpload, video.bufferUpload);
+	
+	// interface
+	writer.beginSection(Section::Interface);
+	writer.writeKey(Key::showCrosshair, interface.showCrosshair);
+	writer.writeKey(Key::limitSpeechWidth, interface.limitSpeechWidth);
+	writer.writeKey(Key::cinematicWidescreenMode, int(interface.cinematicWidescreenMode));
+	writer.writeKey(Key::hudScale, interface.hudScale);
+	writer.writeKey(Key::hudScaleInteger, interface.hudScaleInteger);
+	writer.writeKey(Key::scaleCursorWithHud, interface.scaleCursorWithHud);
+	writer.writeKey(Key::hudScaleFilter, interface.hudScaleFilter);
+	std::ostringstream osst;
+	osst << interface.thumbnailSize.x << 'x' << interface.thumbnailSize.y;
+	writer.writeKey(Key::thumbnailSize, osst.str());
 	
 	// window
 	writer.beginSection(Section::Window);
 	std::ostringstream oss;
 	oss << window.size.x << 'x' << window.size.y;
 	writer.writeKey(Key::windowSize, oss.str());
-	writer.writeKey(Key::windowFramework, window.framework);
+	writer.writeKey(Key::minimizeOnFocusLost, window.minimizeOnFocusLost);
 	
 	// audio
 	writer.beginSection(Section::Audio);
+	writer.writeKey(Key::audioBackend, audio.backend);
+	writer.writeKey(Key::audioDevice, audio.device);
 	writer.writeKey(Key::volume, audio.volume);
 	writer.writeKey(Key::sfxVolume, audio.sfxVolume);
 	writer.writeKey(Key::speechVolume, audio.speechVolume);
 	writer.writeKey(Key::ambianceVolume, audio.ambianceVolume);
 	writer.writeKey(Key::eax, audio.eax);
-	writer.writeKey(Key::audioBackend, audio.backend);
+	writer.writeKey(Key::hrtf, int(audio.hrtf));
+	writer.writeKey(Key::muteOnFocusLost, audio.muteOnFocusLost);
 	
 	// input
 	writer.beginSection(Section::Input);
 	writer.writeKey(Key::invertMouse, input.invertMouse);
-	writer.writeKey(Key::autoReadyWeapon, input.autoReadyWeapon);
+	writer.writeKey(Key::autoReadyWeapon, int(input.autoReadyWeapon));
 	writer.writeKey(Key::mouseLookToggle, input.mouseLookToggle);
 	writer.writeKey(Key::mouseSensitivity, input.mouseSensitivity);
+	writer.writeKey(Key::mouseAcceleration, input.mouseAcceleration);
+	writer.writeKey(Key::rawMouseInput, input.rawMouseInput);
 	writer.writeKey(Key::autoDescription, input.autoDescription);
-	writer.writeKey(Key::linkMouseLookToUse, input.linkMouseLookToUse);
-	writer.writeKey(Key::inputBackend, input.backend);
+	writer.writeKey(Key::borderTurning, input.borderTurning);
+	writer.writeKey(Key::useAltRuneRecognition, input.useAltRuneRecognition);
+	writer.writeKey(Key::quickLevelTransition, int(input.quickLevelTransition));
+	if(input.allowConsole) {
+		// Only write this if true so that switching from release to debug builds enables the console
+		writer.writeKey(Key::allowConsole, input.allowConsole);
+	}
 	
 	// key
 	writer.beginSection(Section::Key);
@@ -423,7 +493,7 @@ bool Config::save() {
 	return writer.flush();
 }
 
-static Vec2i parseResolution(const string & resolution) {
+static Vec2i parseResolution(const std::string & resolution) {
 	
 	Vec2i res;
 	
@@ -435,6 +505,23 @@ static Vec2i parseResolution(const string & resolution) {
 	if(iss.fail() || x != 'x' || res.x <= 0 || res.y <= 0) {
 		LogWarning << "Bad resolution string: " << resolution;
 		return Vec2i(ARX_DEFAULT_WIDTH, ARX_DEFAULT_HEIGHT);
+	} else {
+		return res;
+	}
+}
+
+static Vec2i parseThumbnailSize(const std::string & thumbnailSize) {
+	
+	Vec2i res;
+	
+	std::istringstream iss(thumbnailSize);
+	iss >> res.x;
+	char x = '\0';
+	iss >> x;
+	iss >> res.y;
+	if (iss.fail() || x != 'x' || res.x <= 0 || res.y <= 0) {
+		LogWarning << "Bad thumbnail resolution string: " << thumbnailSize;
+		return Vec2i(THUMBNAIL_DEFAULT_WIDTH, THUMBNAIL_DEFAULT_HEIGHT);
 	} else {
 		return res;
 	}
@@ -456,41 +543,77 @@ bool Config::init(const fs::path & file) {
 	language = reader.getKey(Section::Language, Key::language, Default::language);
 	
 	// Get video settings
-	string resolution = reader.getKey(Section::Video, Key::resolution, Default::resolution);
+	video.renderer = reader.getKey(Section::Video, Key::renderer, Default::renderer);
+	std::string resolution = reader.getKey(Section::Video, Key::resolution, Default::resolution);
 	if(resolution == "auto") {
-		video.resolution = Vec2i::ZERO;
+		video.resolution = Vec2i_ZERO;
 	} else {
 		video.resolution = parseResolution(resolution);
 	}
-	video.bpp = reader.getKey(Section::Video, Key::bpp, Default::bpp);
 	video.fullscreen = reader.getKey(Section::Video, Key::fullscreen, Default::fullscreen);
 	video.levelOfDetail = reader.getKey(Section::Video, Key::levelOfDetail, Default::levelOfDetail);
 	video.fogDistance = reader.getKey(Section::Video, Key::fogDistance, Default::fogDistance);
-	video.showCrosshair = reader.getKey(Section::Video, Key::showCrosshair, Default::showCrosshair);
+	video.gamma = reader.getKey(Section::Video, Key::gamma, Default::gamma);
 	video.antialiasing = reader.getKey(Section::Video, Key::antialiasing, Default::antialiasing);
-	video.vsync = reader.getKey(Section::Video, Key::vsync, Default::vsync);
+	int vsync = reader.getKey(Section::Video, Key::vsync, Default::vsync);
+	video.vsync = glm::clamp(vsync, -1, 1);
+	int fpsLimit = reader.getKey(Section::Video, Key::fpsLimit, Default::fpsLimit);
+	video.fpsLimit = std::max(fpsLimit, 0);
+	int anisoFiltering = reader.getKey(Section::Video, Key::maxAnisotropicFiltering, Default::maxAnisotropicFiltering);
+	video.maxAnisotropicFiltering = std::max(anisoFiltering, 1);
+	video.colorkeyAntialiasing = reader.getKey(Section::Video, Key::colorkeyAntialiasing, Default::colorkeyAntialiasing);
+	int alphaCutoutAA = reader.getKey(Section::Video, Key::alphaCutoutAntialiasing, Default::alphaCutoutAntialiasing);
+	video.alphaCutoutAntialiasing = glm::clamp(alphaCutoutAA, 0, 2);
+	video.bufferSize = std::max(reader.getKey(Section::Video, Key::bufferSize, Default::bufferSize), 0);
+	video.bufferUpload = reader.getKey(Section::Video, Key::bufferUpload, Default::bufferUpload);
+	
+	// Get interface settings
+	bool oldCrosshair = reader.getKey(Section::Video, Key::showCrosshair, Default::showCrosshair);
+	interface.showCrosshair = reader.getKey(Section::Interface, Key::showCrosshair, oldCrosshair);
+	interface.limitSpeechWidth = reader.getKey(Section::Interface, Key::limitSpeechWidth, Default::limitSpeechWidth);
+	int cinematicMode = reader.getKey(Section::Interface, Key::cinematicWidescreenMode, Default::cinematicWidescreenMode);
+	interface.cinematicWidescreenMode = CinematicWidescreenMode(glm::clamp(cinematicMode, 0, 2));
+	float hudScale = reader.getKey(Section::Interface, Key::hudScale, Default::hudScale);
+	interface.hudScale = glm::clamp(hudScale, 0.f, 1.f);
+	interface.hudScaleInteger = reader.getKey(Section::Interface, Key::hudScaleInteger, Default::hudScaleInteger);
+	interface.scaleCursorWithHud = reader.getKey(Section::Interface, Key::scaleCursorWithHud, Default::scaleCursorWithHud);
+	int hudScaleFilter = reader.getKey(Section::Interface, Key::hudScaleFilter, Default::hudScaleFilter);
+	interface.hudScaleFilter = UIScaleFilter(glm::clamp(hudScaleFilter, 0, 1));
+	std::string thumbnailSize = reader.getKey(Section::Interface, Key::thumbnailSize, Default::thumbnailSize);
+	interface.thumbnailSize = parseThumbnailSize(thumbnailSize);
 	
 	// Get window settings
-	string windowSize = reader.getKey(Section::Window, Key::windowSize, Default::windowSize);
+	std::string windowSize = reader.getKey(Section::Window, Key::windowSize, Default::windowSize);
 	window.size = parseResolution(windowSize);
-	window.framework = reader.getKey(Section::Window, Key::windowFramework, Default::windowFramework);
+	window.minimizeOnFocusLost = reader.getKey(Section::Window, Key::minimizeOnFocusLost,
+	                                           Default::minimizeOnFocusLost);
 	
 	// Get audio settings
+	audio.backend = reader.getKey(Section::Audio, Key::audioBackend, Default::audioBackend);
+	audio.device = reader.getKey(Section::Audio, Key::audioDevice, Default::audioDevice);
 	audio.volume = reader.getKey(Section::Audio, Key::volume, Default::volume);
 	audio.sfxVolume = reader.getKey(Section::Audio, Key::sfxVolume, Default::sfxVolume);
 	audio.speechVolume = reader.getKey(Section::Audio, Key::speechVolume, Default::speechVolume);
 	audio.ambianceVolume = reader.getKey(Section::Audio, Key::ambianceVolume, Default::ambianceVolume);
 	audio.eax = reader.getKey(Section::Audio, Key::eax, Default::eax);
-	audio.backend = reader.getKey(Section::Audio, Key::audioBackend, Default::audioBackend);
+	int hrtf = reader.getKey(Section::Audio, Key::hrtf, int(Default::hrtf));
+	audio.hrtf = audio::HRTFAttribute(glm::clamp(hrtf, -1, 1));
+	audio.muteOnFocusLost = reader.getKey(Section::Audio, Key::muteOnFocusLost, Default::muteOnFocusLost);
 	
 	// Get input settings
 	input.invertMouse = reader.getKey(Section::Input, Key::invertMouse, Default::invertMouse);
-	input.autoReadyWeapon = reader.getKey(Section::Input, Key::autoReadyWeapon, Default::autoReadyWeapon);
+	int autoReadyWeapon = reader.getKey(Section::Input, Key::autoReadyWeapon, Default::autoReadyWeapon);
+	input.autoReadyWeapon = AutoReadyWeapon(glm::clamp(autoReadyWeapon, 0, 2));
 	input.mouseLookToggle = reader.getKey(Section::Input, Key::mouseLookToggle, Default::mouseLookToggle);
 	input.mouseSensitivity = reader.getKey(Section::Input, Key::mouseSensitivity, Default::mouseSensitivity);
+	input.mouseAcceleration = reader.getKey(Section::Input, Key::mouseAcceleration, Default::mouseAcceleration);
+	input.rawMouseInput = reader.getKey(Section::Input, Key::rawMouseInput, Default::rawMouseInput);
 	input.autoDescription = reader.getKey(Section::Input, Key::autoDescription, Default::autoDescription);
-	input.linkMouseLookToUse = reader.getKey(Section::Input, Key::linkMouseLookToUse, Default::linkMouseLookToUse);
-	input.backend = reader.getKey(Section::Input, Key::inputBackend, Default::inputBackend);
+	input.borderTurning = reader.getKey(Section::Input, Key::borderTurning, Default::borderTurning);
+	input.useAltRuneRecognition = reader.getKey(Section::Input, Key::useAltRuneRecognition, Default::useAltRuneRecognition);
+	int quickLevelTransition = reader.getKey(Section::Input, Key::quickLevelTransition, Default::quickLevelTransition);
+	input.quickLevelTransition = QuickLevelTransition(glm::clamp(quickLevelTransition, 0, 2));
+	input.allowConsole = reader.getKey(Section::Input, Key::allowConsole, Default::allowConsole);
 	
 	// Get action key settings
 	for(size_t i = 0; i < NUM_ACTION_KEY; i++) {

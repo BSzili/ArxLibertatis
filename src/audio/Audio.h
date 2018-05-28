@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -46,9 +46,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <stddef.h>
 #include <string>
+#include <vector>
 
+#include "core/TimeTypes.h"
 #include "audio/AudioTypes.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 namespace res { class path; }
 
@@ -61,7 +63,13 @@ namespace audio {
  * If the audio system was already initialized, it is cleaned first, removing all loaded resources.
  * This is not threadsafe: The caller must ensure that no other audio methods are called at the same time.
  */
-aalError init(const std::string & backend, bool enableEAX);
+aalError init(const std::string & backend, const std::string & device = std::string(),
+              HRTFAttribute hrtf = HRTFDefault);
+
+/*!
+ * Get a list of available devices for the current backend.
+ */
+std::vector<std::string> getDevices();
 
 /*!
  * Cleanup the audio system.
@@ -73,6 +81,9 @@ aalError setSamplePath(const res::path & path);
 aalError setAmbiancePath(const res::path & path);
 aalError setEnvironmentPath(const res::path & path);
 aalError setReverbEnabled(bool enable);
+bool isReverbSupported();
+aalError setHRTFEnabled(HRTFAttribute enable);
+HRTFStatus getHRTFStatus();
 aalError update();
 
 // Resource
@@ -88,11 +99,7 @@ AmbianceId getAmbiance(const res::path & ambiance_name);
 EnvId getEnvironment(const res::path & environment_name);
 
 //! Retrieving by ID (If resource_id == INVALID_ID, return first found)
-AmbianceId getNextAmbiance(AmbianceId ambiance_id = INVALID_ID);
-
-// Environment
-
-aalError setRoomRolloffFactor(float factor);
+AmbianceId getNextAmbiance(AmbianceId ambiance_id = AmbianceId());
 
 // Listener
 
@@ -107,8 +114,6 @@ aalError setListenerEnvironment(EnvId environment_id);
 aalError setMixerVolume(MixerId mixer_id, float volume);
 aalError setMixerParent(MixerId mixer_id, MixerId parent_mixer_id);
 
-aalError getMixerVolume(MixerId mixer_id, float * volume);
-
 aalError mixerStop(MixerId mixer_id);
 aalError mixerPause(MixerId mixer_id);
 aalError mixerResume(MixerId mixer_id);
@@ -120,7 +125,7 @@ aalError setSamplePitch(SourceId sample_id, float pitch);
 aalError setSamplePosition(SourceId sample_id, const Vec3f & position);
 
 aalError getSampleName(SampleId sample_id, res::path & name);
-aalError getSampleLength(SampleId sample_id, size_t & length, TimeUnit unit = UNIT_MS);
+aalError getSampleLength(SampleId sample_id, size_t & length);
 aalError getSamplePan(SourceId sample_id, float * pan);
 aalError getSampleCone(SourceId sample_id, SourceCone * cone);
 bool isSamplePlaying(SourceId sample_id);
@@ -131,19 +136,18 @@ aalError sampleStop(SourceId & sample_id);
 
 // Ambiance
 
-aalError muteAmbianceTrack(AmbianceId ambiance_id, const std::string & track, bool mute);
-
-aalError setAmbianceUserData(AmbianceId ambiance_id, void * data);
+aalError setAmbianceType(AmbianceId ambiance_id, PlayingAmbianceType type);
 aalError setAmbianceVolume(AmbianceId ambiance_id, float volume);
 
 aalError getAmbianceName(AmbianceId ambiance_id, res::path & name);
-aalError getAmbianceUserData(AmbianceId ambiance_id, void ** data);
+aalError getAmbianceType(AmbianceId ambiance_id, PlayingAmbianceType * type);
 aalError getAmbianceVolume(AmbianceId ambiance_id, float & volume);
 bool isAmbianceLooped(AmbianceId ambiance_id);
 
 //! play_count == 0 -> infinite loop, play_count == 1 -> play once
-aalError ambiancePlay(AmbianceId ambiance_id, const Channel & channel, bool loop = false, size_t fade_interval = 0);
-aalError ambianceStop(AmbianceId ambiance_id, size_t fade_interval = 0);
+aalError ambiancePlay(AmbianceId ambiance_id, const Channel & channel, bool loop = false,
+                      PlatformDuration fade_interval = 0);
+aalError ambianceStop(AmbianceId ambiance_id, PlatformDuration fade_interval = 0);
 
 } // namespace audio
 

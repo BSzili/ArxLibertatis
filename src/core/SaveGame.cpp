@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -30,14 +30,13 @@
 #include "io/resource/PakReader.h"
 #include "scene/ChangeLevel.h"
 
-using std::string;
+const fs::path SAVEGAME_NAME = "gsave.sav";
 
 namespace {
 
-static const fs::path SAVEGAME_NAME = "gsave.sav";
-static const fs::path SAVEGAME_DIR = "save";
-static const fs::path SAVEGAME_THUMBNAIL = "gsave.bmp";
-static const std::string QUICKSAVE_ID = "ARX_QUICK_ARX";
+const fs::path SAVEGAME_DIR = "save";
+const fs::path SAVEGAME_THUMBNAIL = "gsave.bmp";
+const std::string QUICKSAVE_ID = "ARX_QUICK_ARX";
 
 enum SaveGameChange {
 	SaveGameRemoved,
@@ -45,11 +44,11 @@ enum SaveGameChange {
 	SaveGameChanged
 };
 
-static int saveTimeCompare(const SaveGame & a, const SaveGame & b) {
+int saveTimeCompare(const SaveGame & a, const SaveGame & b) {
 	return (a.stime > b.stime);
 }
 
-} // anonnymous namespace
+} // anonymous namespace
 
 SaveGameList savegames;
 
@@ -64,7 +63,7 @@ void SaveGameList::update(bool verbose) {
 	
 	size_t max_name_length = 0;
 	
-	fs::path savedir = fs::paths.user / SAVEGAME_DIR;
+	fs::path savedir = fs::getUserDir() / SAVEGAME_DIR;
 	
 	if(verbose) {
 		LogInfo << "Using save game dir " << savedir;
@@ -81,29 +80,28 @@ void SaveGameList::update(bool verbose) {
 			continue;
 		}
 		
-		size_t index = (size_t)-1;
+		size_t index = size_t(-1);
 		for(size_t i = 0; i < old_count; i++) {
 			if(savelist[i].savefile == path) {
 				index = i;
 			}
 		}
-		if(index != (size_t)-1 && savelist[index].stime == stime) {
+		if(index != size_t(-1) && savelist[index].stime == stime) {
 			found[index] = SaveGameUnchanged;
 			continue;
 		}
 		
-		string name;
+		std::string name;
 		float version;
 		long level;
-		unsigned long ignored;
-		if(ARX_CHANGELEVEL_GetInfo(path, name, version, level, ignored) == -1) {
+		if(ARX_CHANGELEVEL_GetInfo(path, name, version, level) == -1) {
 			LogWarning << "Unable to get save file info for " << path;
 			continue;
 		}
 		
 		new_saves = true;
 		
-		if(index == (size_t)-1) {
+		if(index == size_t(-1)) {
 			// Make another save game slot at the end
 			index = savelist.size();
 			savelist.resize(savelist.size() + 1);
@@ -128,14 +126,13 @@ void SaveGameList::update(bool verbose) {
 			// Instead, choose a unique number.
 			res::path thumbnail_res;
 			size_t i = 0;
-			std::ostringstream oss;
 			do {
-				oss.clear();
+				std::ostringstream oss;
 				oss << "thumbnail" << i << SAVEGAME_THUMBNAIL.ext();
 				thumbnail_res = res::path("save") / oss.str();
 				i++;
-			} while(resources->getFile(thumbnail_res));
-			resources->addFiles(thumbnail, thumbnail_res);
+			} while(g_resources->getFile(thumbnail_res));
+			g_resources->addFiles(thumbnail, thumbnail_res);
 			save->thumbnail = thumbnail_res.remove_ext();
 		} else {
 			save->thumbnail.clear();
@@ -163,7 +160,7 @@ void SaveGameList::update(bool verbose) {
 				oss << "(quicksave)" << std::setw(max_name_length - 8) << ' ';
 			} else {
 				oss << "\"" << savelist[i].name << "\""
-						<< std::setw(max_name_length - savelist[i].name.length() + 1) << ' ';
+				    << std::setw(max_name_length - savelist[i].name.length() + 1) << ' ';
 			}
 			
 			const char * lead = """Found save ";
@@ -185,8 +182,8 @@ void SaveGameList::update(bool verbose) {
 			o++;
 		} else {
 			// Clean obsolete mounts
-			resources->removeFile(savelist[i].thumbnail);
-			resources->removeDirectory(savelist[i].thumbnail.parent());
+			g_resources->removeFile(savelist[i].thumbnail);
+			g_resources->removeDirectory(savelist[i].thumbnail.parent());
 		}
 	}
 	savelist.resize(o);
@@ -198,7 +195,9 @@ void SaveGameList::update(bool verbose) {
 	LogDebug("Found " << savelist.size() << " savegames");
 }
 
-void SaveGameList::remove(iterator save) {
+void SaveGameList::remove(SavegameHandle handle) {
+	
+	iterator save = begin() + handle.handleData();
 	
 	arx_assert(save >= begin() && save < end());
 	
@@ -212,7 +211,7 @@ void SaveGameList::remove(iterator save) {
 	update();
 }
 
-bool SaveGameList::save(const string & name, iterator overwrite, const Image & thumbnail) {
+bool SaveGameList::save(const std::string & name, iterator overwrite, const Image & thumbnail) {
 	
 	arx_assert(overwrite >= begin() && overwrite <= end());
 	
@@ -224,9 +223,13 @@ bool SaveGameList::save(const string & name, iterator overwrite, const Image & t
 		do {
 			std::ostringstream oss;
 			oss << "save" << std::setfill('0') << std::setw(4) << index++;
-			savefile = fs::paths.user / SAVEGAME_DIR / oss.str();
+			savefile = fs::getUserDir() / SAVEGAME_DIR / oss.str();
 		} while(fs::exists(savefile));
-		fs::create_directories(savefile);
+		
+		if(!fs::create_directories(savefile)) {
+			LogWarning << "Failed to create save directory";
+		}
+		
 		savefile /= SAVEGAME_NAME;
 	}
 	
@@ -234,7 +237,7 @@ bool SaveGameList::save(const string & name, iterator overwrite, const Image & t
 		return false;
 	}
 	
-	if(thumbnail.IsValid() && !thumbnail.save(savefile.parent() / SAVEGAME_THUMBNAIL)) {
+	if(thumbnail.isValid() && !thumbnail.save(savefile.parent() / SAVEGAME_THUMBNAIL)) {
 		LogWarning << "Failed to save screenshot to " << (savefile.parent() / SAVEGAME_THUMBNAIL);
 	}
 	
@@ -251,7 +254,7 @@ bool SaveGameList::quicksave(const Image & thumbnail) {
 	size_t nfound = 0;
 	
 	// Find the oldest quicksave.
-	for(iterator i = begin(); i != end(); i++) {
+	for(iterator i = begin(); i != end(); ++i) {
 		if(i->quicksave) {
 			nfound++;
 			if(i->stime < time) {

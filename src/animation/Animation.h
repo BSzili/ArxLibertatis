@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,53 +44,169 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 //
 // Copyright (c) 1999 ARKANE Studios SA. All rights reserved
 
-#ifndef  ARX_ANIMATION_ANIMATION_H
-#define  ARX_ANIMATION_ANIMATION_H
+#ifndef ARX_ANIMATION_ANIMATION_H
+#define ARX_ANIMATION_ANIMATION_H
 
 #include <stddef.h>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "math/MathFwd.h"
+#include "core/TimeTypes.h"
+#include "io/resource/ResourcePath.h"
+#include "math/Types.h"
+#include "graphics/BaseGraphicsTypes.h"
+#include "graphics/GraphicsTypes.h"
 
-class TextureContainer;
 class Entity;
-struct EERIE_3DOBJ;
-struct EERIE_LIGHT;
-struct ANIM_USE;
-struct EERIEMATRIX;
-struct EERIE_MOD_INFO;
-struct TexturedVertex;
 
-const size_t HALOMAX = 2000;
-extern long MAX_LLIGHTS;
-const size_t MAX_ANIMATIONS = 900;
+struct EERIE_FRAME {
+	long num_frame;
+	bool stepSound;
+	bool f_translate;
+	bool f_rotate;
+	AnimationDuration time;
+	Vec3f translate;
+	glm::quat quat;
+	audio::SampleId sample;
+};
 
-extern long HALOCUR;
-extern TexturedVertex LATERDRAWHALO[HALOMAX * 4];
-extern EERIE_LIGHT * llights[32];
+struct EERIE_GROUP {
+	int key;
+	Vec3f translate;
+	glm::quat quat;
+	Vec3f zoom;
+};
 
-long EERIE_ANIMMANAGER_Count(std::string & tex, long * memsize);
+struct EERIE_ANIM {
+	
+	AnimationDuration anim_time;
+	long nb_groups;
+	long nb_key_frames;
+	EERIE_FRAME * frames;
+	EERIE_GROUP * groups;
+	unsigned char * voidgroups;
+	
+	EERIE_ANIM()
+		: anim_time(0)
+		, nb_groups(0)
+		, nb_key_frames(0)
+		, frames(NULL)
+		, groups(NULL)
+		, voidgroups(NULL)
+	{ }
+	
+};
+
+struct ANIM_HANDLE {
+	
+	ANIM_HANDLE();
+	
+	res::path path; // empty path means an unallocated slot
+	EERIE_ANIM ** anims;
+	short alt_nb;
+	long locks;
+	
+};
+
+// Animation playing flags
+enum AnimUseTypeFlag {
+	EA_LOOP       = 1 << 0, // Must be looped at end (indefinitely...)
+	EA_REVERSE    = 1 << 1, // Is played reversed (from end to start)
+	EA_PAUSED     = 1 << 2, // Is paused
+	EA_ANIMEND    = 1 << 3, // Has just finished
+	EA_STATICANIM = 1 << 4, // Is a static Anim (no movement offset returned).
+	EA_STOPEND    = 1 << 5, // Must Be Stopped at end.
+	EA_FORCEPLAY  = 1 << 6, // User controlled... MUST be played...
+	EA_EXCONTROL  = 1 << 7  // ctime externally set, no update.
+};
+DECLARE_FLAGS(AnimUseTypeFlag, AnimUseType)
+DECLARE_FLAGS_OPERATORS(AnimUseType)
+
+struct AnimLayer {
+	
+	AnimLayer()
+		: cur_anim(NULL)
+		, altidx_cur(0)
+		, ctime(0)
+		, flags(0)
+		, lastframe(-1)
+		, currentInterpolation(0.f)
+		, currentFrame(0)
+	{}
+	
+	ANIM_HANDLE * cur_anim;
+	short altidx_cur; // idx to alternate anims...
+	AnimationDuration ctime;
+	AnimUseType flags;
+	long lastframe;
+	float currentInterpolation;
+	long currentFrame;
+	
+};
+
+/*!
+ * Cancel any existing animation and then start a new one.
+ * This will reset the current annimation even if it is the same as the given animation.
+ * \param entity           the entity being animated
+ * \param layer            the animation layer to change
+ * \param animation        the new animation to set
+ * \param flags            animation use flags to set after changing the animation
+ * \param startAtBeginning force the animation to start at the first keyframe
+ *                         - otherwise it may start at a randomly chosen one
+ */
+void changeAnimation(Entity * entity, size_t layer, ANIM_HANDLE * animation,
+                          AnimUseType flags = 0, bool startAtBeginning = false);
+/*!
+ * Cancel any existing primary animation and then start a new one.
+ * This will reset the current annimation even if it is the same as the given animation.
+ * \param entity           the entity being animated
+ * \param animation        the new animation to set
+ * \param flags            animation use flags to set after changing the animation
+ * \param startAtBeginning force the animation to start at the first keyframe
+ *                         - otherwise it may start at a randomly chosen one
+ */
+void changeAnimation(Entity * entity, ANIM_HANDLE * animation,
+                     AnimUseType flags = 0, bool startAtBeginning = false);
+
+/*!
+ * Change the animation of an entity if it isn't already set to the same one.
+ * Unlike \ref changeAnimation(), this will not reset the current animation unless it
+ * differs from the current one.
+ * \param entity    the entity being animated
+ * \param animation the new animation to set
+ * \param flags     animation use flags to set if the animation has been changed
+ */
+void setAnimation(Entity * entity, ANIM_HANDLE * animation,
+                  AnimUseType flags = 0, bool startAtBeginning = false);
+
+/*!
+ * Stop the current animation.
+ * \param entity           the entity being animated
+ * \param layer            the animation layer to change
+ */
+void stopAnimation(Entity * entity, size_t layer = 0);
+
+short ANIM_GetAltIdx(ANIM_HANDLE * ah, long old);
+void ANIM_Set(AnimLayer & layer, ANIM_HANDLE * anim);
+
+Vec3f GetAnimTotalTranslate(ANIM_HANDLE * eanim, long alt_idx);
+
 void EERIE_ANIMMANAGER_ClearAll();
-void llightsInit();
-void Preparellights(Vec3f * pos);
-void Insertllight(EERIE_LIGHT * el, float dist);
+void EERIE_ANIMMANAGER_PurgeUnused();
+void EERIE_ANIMMANAGER_ReleaseHandle(ANIM_HANDLE * anim);
+ANIM_HANDLE * EERIE_ANIMMANAGER_Load(const res::path & path);
+ANIM_HANDLE * EERIE_ANIMMANAGER_Load_NoWarning(const res::path & path);
 
-void PopAllTriangleList();
-void PopAllTriangleListTransparency();
+void PrepareAnim(AnimLayer & layer, AnimationDuration time, Entity * io);
+void ResetAnim(AnimLayer & layer);
 
-TexturedVertex * PushVertexInTableCull(TextureContainer * tex);
-TexturedVertex * PushVertexInTableCull_TNormalTrans(TextureContainer * tex);
-TexturedVertex * PushVertexInTableCull_TAdditive(TextureContainer * tex);
-TexturedVertex * PushVertexInTableCull_TSubstractive(TextureContainer * tex);
-TexturedVertex * PushVertexInTableCull_TMultiplicative(TextureContainer * tex);
+void AcquireLastAnim(Entity * io);
+void FinishAnim(Entity * io, ANIM_HANDLE * eanim);
 
-void CalculateInterZMapp(EERIE_3DOBJ * _pobj3dObj, long lIdList, long * _piInd, TextureContainer * _pTex, TexturedVertex * _pVertex);
-void EERIE_ANIMMANAGER_ReloadAll();
+std::vector< std::pair<res::path, size_t> > ARX_SOUND_PushAnimSamples();
+void ARX_SOUND_PopAnimSamples(const std::vector< std::pair<res::path, size_t> > & samples);
 
-void EERIEDrawAnimQuat(EERIE_3DOBJ * eobj, ANIM_USE * eanim, Anglef * angle, Vec3f  * pos, unsigned long time, Entity * io, bool render = true, bool update_movement = true);
-
-void DrawEERIEInterMatrix(EERIE_3DOBJ * eobj, EERIEMATRIX * mat, Vec3f  * pos, Entity * io, EERIE_MOD_INFO * modinfo = NULL);
-
-void DrawEERIEInter(EERIE_3DOBJ * eobj, Anglef * angle, Vec3f * pos, Entity * io, EERIE_MOD_INFO * modinfo = NULL);
+void ReleaseAnimFromIO(Entity * io, long num);
 
 #endif // ARX_ANIMATION_ANIMATION_H

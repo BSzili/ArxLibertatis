@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -21,73 +21,24 @@
 #define ARX_PLATFORM_TIME_H
 
 #include "platform/Platform.h"
+#include "core/TimeTypes.h"
 
-namespace Time {
-
-void init();
-
-/*!
- * Get the number of milliseconds elapsed since some unspecified starting point.
- * @return The number of milliseconds elapsed.
- */
-u32 getMs();
+namespace platform {
 
 /*!
- * Get the number of microseconds elapsed since some unspecified starting point.
- * @return The number of microseconds elapsed.
+ * \brief Initalize the time subsystem
+ *
+ * Must be called before any other time functions.
  */
-u64 getUs();
+void initializeTime();
 
 /*!
- * Get the number of milliseconds elapsed between now and the specified time, handling wrap around correctly.
- * @param startMs Start time in milliseconds.
- * @return The number of milliseconds elapsed between now and startMs.
+ * \brief Get the current time
+ *
+ * \return The current time relative to some unspecified starting point.
  */
-inline u32 getElapsedMs(u32 startMs);
+PlatformInstant getTime();
 
-/*!
- * Get the number of milliseconds elapsed between two point in time, handling wrap around correctly.
- * @param startMs Start time in milliseconds.
- * @param endMs End time in milliseconds.
- * @return The number of milliseconds elapsed between the specified time range.
- */
-inline u32 getElapsedMs(u32 startMs, u32 endMs);
-
-/*!
- * Get the number of microseconds elapsed between now and the specified time, handling wrap around correctly.
- * @param startUs Start time in microseconds.
- * @return The number of microseconds elapsed between now and startUs.
- */
-inline u64 getElapsedUs(u64 startUs);
-
-/*!
- * Get the number of microseconds elapsed between two point in time, handling wrap around correctly.
- * @param startUs Start time in microseconds.
- * @param endUs End time in microseconds.
- * @return The number of microseconds elapsed between the specified time range.
- */
-inline u64 getElapsedUs(u64 startUs, u64 endUs);
-
-inline u32 getElapsedMs(u32 startMs) {
-	return getElapsedMs(startMs, getMs());
-}
-
-inline u32 getElapsedMs(u32 startMs, u32 endMs) {
-	return (u32)(((u64)endMs - (u64)startMs) & 0xffffffff);
-}
-
-inline u64 getElapsedUs(u64 startUs) {
-	return getElapsedUs(startUs, getUs());
-}
-
-inline u64 getElapsedUs(u64 startUs, u64 endUs) {
-	if(endUs >= startUs) {
-		return endUs - startUs;
-	} else {
-		return (((u64)-1) - startUs) + endUs + 1;
-	}
-}
-
-}
+} // namespace platform
 
 #endif // ARX_PLATFORM_TIME_H

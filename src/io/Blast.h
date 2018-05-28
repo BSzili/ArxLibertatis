@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -57,8 +57,8 @@
 /* Definitions for input/output functions passed to blast().  See below for
  * what the provided functions need to do.
  */
-typedef size_t (*blast_in)(void *how, const unsigned char **buf);
-typedef int (*blast_out)(void *how, unsigned char *buf, size_t len);
+typedef size_t (*blast_in)(void * how, const unsigned char ** buf);
+typedef int (*blast_out)(void * how, unsigned char * buf, size_t len);
 
 enum BlastResult {
 	BLAST_TRUNCATED_INPUT = 2, // ran out of input before completing decompression
@@ -90,7 +90,7 @@ enum BlastResult {
  * At the bottom of blast.c is an example program that uses blast() that can be
  * compiled to produce a command-line decompression filter by defining TEST.
  */
-BlastResult blast(blast_in infun, void *inhow, blast_out outfun, void *outhow);
+BlastResult blast(blast_in infun, void * inhow, blast_out outfun, void * outhow);
 
 // Convenience implementations.
 
@@ -100,7 +100,7 @@ struct BlastMemOutBuffer {
 	
 	size_t size;
 	
-	inline BlastMemOutBuffer(char * b, size_t s) : buf(b), size(s) { }
+	BlastMemOutBuffer(char * b, size_t s) : buf(b), size(s) { }
 	
 };
 
@@ -110,7 +110,7 @@ struct BlastMemInBuffer {
 	
 	size_t size;
 	
-	inline BlastMemInBuffer(const char * b, size_t s) : buf(b), size(s) { }
+	BlastMemInBuffer(const char * b, size_t s) : buf(b), size(s) { }
 	
 };
 
@@ -121,8 +121,8 @@ struct BlastMemOutBufferRealloc {
 	size_t allocSize;
 	size_t fillSize;
 	
-	inline BlastMemOutBufferRealloc(char * b = NULL, size_t alloc = 0, size_t fill = 0)
-	       : buf(b), allocSize(alloc), fillSize(fill) { }
+	explicit BlastMemOutBufferRealloc(char * b = NULL, size_t alloc = 0, size_t fill = 0)
+		: buf(b), allocSize(alloc), fillSize(fill) { }
 	
 };
 

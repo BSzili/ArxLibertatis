@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,10 +49,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <string>
 
+#include "core/TimeTypes.h"
+#include "game/GameTypes.h"
 #include "audio/AudioTypes.h"
 #include "math/Angle.h"
 
-struct EERIE_CAMERA;
 struct EERIE_SCRIPT;
 class Entity;
 
@@ -77,12 +78,26 @@ struct CinematicSpeech {
 	Anglef endangle;
 	float startpos;
 	float endpos;
-	float f0;
-	float f1;
-	float f2;
-	long ionum;
+	float m_startdist;
+	float m_enddist;
+	float m_heightModifier;
+	EntityHandle ionum;
 	Vec3f pos1;
 	Vec3f pos2;
+	
+	CinematicSpeech()
+		: type(ARX_CINE_SPEECH_NONE)
+		, startangle(Anglef::ZERO)
+		, endangle(Anglef::ZERO)
+		, startpos(0.f)
+		, endpos(0.f)
+		, m_startdist(0.f)
+		, m_enddist(0.f)
+		, m_heightModifier(0.f)
+		, ionum(EntityHandle_Player) // TODO is this correct?
+		, pos1(Vec3f_ZERO)
+		, pos2(Vec3f_ZERO)
+	{}
 	
 	void clear() {
 		type = ARX_CINE_SPEECH_NONE;
@@ -90,26 +105,19 @@ struct CinematicSpeech {
 		endangle = Anglef::ZERO;
 		startpos = 0;
 		endpos = 0;
-		f0 = 0;
-		f1 = 0;
-		ionum = 0;
-		pos1 = Vec3f::ZERO;
-		pos2 = Vec3f::ZERO;
+		m_startdist = 0;
+		m_enddist = 0;
+		ionum = EntityHandle_Player; // TODO is this correct?
+		pos1 = Vec3f_ZERO;
+		pos2 = Vec3f_ZERO;
 	}
 	
 };
 
-const size_t MAX_ACTORS = 10;
-struct ARX_CONVERSATION_STRUCT {
-	long actors_nb;
-	long actors[MAX_ACTORS];
-	long current;
-};
-
 struct Notification {
 	
-	unsigned long timecreation;
-	unsigned long duration;
+	GameInstant timecreation;
+	GameDuration duration;
 	std::string text;
 	
 	void clear() {
@@ -121,13 +129,13 @@ struct Notification {
 };
 
 enum SpeechFlag {
-	ARX_SPEECH_FLAG_UNBREAKABLE = (1<<0),
-	ARX_SPEECH_FLAG_OFFVOICE    = (1<<1),
-	ARX_SPEECH_FLAG_NOTEXT      = (1<<2),
-	ARX_SPEECH_FLAG_DIRECT_TEXT = (1<<3)
+	ARX_SPEECH_FLAG_UNBREAKABLE = 1 << 0,
+	ARX_SPEECH_FLAG_OFFVOICE    = 1 << 1,
+	ARX_SPEECH_FLAG_NOTEXT      = 1 << 2,
+	ARX_SPEECH_FLAG_DIRECT_TEXT = 1 << 3
 };
-DECLARE_FLAGS(SpeechFlag, SpeechFlags);
-DECLARE_FLAGS_OPERATORS(SpeechFlags);
+DECLARE_FLAGS(SpeechFlag, SpeechFlags)
+DECLARE_FLAGS_OPERATORS(SpeechFlags)
 
 struct ARX_SPEECH {
 	
@@ -135,8 +143,8 @@ struct ARX_SPEECH {
 	audio::SampleId sample;
 	long mood;
 	SpeechFlags flags;
-	unsigned long time_creation;
-	unsigned long duration;
+	GameInstant time_creation;
+	GameDuration duration;
 	float fDeltaY;
 	int iTimeScroll;
 	float fPixelScroll;
@@ -144,7 +152,7 @@ struct ARX_SPEECH {
 	Entity * io;
 	Entity * ioscript;
 	CinematicSpeech cine;
-	EERIE_SCRIPT * es;
+	const EERIE_SCRIPT * es;
 	long scrpos;
 	
 	void clear() {
@@ -169,10 +177,6 @@ struct ARX_SPEECH {
 
 const size_t MAX_ASPEECH = 100;
 extern ARX_SPEECH aspeech[MAX_ASPEECH];
-extern ARX_CONVERSATION_STRUCT main_conversation;
-
-void ARX_CONVERSATION_FirstInit();
-void ARX_CONVERSATION_Reset();
 
 void ARX_SPEECH_FirstInit();
 void ARX_SPEECH_Reset();
@@ -184,17 +188,16 @@ void ARX_SPEECH_Check();
  * Add a raw text message to the "system" log (top of the screen).
  * This message will be displayed as-is.
  */
-long ARX_SPEECH_Add(const std::string & text, long duration = -1);
+void ARX_SPEECH_Add(const std::string & text);
 void ARX_SPEECH_ClearAll();
 
 /*!
  * Add an entry to the conversation view.
- * @param data is a sample name / localised string id
+ * \param data is a sample name / localised string id
  */
 long ARX_SPEECH_AddSpeech(Entity * io, const std::string & data, long mood, SpeechFlags flags = 0);
 void ARX_SPEECH_ReleaseIOSpeech(Entity * io);
 void ARX_SPEECH_ClearIOSpeech(Entity * io);
-void ARX_SPEECH_Launch_No_Unicode_Seek(const std::string & string, Entity * io_source, long mood = 0);
-bool ApplySpeechPos(EERIE_CAMERA * conversationcamera, long is);
+void ARX_SPEECH_Launch_No_Unicode_Seek(const std::string & string, Entity * io_source);
 
 #endif // ARX_GUI_SPEECH_H

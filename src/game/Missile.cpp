@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -55,13 +55,16 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/Color.h"
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Math.h"
+#include "graphics/Raycast.h"
 #include "graphics/data/Mesh.h"
+#include "graphics/effects/PolyBoom.h"
 #include "graphics/particle/ParticleEffects.h"
 
 #include "math/Random.h"
-#include "math/Vector3.h"
+#include "math/RandomVector.h"
+#include "math/Vector.h"
 
-#include "platform/Flags.h"
+#include "platform/profiler/Profiler.h"
 
 #include "scene/Light.h"
 #include "scene/Interactive.h"
@@ -75,18 +78,18 @@ struct ARX_MISSILE
 	Vec3f startpos;
 	Vec3f velocity;
 	Vec3f lastpos;
-	unsigned long timecreation;
-	unsigned long lastupdate;
-	unsigned long tolive;
-	long		longinfo;
-	long		owner;
+	GameInstant timecreation;
+	GameInstant lastupdate;
+	GameDuration tolive;
+	LightHandle m_light;
+	EntityHandle owner;
 };
 
 static const size_t MAX_MISSILES = 100;
 static ARX_MISSILE missiles[MAX_MISSILES];
 
 // Gets a Free Projectile Slot
-long ARX_MISSILES_GetFree() {
+static long ARX_MISSILES_GetFree() {
 	
 	for(size_t i = 0; i < MAX_MISSILES; i++) {
 		if(missiles[i].type == MISSILE_NONE) {
@@ -98,18 +101,19 @@ long ARX_MISSILES_GetFree() {
 }
 
 // Kills a missile
-void ARX_MISSILES_Kill(long i)
-{
+static void ARX_MISSILES_Kill(long i) {
+	
 	switch (missiles[i].type)
 	{
-		case MISSILE_FIREBALL :
-
-			if (missiles[i].longinfo != -1)
-			{
-				DynLight[missiles[i].longinfo].duration = 150;
+		case MISSILE_FIREBALL : {
+			
+			EERIE_LIGHT * light = lightHandleGet(missiles[i].m_light);
+			if(light) {
+				light->duration = GameDurationMs(150);
 			}
 
 			break;
+		}
 		case MISSILE_NONE: break;
 	}
 
@@ -126,39 +130,37 @@ void ARX_MISSILES_ClearAll() {
 
 //-----------------------------------------------------------------------------
 // Spawns a Projectile using type, starting position/TargetPosition
-void ARX_MISSILES_Spawn(Entity * io, ARX_SPELLS_MISSILE_TYPE type, const Vec3f * startpos, const Vec3f * targetpos) {
+void ARX_MISSILES_Spawn(Entity * io, ARX_SPELLS_MISSILE_TYPE type, const Vec3f & startpos, const Vec3f & targetpos) {
 	
 	long i(ARX_MISSILES_GetFree());
 
 	if (i == -1) return;
 
-	missiles[i].owner = (io == NULL) ? -1 : io->index();
+	missiles[i].owner = (io == NULL) ? EntityHandle() : io->index();
 	missiles[i].type = type;
-	missiles[i].lastpos = missiles[i].startpos = *startpos;
+	missiles[i].lastpos = missiles[i].startpos = startpos;
 
 	float dist;
 
-	dist = 1.0F / fdist(*startpos, *targetpos);
-	missiles[i].velocity = (*targetpos - *startpos) * dist;
-	missiles[i].lastupdate = missiles[i].timecreation = (unsigned long)(arxtime);
+	dist = 1.0F / fdist(startpos, targetpos);
+	missiles[i].velocity = (targetpos - startpos) * dist;
+	missiles[i].lastupdate = missiles[i].timecreation = g_gameTime.now();
 
 	switch (type)
 	{
 		case MISSILE_NONE: break;
 		case MISSILE_FIREBALL:
 		{
-			missiles[i].tolive = 6000;
+			missiles[i].tolive = GameDurationMs(6000);
 			missiles[i].velocity *= 0.8f;
-			missiles[i].longinfo = GetFreeDynLight();
-
-			if (missiles[i].longinfo != -1)
-			{
-				DynLight[missiles[i].longinfo].intensity = 1.3f;
-				DynLight[missiles[i].longinfo].exist = 1;
-				DynLight[missiles[i].longinfo].fallend = 420.f;
-				DynLight[missiles[i].longinfo].fallstart = 250.f;
-				DynLight[missiles[i].longinfo].rgb = Color3f(1.f, .8f, .6f);
-				DynLight[missiles[i].longinfo].pos = *startpos;
+			
+			EERIE_LIGHT * light = dynLightCreate(missiles[i].m_light);
+			if(light) {
+				light->intensity = 1.3f;
+				light->fallend = 420.f;
+				light->fallstart = 250.f;
+				light->rgb = Color3f(1.f, .8f, .6f);
+				light->pos = startpos;
 			}
 
 			ARX_SOUND_PlaySFX(SND_SPELL_FIRE_WIND, &missiles[i].startpos, 2.0F);
@@ -167,106 +169,74 @@ void ARX_MISSILES_Spawn(Entity * io, ARX_SPELLS_MISSILE_TYPE type, const Vec3f *
 	}
 }
 
+extern TextureContainer * TC_fire;
+
 //-----------------------------------------------------------------------------
 // Updates all currently launched projectiles
-void ARX_MISSILES_Update()
-{
-	long framediff, framediff3;
-	Vec3f orgn, dest, hit;
-	TextureContainer * tc = TC_fire; 
-	EERIEPOLY *tp = NULL;
-	unsigned long tim = (unsigned long)(arxtime);
+void ARX_MISSILES_Update() {
+	
+	ARX_PROFILE_FUNC();
+	
+	TextureContainer * tc = TC_fire;
+	
+	GameInstant now = g_gameTime.now();
 
-	for (unsigned long i(0); i < MAX_MISSILES; i++) 
-	{
-		if (missiles[i].type == MISSILE_NONE) continue;
-
-		framediff = missiles[i].timecreation + missiles[i].tolive - tim;
-
-		if (framediff < 0)
-		{
+	for(unsigned long i(0); i < MAX_MISSILES; i++) {
+		if(missiles[i].type == MISSILE_NONE)
+			continue;
+		
+		GameDuration framediff3 = now - missiles[i].timecreation;
+		if(framediff3 > missiles[i].tolive) {
 			ARX_MISSILES_Kill(i);
 			continue;
 		}
-
-		framediff3 = tim - missiles[i].timecreation;
-
-		switch (missiles[i].type)
-		{
-			case MISSILE_NONE: break;
+		
+		switch(missiles[i].type) {
+			case MISSILE_NONE:
+			break;
 			case MISSILE_FIREBALL: {
 				Vec3f pos;
 
-				pos = missiles[i].startpos + missiles[i].velocity * framediff3;
-
-				if (missiles[i].longinfo != -1)
-				{
-					DynLight[missiles[i].longinfo].pos = pos;
-				}
-
-				orgn = missiles[i].lastpos;
-				dest = pos;
+				pos = missiles[i].startpos + missiles[i].velocity * Vec3f(toMsf(framediff3));
 				
-				EERIEPOLY *ep;
-				EERIEPOLY *epp;
+				EERIE_LIGHT * light = lightHandleGet(missiles[i].m_light);
+				if(light) {
+					light->pos = pos;
+				}
+
+				Vec3f orgn = missiles[i].lastpos;
+				Vec3f dest = pos;
 				
-				Vec3f tro = Vec3f::repeat(70.f);
+				EERIEPOLY * ep = GetMinPoly(dest);
+				EERIEPOLY * epp = GetMaxPoly(dest);
 				
-				ep = GetMinPoly(dest.x, dest.y, dest.z);
-				epp = GetMaxPoly(dest.x, dest.y, dest.z);
-
-				if(closerThan(player.pos, pos, 200.f)) {
-					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&pos);
-					Add3DBoom(&pos);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
-					break;
+				bool hit = false;
+				
+				if(closerThan(player.pos, dest, 200.f) || (ep && ep->center.y < dest.y) || (epp && epp->center.y > dest.y)) {
+					hit = true;
+				} else {
+					RaycastResult ray = RaycastLine(orgn, dest);
+					if(ray.hit) {
+						dest = ray.pos;
+						hit = true;
+					} else if(!CheckInPoly(dest) || EEIsUnderWater(dest)) {
+						hit = true;
+					} else {
+						Vec3f tro = Vec3f(70.f);
+						EntityHandle ici = IsCollidingAnyInter(dest, tro);
+						
+						if(ici != EntityHandle() && ici != missiles[i].owner) {
+							hit = true;
+						}
+					}
 				}
-
-				if (ep  && ep->center.y < dest.y)
-				{
+				
+				if(hit) {
 					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&dest);
-					Add3DBoom(&dest);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
-					break;
-				}
-
-				if (epp && epp->center.y > dest.y)
-				{
-					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&dest);
-					Add3DBoom(&dest);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
-					break;
-				}
-
-				if (EERIELaunchRay3(&orgn, &dest, &hit, tp, 1))
-				{
-					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&hit);
-					Add3DBoom(&hit);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
-					break;
-				}
-
-				if ( !EECheckInPoly(&dest) || EEIsUnderWater(&dest) )
-				{
-					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&dest);
-					Add3DBoom(&dest);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
-					break;
-				}
-
-				long ici = IsCollidingAnyInter(dest.x, dest.y, dest.z, &tro);
-
-				if (ici != -1 && ici != missiles[i].owner)
-				{
-					ARX_MISSILES_Kill(i);
-					ARX_BOOMS_Add(&dest);
-					Add3DBoom(&dest);
-					DoSphericDamage(&dest, 180.0F, 200.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL);
+					spawnFireHitParticle(dest, 0);
+					PolyBoomAddScorch(dest);
+					Add3DBoom(dest);
+					DoSphericDamage(Sphere(dest, 200.0F), 180.0F, DAMAGE_AREAHALF, DAMAGE_TYPE_FIRE | DAMAGE_TYPE_MAGICAL, EntityHandle());
 					break;
 				}
 				
@@ -274,12 +244,12 @@ void ARX_MISSILES_Update()
 				if(pd) {
 					pd->ov = pos;
 					pd->move = missiles[i].velocity;
-					pd->move += Vec3f(3.f - 6.f * rnd(), 4.f - 12.f * rnd(), 3.f - 6.f * rnd());
-					pd->tolive = Random::get(500, 1000);
+					pd->move += Vec3f(3.f, 4.f, 3.f) + Vec3f(-6.f, -12.f, -6.f) * arx::randomVec3f();
+					pd->tolive = Random::getu(500, 1000);
 					pd->tc = tc;
-					pd->siz = 12.f * float(missiles[i].tolive - framediff3) * (1.f / 4000);
-					pd->scale = randomVec(15.f, 20.f);
-					pd->special = FIRE_TO_SMOKE;
+					pd->siz = 12.f * ((missiles[i].tolive - framediff3) / GameDurationMs(4000));
+					pd->scale = arx::randomVec(15.f, 20.f);
+					pd->m_flags = FIRE_TO_SMOKE;
 				}
 				
 				missiles[i].lastpos = pos;
@@ -288,6 +258,6 @@ void ARX_MISSILES_Update()
 			}
 		}
 
-		missiles[i].lastupdate = tim;
+		missiles[i].lastupdate = now;
 	}
 }

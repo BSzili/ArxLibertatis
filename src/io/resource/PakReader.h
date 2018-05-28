@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -27,7 +27,7 @@
 
 #include "io/resource/PakEntry.h"
 #include "io/resource/ResourcePath.h"
-#include "platform/Flags.h"
+#include "util/Flags.h"
 
 namespace fs { class path; }
 
@@ -56,13 +56,14 @@ class PakReader : public PakDirectory {
 public:
 	
 	enum ReleaseType {
-		Demo     = (1<<0),
-		FullGame = (1<<1),
-		Unknown  = (1<<2)
+		Demo     = 1 << 0,
+		FullGame = 1 << 1,
+		Unknown  = 1 << 2,
+		External = 1 << 3
 	};
 	DECLARE_FLAGS(ReleaseType, ReleaseFlags)
 	
-	inline PakReader() : release(0) { }
+	PakReader() : release(0) { }
 	~PakReader();
 	
 	void removeFile(const res::path & name);
@@ -70,7 +71,7 @@ public:
 	/*!
 	 * Remove an empty directory.
 	 * If the given directory is not empty, no action is taken.
-	 * @return true if the directory was removed.
+	 * \return true if the directory was removed.
 	 */
 	bool removeDirectory(const res::path & name);
 	
@@ -81,9 +82,9 @@ public:
 	 * directory will be inserted and their name converted to lowercase.
 	 * The mount point name will not be modified (case-sensitive).
 	 *
-	 * @param path Directory on the filesystem that will be imported in this PakDirectory
-	 * @param mount Mount point in this PakDirectory (case-sensitive)
-	 * @return false if there were problems (some data may have been read)
+	 * \param path Directory on the filesystem that will be imported in this PakDirectory
+	 * \param mount Mount point in this PakDirectory (case-sensitive)
+	 * \return false if there were problems (some data may have been read)
 	 */
 	bool addFiles(const fs::path & path, const res::path & mount = res::path());
 	
@@ -95,7 +96,7 @@ public:
 	
 	PakFileHandle * open(const res::path & name);
 	
-	inline ReleaseFlags getReleaseType() { return release; }
+	ReleaseFlags getReleaseType() { return release; }
 	
 private:
 	
@@ -109,6 +110,6 @@ private:
 
 DECLARE_FLAGS_OPERATORS(PakReader::ReleaseFlags)
 
-extern PakReader * resources;
+extern PakReader * g_resources;
 
 #endif // ARX_IO_RESOURCE_PAKREADER_H

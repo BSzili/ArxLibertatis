@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -48,29 +48,30 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "graphics/font/Font.h"
 #include "io/log/Logger.h"
 
-using std::string;
-using std::vector;
-
 struct TextManager::ManagedText {
-	Font* pFont;
+	
+	Font * pFont;
 	Rect rRect;
 	Rect rRectClipp;
-	string lpszUText;
+	std::string lpszUText;
 	float fDeltaY;
 	float fSpeedScrollY;
 	Color lCol;
-	long lTimeScroll;
-	long lTimeOut;
+	PlatformDuration lTimeScroll;
+	PlatformDuration lTimeOut;
+	
 };
 
-TextManager::TextManager() {
-}
+TextManager::TextManager() { }
 
 TextManager::~TextManager() {
 	Clear();
 }
 
-bool TextManager::AddText(Font* _pFont, const string & _lpszUText, const Rect & _rRect, Color _lCol, long _lTimeOut, long _lTimeScroll, float _fSpeedScroll, int iNbLigneClipp) {
+bool TextManager::AddText(Font * _pFont, const std::string & _lpszUText,
+                          const Rect & _rRect, Color _lCol,
+                          PlatformDuration _lTimeOut, PlatformDuration _lTimeScroll,
+                          float _fSpeedScroll, int iNbLigneClipp) {
 	
 	if(_lpszUText.empty()) {
 		return false;
@@ -86,6 +87,8 @@ bool TextManager::AddText(Font* _pFont, const string & _lpszUText, const Rect & 
 		return false;
 	}
 	
+	arx_assert(!_rRect.empty());
+	
 	pArxText->pFont = _pFont;
 	pArxText->lpszUText = _lpszUText;
 	pArxText->rRect = _rRect;
@@ -96,11 +99,9 @@ bool TextManager::AddText(Font* _pFont, const string & _lpszUText, const Rect & 
 	pArxText->lTimeOut = _lTimeOut;
 	pArxText->rRectClipp = pArxText->rRect;
 	
-	if(iNbLigneClipp) 
-	{
+	if(iNbLigneClipp) {
 		Vec2i sSize = _pFont->getTextSize(pArxText->lpszUText);
 		sSize.y *= iNbLigneClipp;
-	
 		pArxText->rRectClipp.bottom = pArxText->rRect.top + sSize.y;
 	}
 	
@@ -109,24 +110,18 @@ bool TextManager::AddText(Font* _pFont, const string & _lpszUText, const Rect & 
 	return true;
 }
 
-bool TextManager::AddText(Font * font, const std::string & str, long x, long y, Color fgcolor) {
+bool TextManager::AddText(Font * font, const std::string & str, Vec2i pos, Color fgcolor) {
 	Rect r;
-	r.left = x;
-	r.top = y;
+	r.left = pos.x;
+	r.top = pos.y;
 	r.right = Rect::Limits::max();
 	r.bottom = Rect::Limits::max();
 	return AddText(font, str, r, fgcolor);
 }
 
-void TextManager::Update(float _fDiffFrame) {
+void TextManager::Update(PlatformDuration _iDiffFrame) {
 	
-	int _iDiffFrame = checked_range_cast<int>(_fDiffFrame);
-	
-	// TODO-slussier: Until we fix the arxtime.get_updated() mess, it's easy to have a FrameDiff of 0...
-	if(_iDiffFrame == 0)
-		_iDiffFrame = 1;
-	
-	vector<ManagedText *>::iterator itManage;
+	std::vector<ManagedText *>::iterator itManage;
 	for(itManage = entries.begin(); itManage != entries.end();) {
 		
 		ManagedText * pArxText = *itManage;
@@ -139,9 +134,9 @@ void TextManager::Update(float _fDiffFrame) {
 		
 		pArxText->lTimeOut -= _iDiffFrame;
 		
-		if(pArxText->lTimeScroll < 0 &&
-		   pArxText->fDeltaY < (pArxText->rRect.bottom - pArxText->rRectClipp.bottom)) {
-			pArxText->fDeltaY += pArxText->fSpeedScrollY * (float)_iDiffFrame;
+		if(pArxText->lTimeScroll < 0
+		   && pArxText->fDeltaY < float(pArxText->rRect.bottom - pArxText->rRectClipp.bottom)) {
+			pArxText->fDeltaY += pArxText->fSpeedScrollY * toMs(_iDiffFrame);
 			
 			if(pArxText->fDeltaY >= (pArxText->rRect.bottom - pArxText->rRectClipp.bottom)) {
 				pArxText->fDeltaY = static_cast<float>(pArxText->rRect.bottom - pArxText->rRectClipp.bottom);
@@ -156,7 +151,7 @@ void TextManager::Update(float _fDiffFrame) {
 }
 
 void TextManager::Render() {
-	vector<ManagedText *>::const_iterator itManage = entries.begin();
+	std::vector<ManagedText *>::const_iterator itManage = entries.begin();
 	for(; itManage != entries.end(); ++itManage) {
 		
 		ManagedText * pArxText = *itManage;
@@ -173,8 +168,8 @@ void TextManager::Render() {
 			maxx = static_cast<float>(pArxText->rRect.right);
 		}
 
-		long height = ARX_UNICODE_DrawTextInRect(pArxText->pFont, static_cast<float>(pArxText->rRect.left),
-		                                         pArxText->rRect.top - pArxText->fDeltaY,
+		long height = ARX_UNICODE_DrawTextInRect(pArxText->pFont,
+		                                         Vec2f(pArxText->rRect.left, pArxText->rRect.top - pArxText->fDeltaY),
 		                                         maxx,
 		                                         pArxText->lpszUText, pArxText->lCol, pRectClip);
 		
@@ -184,7 +179,7 @@ void TextManager::Render() {
 
 void TextManager::Clear() {
 	
-	vector<ManagedText *>::iterator itManage;
+	std::vector<ManagedText *>::iterator itManage;
 	for(itManage = entries.begin(); itManage < entries.end(); ++itManage) {
 		delete *itManage;
 	}
@@ -192,7 +187,6 @@ void TextManager::Clear() {
 	entries.clear();
 }
 
-bool TextManager::Empty() const 
-{
+bool TextManager::Empty() const {
 	return entries.empty();
 }

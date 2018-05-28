@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -58,9 +58,8 @@ public:
 	aalError setVolume(float volume);
 	aalError setParent(const Mixer * mixer);
 	
-	inline float getVolume() const { return volume; }
-	inline bool isPaused() const { return paused; }
-	inline float getFinalVolume() const { return finalVolume; }
+	bool isPaused() const { return paused; }
+	float getFinalVolume() const { return finalVolume; }
 	
 	aalError stop();
 	aalError pause();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -26,35 +26,36 @@
 
 #include "graphics/Renderer.h"
 #include "platform/Platform.h"
-#include "platform/Flags.h"
+#include "util/Flags.h"
 
 enum BufferFlag {
-	DiscardBuffer = (1<<0),
-	DiscardRange  = (1<<1),
-	NoOverwrite   = (1<<2)
+	DiscardBuffer = 1 << 0,
+	DiscardRange  = 1 << 1,
+	NoOverwrite   = 1 << 2
 };
-DECLARE_FLAGS(BufferFlag, BufferFlags);
-DECLARE_FLAGS_OPERATORS(BufferFlags);
+DECLARE_FLAGS(BufferFlag, BufferFlags)
+DECLARE_FLAGS_OPERATORS(BufferFlags)
 
 template <class Index>
 class IndexBuffer : private boost::noncopyable {
 	
 public:
 	
-	inline size_t capacity() const { return _capacity; }
+	size_t capacity() const { return m_capacity; }
 	
 	virtual void setData(const Index * vertices, size_t count, size_t offset = 0, BufferFlags flags = 0) = 0;
 	
-	virtual Index * lock(BufferFlags flags = 0, size_t offset = 0, size_t count = (size_t)-1) = 0;
+	virtual Index * lock(BufferFlags flags = 0, size_t offset = 0, size_t count = size_t(-1)) = 0;
 	virtual void unlock() = 0;
 	
 	virtual ~IndexBuffer() { }
 	
 protected:
 
-	explicit IndexBuffer(size_t capacity) : _capacity(capacity) { }
+	explicit IndexBuffer(size_t capacity) : m_capacity(capacity) { }
 	
-	const size_t _capacity;
+	const size_t m_capacity;
+	
 };
 
 template <class Vertex>
@@ -62,23 +63,24 @@ class VertexBuffer : private boost::noncopyable {
 	
 public:
 	
-	inline size_t capacity() const { return _capacity; }
+	size_t capacity() const { return m_capacity; }
 	
 	virtual void setData(const Vertex * vertices, size_t count, size_t offset = 0, BufferFlags flags = 0) = 0;
 	
-	virtual Vertex * lock(BufferFlags flags = 0, size_t offset = 0, size_t count = (size_t)-1) = 0;
+	virtual Vertex * lock(BufferFlags flags = 0, size_t offset = 0, size_t count = size_t(-1)) = 0;
 	virtual void unlock() = 0;
 	
 	virtual void draw(Renderer::Primitive primitive, size_t count, size_t offset = 0) const = 0;
-	virtual void drawIndexed(Renderer::Primitive primitive, size_t count, size_t offset, unsigned short * indices, size_t nbindices) const = 0;
+	virtual void drawIndexed(Renderer::Primitive primitive, size_t count, size_t offset, const unsigned short * indices, size_t nbindices) const = 0;
 	
 	virtual ~VertexBuffer() { }
 	
 protected:
 	
-	explicit VertexBuffer(size_t capacity) : _capacity(capacity) { }
+	explicit VertexBuffer(size_t capacity) : m_capacity(capacity) { }
 	
-	const size_t _capacity;
+	const size_t m_capacity;
+	
 };
 
 template <class Vertex>

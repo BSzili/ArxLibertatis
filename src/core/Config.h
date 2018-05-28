@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,16 +22,17 @@
 
 #include <string>
 
+#include "audio/AudioTypes.h"
+
 #include "input/InputKey.h"
 
 #include "io/fs/FilePath.h"
 
-#include "math/MathFwd.h"
-#include "math/Vector2.h"
+#include "math/Types.h"
+#include "math/Vector.h"
 
 //! Enum for all the controlling actions
 enum ControlAction {
-	
 	CONTROLS_CUST_JUMP = 0,
 	CONTROLS_CUST_MAGICMODE,
 	CONTROLS_CUST_STEALTHMODE,
@@ -42,7 +43,7 @@ enum ControlAction {
 	CONTROLS_CUST_LEANLEFT,
 	CONTROLS_CUST_LEANRIGHT,
 	CONTROLS_CUST_CROUCH,
-	CONTROLS_CUST_MOUSELOOK,
+	CONTROLS_CUST_USE,
 	CONTROLS_CUST_ACTION,
 	CONTROLS_CUST_INVENTORY,
 	CONTROLS_CUST_BOOK,
@@ -52,50 +53,68 @@ enum ControlAction {
 	CONTROLS_CUST_BOOKQUEST,
 	CONTROLS_CUST_DRINKPOTIONLIFE,
 	CONTROLS_CUST_DRINKPOTIONMANA,
+	CONTROLS_CUST_DRINKPOTIONCURE,
 	CONTROLS_CUST_TORCH,
-	
 	CONTROLS_CUST_PRECAST1,
 	CONTROLS_CUST_PRECAST2,
 	CONTROLS_CUST_PRECAST3,
 	CONTROLS_CUST_WEAPON,
 	CONTROLS_CUST_QUICKLOAD,
 	CONTROLS_CUST_QUICKSAVE,
-	
 	CONTROLS_CUST_TURNLEFT,
 	CONTROLS_CUST_TURNRIGHT,
 	CONTROLS_CUST_LOOKUP,
 	CONTROLS_CUST_LOOKDOWN,
-	
 	CONTROLS_CUST_STRAFE,
 	CONTROLS_CUST_CENTERVIEW,
-	
 	CONTROLS_CUST_FREELOOK,
-	
 	CONTROLS_CUST_PREVIOUS,
 	CONTROLS_CUST_NEXT,
-	
 	CONTROLS_CUST_CROUCHTOGGLE,
-	
 	CONTROLS_CUST_UNEQUIPWEAPON,
-	
 	CONTROLS_CUST_CANCELCURSPELL,
-	
 	CONTROLS_CUST_MINIMAP,
-	
 	CONTROLS_CUST_TOGGLE_FULLSCREEN,
-	
+	CONTROLS_CUST_CONSOLE,
 	NUM_ACTION_KEY
+};
+
+enum CinematicWidescreenMode {
+	CinematicLetterbox = 0,
+	CinematicHardEdges = 1,
+	CinematicFadeEdges = 2
+};
+
+enum UIScaleFilter {
+	UIFilterNearest = 0,
+	UIFilterBilinear = 1
+};
+
+enum QuickLevelTransition {
+	NoQuickLevelTransition = 0,
+	JumpToChangeLevel = 1,
+	ChangeLevelImmediately = 2,
+};
+
+enum AutoReadyWeapon {
+	NeverAutoReadyWeapon = 0,
+	AutoReadyWeaponNearEnemies = 1,
+	AlwaysAutoReadyWeapon = 2,
 };
 
 struct ActionKey {
 	
-	ActionKey(InputKeyId key_0 = -1, InputKeyId key_1 = -1) {
+	explicit ActionKey(InputKeyId key_0 = UNUSED,
+	                   InputKeyId key_1 = UNUSED) {
+		if(key_0 != UNUSED && key_0 == key_1) {
+			key_1 = UNUSED;
+		}
 		key[0] = key_0;
 		key[1] = key_1;
 	}
 	
 	InputKeyId key[2];
-	
+	static const InputKeyId UNUSED = -1;
 };
 
 class Config {
@@ -108,28 +127,57 @@ public:
 	// section 'video'
 	struct {
 		
+		std::string renderer;
+		
 		Vec2i resolution;
-		int bpp;
 		
 		bool fullscreen;
 		int levelOfDetail;
 		float fogDistance;
-		bool showCrosshair;
+		float gamma;
 		bool antialiasing;
-		bool vsync;
+		int vsync;
+		int fpsLimit;
+		int maxAnisotropicFiltering;
+		bool colorkeyAntialiasing;
+		int alphaCutoutAntialiasing;
+		
+		int bufferSize;
+		std::string bufferUpload;
+		
 	} video;
+	
+	// section 'interface'
+	struct {
+		
+		bool showCrosshair;
+		
+		bool limitSpeechWidth;
+		CinematicWidescreenMode cinematicWidescreenMode;
+		
+		float hudScale;
+		bool hudScaleInteger;
+		bool scaleCursorWithHud;
+		UIScaleFilter hudScaleFilter;
+		
+		Vec2i thumbnailSize;
+		
+	} interface;
 	
 	// section 'window'
 	struct {
 		
 		Vec2i size;
 		
-		std::string framework;
+		bool minimizeOnFocusLost;
 		
 	} window;
 	
 	// section 'audio'
 	struct {
+		
+		std::string backend;
+		std::string device;
 		
 		float volume;
 		float sfxVolume;
@@ -137,22 +185,25 @@ public:
 		float ambianceVolume;
 		
 		bool eax;
+		audio::HRTFAttribute hrtf;
+		bool muteOnFocusLost;
 		
-		std::string backend;
-	
 	} audio;
 	
 	// section 'input'
 	struct {
 		
 		bool invertMouse;
-		bool autoReadyWeapon;
+		AutoReadyWeapon autoReadyWeapon;
 		bool mouseLookToggle;
 		bool autoDescription;
 		int mouseSensitivity;
-		bool linkMouseLookToUse;
-		
-		std::string backend;
+		int mouseAcceleration;
+		bool rawMouseInput;
+		bool borderTurning;
+		bool useAltRuneRecognition;
+		QuickLevelTransition quickLevelTransition;
+		bool allowConsole;
 		
 	} input;
 	
@@ -179,22 +230,23 @@ public:
 	
 public:
 	
-	bool setActionKey(ControlAction action, int index, InputKeyId key);
+	void setActionKey(ControlAction action, size_t index, InputKeyId key);
 	void setDefaultActionKeys();
 	
 	/*!
 	 * Saves all config entries to a file.
-	 * @return true if the config was saved successfully.
+	 * \return true if the config was saved successfully.
 	 */
 	bool save();
 	
 	bool init(const fs::path & file);
 	
-	void setOutputFile(const fs::path & _file);
+	void setOutputFile(const fs::path & file);
 	
 private:
 	
-	fs::path file;
+	fs::path m_file;
+	
 };
 
 extern Config config;

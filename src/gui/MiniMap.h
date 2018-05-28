@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,20 +49,22 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <string>
 #include <vector>
-#include "math/MathFwd.h"
+#include "math/Types.h"
 #include "gui/Interface.h"
 #include "gui/Text.h"
+#include "gui/book/Book.h"
 #include "io/resource/PakReader.h"
 #include "game/EntityManager.h"
 #include "game/Player.h"
 #include "graphics/data/Mesh.h"
+#include "graphics/VertexBuffer.h"
 
 class TextureContainer;
 struct SavedMiniMap;
 
-#define MINIMAP_MAX_X 50
-#define MINIMAP_MAX_Z 50
-#define MAX_MINIMAP_LEVELS 32
+static const size_t MINIMAP_MAX_X = 50;
+static const size_t MINIMAP_MAX_Z = 50;
+static const size_t MAX_MINIMAP_LEVELS = 32;
 
 class MiniMap {
 	
@@ -71,19 +73,16 @@ public:
 	//! MiniMap data
 	struct MiniMapData {
 		
-		TextureContainer* m_texContainer;
+		TextureContainer * m_texContainer;
 		
 		//! Start of scene pos x
-		float m_offsetX;
-		float m_offsetY;
+		Vec2f m_offset;
 		
 		//! Multiply x by ratioX to obtain real-world pos
-		float m_ratioX;
-		float m_ratioY;
+		Vec2f m_ratio;
 		
 		//! Bitmap width/height
-		float m_width;
-		float m_height;
+		Vec2f m_size;
 		
 		unsigned char m_revealed[MINIMAP_MAX_X][MINIMAP_MAX_Z];
 		
@@ -91,51 +90,32 @@ public:
 	
 	//! Map markers
 	struct MapMarkerData {
-		float m_x;
-		float m_y;
+		Vec2f m_pos;
 		int m_lvl;
 		std::string m_name;
 		std::string m_text;
 	};
 	
-	void mapMarkerRemove(const std::string &name);
-	void mapMarkerAdd(float x, float y, int lvl, const std::string &name);
+	void mapMarkerRemove(const std::string & name);
+	void mapMarkerAdd(const Vec2f & pos, int lvl, const std::string & name);
 	void mapMarkerInit(size_t reserveSize = 0);
 	size_t mapMarkerCount();
 	MapMarkerData mapMarkerGet(size_t id);
 	
-	void firstInit(ARXCHARACTER *pl, PakReader *pakRes, EntityManager *entityMng); // This should be a constructor
+	void firstInit(ARXCHARACTER * pl, PakReader * pakRes, EntityManager * entityMng); // This should be a constructor
 	void reset();
 	void purgeTexContainer();
 	
-	/*! 
-	* Calls revealPlayerPos if the player moved, also sets m_currentLevel and m_playerPos
-	*
-	* @param int currentLevel
-	* @param long blockPlayerControls
-	* @param ARX_INTERFACE_BOOK_MODE bookMode
-	*/
+	//! Calls revealPlayerPos if the player moved, also sets m_currentLevel and m_playerPos
 	void validatePlayerPos(int currentLevel, long blockPlayerControls, ARX_INTERFACE_BOOK_MODE bookMode);
 	
-	/*! 
-	* Shows the top right minimap
-	*
-	* @param int showLevel
-	*/
+	//! Shows the top right minimap
 	void showPlayerMiniMap(int showLevel);
 	
-	/*! 
-	* Shows the zoomed-in minimap in the book
-	*
-	* @param int showLevel
-	*/
+	//! Shows the zoomed-in minimap in the book
 	void showBookMiniMap(int showLevel);
 	
-	/*!
-	* Shows the entire map in the book
-	*
-	* @param int showLevel
-	*/
+	//! Shows the entire map in the book
 	void showBookEntireMap(int showLevel);
 	
 	//! Reveals entirely all levels
@@ -143,58 +123,56 @@ public:
 
 	void clearMarkerTexCont();
 	
-	void load(const SavedMiniMap *saved, size_t size);
-	void save(SavedMiniMap *toSave, size_t size);
+	void load(const SavedMiniMap * saved, size_t size);
+	void save(SavedMiniMap * toSave, size_t size);
 	
-	void setActiveBackground(EERIE_BACKGROUND *activeBkg);
+	void setActiveBackground(BackgroundData * activeBkg);
 	
 private:
 	
 	int m_currentLevel;
-	EntityManager *m_entities;
-	EERIE_BACKGROUND *m_activeBkg;
+	EntityManager * m_entities;
+	BackgroundData * m_activeBkg;
 	
-	float m_miniOffsetX[MAX_MINIMAP_LEVELS];
-	float m_miniOffsetY[MAX_MINIMAP_LEVELS];
+	Vec2f m_miniOffset[MAX_MINIMAP_LEVELS];
 	float m_mapMaxY[MAX_MINIMAP_LEVELS];
 	
-	TextureContainer *m_pTexDetect;
-	TextureContainer *m_mapMarkerTexCont;
+	TextureContainer * m_pTexDetect;
+	TextureContainer * m_mapMarkerTexCont;
 	
-	ARXCHARACTER *m_player;
+	ARXCHARACTER * m_player;
 	float m_playerLastPosX;
 	float m_playerLastPosZ;
 	
-	/*const */float m_modX; // used everywhere, calculate it once
-	/*const */float m_modZ; // should and will be const
+	// should be const
+	Vec2f m_mod;
 	
 	std::vector<MapMarkerData> m_mapMarkers;
 	MiniMapData m_levels[MAX_MINIMAP_LEVELS];
 	
 	void getData(int showLevel);
 	void resetLevels();
-	void loadOffsets(PakReader *pakRes);
+	void loadOffsets(PakReader * pakRes);
 	void validatePos();
 	
 	/*!
 	* Reveals the direct surroundings of the player
-	*
-	* @param int showLevel
 	*/
 	void revealPlayerPos(int showLevel);
 	
 	/*!
 	* Gets the id from the MapMarker's name. Returns -1 when not found.
 	*
-	* @param std::string name
-	* @return MapMarker's id (int).
+	* \return MapMarker's id (int).
 	*/
-	int mapMarkerGetID(const std::string &name);
+	int mapMarkerGetID(const std::string & name);
 	
 	Vec2f computePlayerPos(float zoom, int showLevel);
-	void drawBackground(int showLevel, Rect boundaries, float startX, float startY, float zoom, float fadeBorder = 0.f, float decalX = 0.f, float decalY = 0.f, bool invColor = false, float alpha = 1.f);
-	void drawPlayer(float playerSize, float playerX, float playerY, bool alphaBlending = false);
-	void drawDetectedEntities(int showLevel, float startX, float startY, float zoom);
+	void drawBackground(int showLevel, Rect boundaries, Vec2f start, float zoom, float fadeBorder = 0.f, Vec2f decal = Vec2f(0.f, 0.f), bool invColor = false, float alpha = 1.f);
+	void drawPlayer(float playerSize, Vec2f playerPos, bool alphaBlending);
+	void drawDetectedEntities(int showLevel, Vec2f start, float zoom);
+	
+	std::vector<TexturedVertex> m_mapVertices;
 	
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -40,219 +40,46 @@ If you have questions concerning this license or the applicable additional terms
 ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 ===========================================================================
 */
-// Copyright (c) 1999-2001 ARKANE Studios SA. All rights reserved
 
 #ifndef ARX_GRAPHICS_SPELLS_SPELLS05_H
 #define ARX_GRAPHICS_SPELLS_SPELLS05_H
 
+#include "graphics/effects/FloatingStones.h"
+#include "graphics/effects/RotatingCone.h"
 #include "graphics/effects/SpellEffects.h"
 #include "graphics/particle/ParticleSystem.h"
 
-// Cyril = Global Resources
-extern EERIE_3DOBJ * ssol;
-extern long ssol_count;
-extern EERIE_3DOBJ * slight;
-extern long slight_count;
-extern EERIE_3DOBJ * srune;
-extern long srune_count;
-extern EERIE_3DOBJ * smotte;
-extern long smotte_count;
-extern EERIE_3DOBJ * stone1;
-extern long stone1_count;
-extern EERIE_3DOBJ * stone0;
-extern long stone0_count;
-extern EERIE_3DOBJ * stite;
-extern long stite_count;
-extern EERIE_3DOBJ * smissile;
-extern long smissile_count;
-extern EERIE_3DOBJ * spapi;
-extern long spapi_count;
-extern EERIE_3DOBJ * svoodoo;
-extern long svoodoo_count;
-
-// Done By : did
-class CRuneOfGuarding: public CSpellFx
-{
-	public:
-		bool bDone;
-		int iNumber;
-		Vec3f eSrc;
-		Vec3f eTarget;
-
-		TextureContainer * tex_p1;
-		TextureContainer * tex_p2;
-
-		int iMax;
-		float fSize;
-
-	public:
-		CRuneOfGuarding();
-		~CRuneOfGuarding();
-		// accesseurs
-	public:
-		void	SetPos(Vec3f);
-
-		// surcharge
-	public:
-		void	Create(Vec3f, float afBeta = 0);
-		void	Kill();
-		void	Update(unsigned long);
-		float	Render();
-};
-
-// Done By : Sébastien Scieux
-class CLevitate: public CSpellFx
-{
-	private:
-		short		key;
-		short		def;
-		Vec3f	pos;
-		float		rbase, rhaut, hauteur, scale;
-		float		ang;
-		int			currdurationang;
-		int			currframetime;
-		TextureContainer * tsouffle;
-
-		struct T_CONE
-		{
-			int				conenbvertex;
-			int				conenbfaces;
-			Vec3f	*	conevertex;
-			TexturedVertex	*	coned3d;
-			unsigned short	* coneind;
-		};
-
-		T_CONE		cone[2];
-
-		EERIE_3DOBJ	*	stone[2];
-
-		struct T_STONE
-		{
-			short		actif;
-			short		numstone;
-			Vec3f	pos;
-			float		yvel;
-			Anglef	ang;
-			Anglef	angvel;
-			Vec3f	scale;
-			int			time;
-			int			currtime;
-		};
-
-		int				timestone;
-		int				nbstone;
-		T_STONE			tstone[256];
-
-		void AddStone(Vec3f * pos);
-		void DrawStone();
-
-		void CreateConeStrip(float rout, float rhaut, float hauteur, int def, int numcone);
-	public:
-		CLevitate();
-		~CLevitate();
-
-		void ChangePos(Vec3f * pos)
-		{
-			this->pos = *pos;
-		};
-
-		void	Create(int def, float rout, float rhaut, float hauteur, Vec3f * pos, unsigned long);
-		void	Update(unsigned long);
-		float	Render();
- 
-};
 
 // Done By : Didier Pédreno
-class CCurePoison: public CSpellFx
-{
-	public:
-		Vec3f eSrc;
-		float	fSize;
-		ParticleSystem * pPS;
-		TextureContainer * tex_sol;
-		TextureContainer * tex_heal;
-
-	public:
-		CCurePoison();
-		~CCurePoison();
-
-	public:
-		void	Create();
-		void	Update(unsigned long);
-		float	Render();
- 
-};
-
-// Done By : Didier Pédreno
-class CPoisonProjectile: public CSpellFx {
+class CPoisonProjectile : public CSpellFx {
 	
 public:
 	
-	float fTrail;
-	bool  bOk;
+	CPoisonProjectile();
+	
+	void Create(Vec3f _eSrc, float _fBeta = 0);
+	void Update(GameDuration timeDelta);
+	void Render();
 	
 	Vec3f eSrc;
 	Vec3f eCurPos;
+	float lightIntensityFactor;
+	
+	LightHandle lLightId;
+	
+private:
+	
+	float fBetaRadCos;
+	float fBetaRadSin;
+	
+	bool  bOk;
+	float fTrail;
+	
 	Vec3f eMove;
-	TexturedVertex pathways[40];
+	Vec3f pathways[40];
 	ParticleSystem pPS;
 	ParticleSystem pPSStream;
 	
-	CPoisonProjectile();
-	
-	// surcharge
-	void Create(Vec3f, float afBeta = 0);
-	void Update(unsigned long);
-	float Render();
-	
-};
-
-class CMultiPoisonProjectile: public CSpellFx
-{
-	public:
-		unsigned int uiNumber;
-
-	private:
-		CPoisonProjectile ** pTab;
-
-	public:
-		explicit CMultiPoisonProjectile(long nb);
-		~CMultiPoisonProjectile();
-
-		// surcharge
-	public:
-		void	Create(Vec3f, float);
-		void	Kill();
-		void	Update(unsigned long);
-		float	Render();
-};
-
-// Done By : did
-class CRepelUndead: public CSpellFx
-{
-	public:
-		bool bDone;
-		int iNumber;
-		Vec3f eSrc;
-		Vec3f eTarget;
-		TextureContainer * tex_p1;
-		TextureContainer * tex_p2;
-
-		int iMax;
-		float fSize;
-
-	public:
-		CRepelUndead();
-		~CRepelUndead();
-
-	public:
-		void SetPos(Vec3f);
-
-	public:
-		void	Create(Vec3f, float afBeta = 0);
-		void	Kill();
-		void	Update(unsigned long);
-		float	Render();
 };
 
 #endif // ARX_GRAPHICS_SPELLS_SPELLS05_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,46 +47,32 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <stddef.h>
 #include <string>
 
+#include "core/SaveGame.h"
+
 // Video options
 
-void ARXMenu_Options_Video_SetFogDistance(int fogDistance);
+void ARXMenu_Options_Video_SetFogDistance(float distance);
 void ARXMenu_Options_Video_SetDetailsQuality(int lod);
+void ARXMenu_Options_Video_SetGamma(float gamma);
 
 // Audio options
 
-void ARXMenu_Options_Audio_SetMasterVolume(int volume);
-void ARXMenu_Options_Audio_SetSfxVolume(int volume);
-void ARXMenu_Options_Audio_SetSpeechVolume(int volume);
-void ARXMenu_Options_Audio_SetAmbianceVolume(int volume);
-bool ARXMenu_Options_Audio_SetEAX(bool enabled);
+void ARXMenu_Options_Audio_SetDevice(const std::string & device);
+void ARXMenu_Options_Audio_SetMasterVolume(float volume);
+void ARXMenu_Options_Audio_SetSfxVolume(float volume);
+void ARXMenu_Options_Audio_SetSpeechVolume(float volume);
+void ARXMenu_Options_Audio_SetAmbianceVolume(float volume);
 void ARXMenu_Options_Audio_ApplyGameVolumes();
-
-// Input options
-
-void ARXMenu_Options_Control_GetInvertMouse(bool & invert);
-void ARXMenu_Options_Control_SetInvertMouse(bool invert);
-void ARXMenu_Options_Control_SetMouseSensitivity(int sensitivity);
+void ARXMenu_Options_Audio_SetMuted(bool mute);
 
 // Resume game
 
-void ARXMenu_GetResumeGame(bool & allowResume);
 void ARXMenu_ResumeGame();
 
 // New quest
 
 void ARXMenu_NewQuest();
 
-// Save/Load quest
-
-void ARXMenu_LoadQuest(size_t num);
-void ARXMenu_SaveQuest(const std::string & name, size_t num = size_t(-1));
-
-// Credits
-
-void ARXMenu_Credits();
-
-// Quit
-
-void ARXMenu_Quit();
+void ARXMenu_Private_Options_Video_SetResolution(bool fullscreen, int _iWidth, int _iHeight);
 
 #endif // ARX_GUI_MENUPUBLIC_H

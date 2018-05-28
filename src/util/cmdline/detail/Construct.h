@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -38,14 +38,14 @@
 
 namespace util { namespace cmdline {
 
-template<typename T, typename Alloc>
+template <typename T, typename Alloc>
 class ellipsis;
 
-template<typename T>
+template <typename T>
 struct optional;
 
-template<typename SourceType, typename R>
-R construct(SourceType & arg , const R * = 0) {
+template <typename SourceType, typename R>
+R construct(SourceType & arg , const R * /* unused */ = 0) {
 	
 	if(arg.empty()) {
 		throw error(error::invalid_arg_count, "not enough arguments");
@@ -56,8 +56,8 @@ R construct(SourceType & arg , const R * = 0) {
 	return ret;
 }
 
-template<typename SourceType, typename P, typename Alloc>
-ellipsis<P, Alloc> construct(SourceType & arg, const ellipsis<P, Alloc> * = 0) {
+template <typename SourceType, typename P, typename Alloc>
+ellipsis<P, Alloc> construct(SourceType & arg, const ellipsis<P, Alloc> * /* unused */ = 0) {
 	
 	ellipsis<P, Alloc> ret;
 	
@@ -68,8 +68,8 @@ ellipsis<P, Alloc> construct(SourceType & arg, const ellipsis<P, Alloc> * = 0) {
 	return ret;
 }
 
-template<typename SourceType, typename T>
-optional<T> construct(SourceType & arg, const optional<T> * = 0) {
+template <typename SourceType, typename T>
+optional<T> construct(SourceType & arg, const optional<T> * /* unused */ = 0) {
 	
 	if(arg.opt_empty()) {
 		return optional<T>();

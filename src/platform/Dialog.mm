@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,14 +22,14 @@
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
 
-namespace dialog {
+namespace platform {
 
-bool showDialog(DialogType type, const std::string& message, const std::string& dialogTitle) {
+bool showDialog(DialogType type, const std::string & message, const std::string & title) {
 	
 	bool result = true;
 	NSAlert *alert = [NSAlert new];
 	
-	[alert setMessageText: [NSString stringWithUTF8String: dialogTitle.c_str()]];
+	[alert setMessageText: [NSString stringWithUTF8String: title.c_str()]];
 	[alert setInformativeText: [NSString stringWithUTF8String: message.c_str()]];
 	
 	switch(type) {
@@ -49,6 +49,10 @@ bool showDialog(DialogType type, const std::string& message, const std::string& 
 			[alert setAlertStyle: NSCriticalAlertStyle];
 			[alert runModal];
 			break;
+		
+		case DialogWarnYesNo:
+			[alert setAlertStyle: NSWarningAlertStyle];
+			/* fall-through */
 		
 		case DialogYesNo:
 			[alert addButtonWithTitle: @"Yes"];
@@ -76,4 +80,4 @@ bool showDialog(DialogType type, const std::string& message, const std::string& 
 	return result;
 }
 
-}
+} // namespace platform

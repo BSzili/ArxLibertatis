@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -53,129 +53,92 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifdef __amigaos4__
 #include "graphics/image/Image.h"
 #endif
+#include "core/TimeTypes.h"
 #include "graphics/Color.h"
 #include "graphics/data/Mesh.h"
 #include "io/resource/ResourcePath.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 #include "Configure.h"
 
 class TextureContainer;
 struct EERIE_3DOBJ;
-struct EERIE_MULTI3DSCENE;
 
 const size_t MAX_GOLD_COINS_VISUALS = 7;
-
-extern Color3f FADECOLOR;
-extern TextureContainer * TC_fire2;
-extern TextureContainer * TC_fire;
-extern TextureContainer * TC_smoke;
 extern TextureContainer * GoldCoinsTC[MAX_GOLD_COINS_VISUALS];
-extern EERIE_3DOBJ * cabal;
+
+extern TextureContainer * TC_smoke;
+
 extern EERIE_3DOBJ * cameraobj;
 extern EERIE_3DOBJ * markerobj;
-extern Vec3f lastteleport;
-extern EERIE_CAMERA bookcam;
 extern Vec2s DANAEMouse;
-extern EERIE_CAMERA subj, mapcam;
-extern Vec3f moveto;
+extern Vec3f g_moveto;
 extern Vec2s STARTDRAG;
 extern EERIE_3DOBJ * GoldCoinsObj[MAX_GOLD_COINS_VISUALS];
-extern EERIE_3DOBJ * nodeobj;
-extern Vec3f Mscenepos;
-#ifdef BUILD_EDIT_LOADSAVE
-extern EERIE_MULTI3DSCENE * mse;
-extern long ADDED_IO_NOT_SAVED;
-#endif
-extern EERIE_CAMERA * Kam;
 extern Entity * COMBINE;
 extern res::path LastLoadedScene;
-extern char TELEPORT_TO_LEVEL[64];
-extern char TELEPORT_TO_POSITION[64];
+
+extern std::string TELEPORT_TO_LEVEL;
+extern std::string TELEPORT_TO_POSITION;
+
 extern float PULSATE;
-extern float framedelay;
-extern float BASE_FOCAL;
 
-extern float Xratio;
-extern float Yratio;
-inline Vec2f sizeRatio() { return Vec2f(Xratio, Yratio); }
-inline float minSizeRatio() { return std::min(Xratio, Yratio); }
+extern float g_framedelay;
 
-extern long	FADEDURATION;
-extern long	FADEDIR;
-extern float FrameDiff;
-extern long FirstFrame;
-#ifdef BUILD_EDITOR
-extern long EDITMODE;
-extern long EDITION;
-extern long DEBUGNPCMOVE;
-#else
-const long EDITMODE = 0;
-#endif
-extern long SHOW_TORCH;
+extern bool g_requestLevelInit;
+
 extern long CURRENTLEVEL;
 extern long TELEPORT_TO_ANGLE;
-extern long DANAESIZX;
-extern long DANAESIZY;
-extern long DANAECENTERX;
-extern long DANAECENTERY;
-extern unsigned long FADESTART;
-extern unsigned long AimTime;
+
+inline float bowZoomFromDuration(float duration) {
+	return duration / 710.f;
+}
+
+extern Rect g_size;
+
+extern Vec2f g_sizeRatio;
+inline float minSizeRatio() { return std::min(g_sizeRatio.x, g_sizeRatio.y); }
+
+inline float RATIO_X(float a) { return a * g_sizeRatio.x; }
+inline float RATIO_Y(float a) { return a * g_sizeRatio.y; }
+
+inline Vec2f RATIO_2(const Vec2f & in) {
+	return Vec2f(RATIO_X(in.x), RATIO_Y(in.y));
+}
 
 class Image;
 extern Image savegame_thumbnail;
 
-extern float Original_framedelay;
-extern long LOADEDD;
-extern std::string WILL_LAUNCH_CINE;
-extern long PLAY_LOADED_CINEMATIC;
-extern long CINE_PRELOAD;
+extern bool g_debugToggles[10];
+extern bool g_debugTriggers[10];
+extern PlatformInstant g_debugTriggersTime[10];
+static const PlatformDuration g_debugTriggersDecayDuration = PlatformDurationMs(200);
+extern float g_debugValues[10];
 
-struct QUAKE_FX_STRUCT {
-	float intensity;
-	float frequency;
-	unsigned long start;
-	unsigned long duration;
-	long	flags;
+enum ChangeLevelIcon {
+	NoChangeLevel,
+	ConfirmChangeLevel,
+	ChangeLevelNow
 };
-extern QUAKE_FX_STRUCT QuakeFx;
+extern ChangeLevelIcon CHANGE_LEVEL_ICON;
 
-void SetEditMode(long ed, const bool stop_sound = true);
-void AddQuakeFX(float intensity, float duration, float period, long flags);
+extern Vec3f LastValidPlayerPos;
 
-void SendGameReadyMsg();
-void DanaeSwitchFullScreen();
-void DANAE_KillCinematic();
-void ARX_SetAntiAliasing();
-void ReMappDanaeButton();
-void AdjustMousePosition();
+void SetEditMode();
+
 void DANAE_StartNewQuest();
-bool DANAE_ManageSplashThings();
-long DANAE_Manage_Cinematic();
-void DanaeRestoreFullScreen();
-void FirstFrameHandling();
+bool AdjustUI();
 
-void ShowTestText();
-void ShowInfoText();
-void ShowFPS();
+void levelInit();
 
 void DrawImproveVisionInterface();
-void DrawMagicSightInterface();
-void RenderAllNodes();
-
-void CheckMr();
-
-void ManageFade();
-void ManageQuakeFX();
 
 void ManageCombatModeAnimations();
 void ManageCombatModeAnimationsEND();
 void ManageNONCombatModeAnimations();
 
-Entity * FlyingOverObject(Vec2s * pos);
+Entity * FlyingOverObject(const Vec2s & pos);
 
 void runGame();
-
-void DANAE_ReleaseAllDatasDynamic();
 
 #endif // ARX_CORE_CORE_H

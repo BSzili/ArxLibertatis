@@ -60,35 +60,12 @@ res::path sample_path;
 res::path ambiance_path;
 res::path environment_path;
 size_t stream_limit_bytes = DEFAULT_STREAMLIMIT;
-size_t session_time = 0;
+PlatformInstant session_time = 0;
 
 // Resources
-ResourceList<Mixer> _mixer;
-ResourceList<Sample> _sample;
-ResourceList<Ambiance> _amb;
-ResourceList<Environment> _env;
-
-size_t unitsToBytes(size_t v, const PCMFormat & _format, TimeUnit unit) {
-	switch(unit) {
-		case UNIT_MS:
-			return (size_t)(float(v) * 0.001f * _format.frequency * _format.channels * (_format.quality >> 3)) / 1000;
-		case UNIT_SAMPLES:
-			return v * _format.channels * (_format.quality >> 3);
-		default:
-			return v;
-	}
-}
-
-size_t bytesToUnits(size_t v, const PCMFormat & _format, TimeUnit unit) {
-	switch(unit) {
-		case UNIT_MS      :
-			return (size_t)(float(v) * 1000.f / (_format.frequency * _format.channels * (_format.quality >> 3)));
-		case UNIT_SAMPLES :
-			return v / (_format.frequency * _format.channels * (_format.quality >> 3));
-		
-		default:
-			return v;
-	}
-}
+ResourceList<Mixer> g_mixers;
+ResourceList<Sample> g_samples;
+ResourceList<Ambiance> g_ambiances;
+ResourceList<Environment> g_environments;
 
 } // namespace audio

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,24 +44,25 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_DATA_MESHMANIPULATION_H
 #define ARX_GRAPHICS_DATA_MESHMANIPULATION_H
 
-#include "platform/Flags.h"
+#include "graphics/GraphicsTypes.h"
 #include "io/resource/ResourcePath.h"
+#include "util/Flags.h"
 
 struct EERIE_3DOBJ;
 class TextureContainer;
 class Entity;
 
 enum TweakFlag {
-	TWEAK_REMOVE    = (1<<0),
-	TWEAK_HEAD      = (1<<1),
-	TWEAK_TORSO     = (1<<2),
-	TWEAK_LEGS      = (1<<3),
-	TWEAK_TYPE_SKIN = (1<<4),
-	TWEAK_TYPE_ICON = (1<<5),
-	TWEAK_TYPE_MESH = (1<<6)
+	TWEAK_REMOVE    = 1 << 0,
+	TWEAK_HEAD      = 1 << 1,
+	TWEAK_TORSO     = 1 << 2,
+	TWEAK_LEGS      = 1 << 3,
+	TWEAK_TYPE_SKIN = 1 << 4,
+	TWEAK_TYPE_ICON = 1 << 5,
+	TWEAK_TYPE_MESH = 1 << 6
 };
-DECLARE_FLAGS(TweakFlag, TweakType);
-DECLARE_FLAGS_OPERATORS(TweakType);
+DECLARE_FLAGS(TweakFlag, TweakType)
+DECLARE_FLAGS_OPERATORS(TweakType)
 
 struct TWEAK_INFO {
 	
@@ -72,8 +73,8 @@ struct TWEAK_INFO {
 };
 
 void EERIE_MESH_TWEAK_Do(Entity * io, TweakType tw, const res::path & path);
-long IsInSelection(const EERIE_3DOBJ * obj, long vert, long tw);
-void AddVertexIdxToGroup(EERIE_3DOBJ * obj, long group, long val);
+bool IsInSelection(const EERIE_3DOBJ * obj, size_t vert, ObjSelection tw);
+void AddVertexIdxToGroup(EERIE_3DOBJ * obj, size_t group, size_t val);
 void EERIE_MESH_TWEAK_Skin(EERIE_3DOBJ * obj, const res::path & skintochange, const res::path & skinname);
 long ObjectAddMap(EERIE_3DOBJ * obj, TextureContainer * tc);
 

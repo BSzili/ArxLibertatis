@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -19,9 +19,26 @@
 
 #include "graphics/opengl/OpenGLRenderer.h"
 
+#include <algorithm>
+#include <sstream>
+#include <cstring>
+
+#include <glm/gtc/type_ptr.hpp>
+
+#include "platform/Platform.h"
+#include "Configure.h"
+
+#if ARX_HAVE_EPOXY && ARX_PLATFORM == ARX_PLATFORM_WIN32
+#include <epoxy/wgl.h>
+#endif
+
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "core/Application.h"
-#include "graphics/opengl/GLNoVertexBuffer.h"
-#include "graphics/opengl/GLTexture2D.h"
+#include "core/Config.h"
+#include "gui/Credits.h"
+#include "graphics/opengl/GLDebug.h"
+#include "graphics/opengl/GLTexture.h"
 #include "graphics/opengl/GLTextureStage.h"
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 #include "graphics/Math.h"
@@ -32,29 +49,40 @@
 #include "platform/CrashHandler.h"
 #include "window/RenderWindow.h"
 
-static const char vertexShaderSource[] = "void main() {\n"
-	"	// Convert pre-transformed D3D vertices to OpenGL vertices.\n"
-	"	float w = 1.0 / gl_Vertex.w;\n"
-	"	vec4 vertex = vec4(gl_Vertex.xyz * w, w);\n"
-	"	// We only need the projection matrix as modelview will always be idenity.\n"
-	"	gl_Position = gl_ProjectionMatrix * vertex;\n"
-	"	gl_FrontColor = gl_BackColor = gl_Color;\n"
-	"	gl_TexCoord[0] = gl_MultiTexCoord0;\n"
-	"	gl_FogFragCoord = vertex.z;\n"
-	"}\n";
 
-OpenGLRenderer::OpenGLRenderer() : useVertexArrays(false), useVBOs(false), maxTextureStage(0), shader(0), maximumAnisotropy(1.f), initialized(false) { }
+OpenGLRenderer::OpenGLRenderer()
+	: maxTextureStage(0)
+	, m_maximumAnisotropy(1.f)
+	, m_maximumSupportedAnisotropy(1.f)
+	, m_glcull(GL_NONE)
+	, m_glscissor(false)
+	, m_scissor(false)
+	, m_MSAALevel(0)
+	, m_hasMSAA(false)
+	, m_hasTextureNPOT(false)
+	, m_hasSizedTextureFormats(false)
+	, m_hasIntensityTextures(false)
+	, m_hasBGRTextureTransfer(false)
+	, m_hasMapBuffer(false)
+	, m_hasMapBufferRange(false)
+	, m_hasBufferStorage(false)
+	, m_hasBufferUsageStream(false)
+	, m_hasDrawRangeElements(false)
+	, m_hasDrawElementsBaseVertex(false)
+	, m_hasClearDepthf(false)
+	, m_hasVertexFogCoordinate(false)
+	, m_hasSampleShading(false)
+{ }
 
 OpenGLRenderer::~OpenGLRenderer() {
 	
-	shutdown();
+	if(isInitialized()) {
+		shutdown();
+	}
 	
 	// TODO textures must be destructed before OpenGLRenderer or not at all
-	//for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
-	//	LogWarning << "Texture still loaded: " << it->getFileName();
-	//}
 	
-};
+}
 
 enum GLTransformMode {
 	GL_UnsetTransform,
@@ -64,110 +92,330 @@ enum GLTransformMode {
 
 static GLTransformMode currentTransform;
 
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-static bool checkShader(GLuint object, const char * op, GLuint check) {
+void OpenGLRenderer::initialize() {
 	
-	GLint status;
-	glGetObjectParameterivARB(object, check, &status);
-	if(!status) {
-		int logLength;
-		glGetObjectParameterivARB(object, GL_OBJECT_INFO_LOG_LENGTH_ARB, &logLength);
-		char * log = new char[logLength];
-		glGetInfoLogARB(object, logLength, NULL, log);
-		LogWarning << "Failed to " << op << " vertex shader: " << log;
-		delete[] log;
-		return false;
-	}
+	#if ARX_HAVE_EPOXY
 	
-	return true;
-}
-
-static GLuint loadVertexShader(const char * source) {
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	epoxy_handle_external_wglMakeCurrent();
+	#endif
 	
-	GLuint shader = glCreateProgramObjectARB();
-	if(!shader) {
-		LogWarning << "Failed to create program object";
-		return 0;
-	}
+	#elif ARX_HAVE_GLEW
 	
-	GLuint obj = glCreateShaderObjectARB(GL_VERTEX_SHADER_ARB);
-	if(!obj) {
-		LogWarning << "Failed to create shader object";
-		glDeleteObjectARB(shader);
-		return 0;
-	}
-	
-	glShaderSourceARB(obj, 1, &source, NULL);
-	glCompileShaderARB(obj);
-	if(!checkShader(obj, "compile", GL_OBJECT_COMPILE_STATUS_ARB)) {
-		glDeleteObjectARB(obj);
-		glDeleteObjectARB(shader);
-		return 0;
-	}
-	
-	glAttachObjectARB(shader, obj);
-	glDeleteObjectARB(obj);
-	
-	glLinkProgramARB(shader);
-	if(!checkShader(shader, "link", GL_OBJECT_LINK_STATUS_ARB)) {
-		glDeleteObjectARB(shader);
-		return 0;
-	}
-	
-	return shader;
-}
-#endif
-
-void OpenGLRenderer::Initialize() {
-	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	if(glewInit() != GLEW_OK) {
 		LogError << "GLEW init failed";
+		return;
 	}
 	
-	CrashHandler::setVariable("GLEW version", glewGetString(GLEW_VERSION));
+	const GLubyte * glewVersion = glewGetString(GLEW_VERSION);
+	LogInfo << "Using GLEW " << glewVersion;
+	CrashHandler::setVariable("GLEW version", glewVersion);
+	
+	#endif
+	
+	const char * glVersion = reinterpret_cast<const char *>(glGetString(GL_VERSION));
+	if(boost::starts_with(glVersion, "OpenGL ES-CL ")) {
+		LogError << "OpenGL ES common lite profile detected but arx requires floating point functionality";
+	}
+	const char * prefix = "OpenGL ";
+	if(boost::starts_with(glVersion, prefix)) {
+		glVersion += std::strlen(prefix);
+	}
+	LogInfo << "Using OpenGL " << glVersion;
+	CrashHandler::setVariable("OpenGL version", glVersion);
+	
+	const GLubyte * glVendor = glGetString(GL_VENDOR);
+	LogInfo << " ├─ Vendor: " << glVendor;
+	CrashHandler::setVariable("OpenGL vendor", glVendor);
+	
+	const GLubyte * glRenderer = glGetString(GL_RENDERER);
+	LogInfo << " ├─ Device: " << glRenderer;
+	CrashHandler::setVariable("OpenGL device", glRenderer);
+	
+	u64 totalVRAM = 0, freeVRAM = 0;
+	{
+		#ifdef GL_NVX_gpu_memory_info
+		if(ARX_HAVE_GL_EXT(NVX_gpu_memory_info)) {
+			// Implemented by the NVIDIA blob and radeon drivers in newer Mesa
+			GLint tmp = 0;
+			glGetIntegerv(GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX, &tmp);
+			totalVRAM = u64(tmp) * 1024;
+			glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &tmp);
+			freeVRAM = u64(tmp) * 1024;
+		}
+		#endif
+		#if defined(GL_NVX_gpu_memory_info) && defined(GL_ATI_meminfo)
+		else
+		#endif
+		#ifdef GL_ATI_meminfo
+		if(ARX_HAVE_GL_EXT(ATI_meminfo)) {
+			// Implemented by the AMD blob and radeon drivers in newer Mesa
+			GLint info[4];
+			glGetIntegerv(GL_VBO_FREE_MEMORY_ATI, info);
+			freeVRAM = u64(info[0]) * 1024;
+			glGetIntegerv(GL_TEXTURE_FREE_MEMORY_ATI, info);
+			freeVRAM = std::max(freeVRAM, u64(info[0]) * 1024);
+		}
+		#endif
+		/*
+		 * There is also GLX_MESA_query_renderer but being a GLX extension it's too
+		 * anoying to use here.
+		 */
+	}
+	{
+		std::ostringstream oss;
+		if(totalVRAM == 0 && freeVRAM == 0) {
+			oss << "(unknown)";
+		} else {
+			if(totalVRAM != 0) {
+				oss << (totalVRAM / 1024 / 1024) << " MiB";
+				CrashHandler::setVariable("VRAM size", totalVRAM);
+			}
+			if(totalVRAM != 0 && freeVRAM != 0) {
+				oss << ", ";
+			}
+			if(freeVRAM != 0) {
+				oss << (freeVRAM / 1024 / 1024) << " MiB free";
+				CrashHandler::setVariable("VRAM available", freeVRAM);
+			}
+		}
+		LogInfo << " └─ VRAM: " << oss.str();
+	}
+	
+	{
+		std::ostringstream oss;
+		#if ARX_HAVE_EPOXY
+		oss << "libepoxy\n";
+		#elif ARX_HAVE_GLEW
+		oss << "GLEW " << glewVersion << '\n';
+		#endif
+		const char * start = glVersion;
+		while(*start == ' ') {
+			start++;
+		}
+		const char * end = start;
+		while(*end != '\0' && *end != ' ') {
+			end++;
+		}
+		oss << "OpenGL ";
+		oss.write(start, end - start);
+		credits::setLibraryCredits("graphics", oss.str());
+	}
+	
+	gldebug::initialize();
+}
+#endif
+
+void OpenGLRenderer::beforeResize(bool wasOrIsFullscreen) {
+	
+#if ARX_PLATFORM == ARX_PLATFORM_LINUX || ARX_PLATFORM == ARX_PLATFORM_BSD
+	// No re-initialization needed
+	ARX_UNUSED(wasOrIsFullscreen);
+#else
+	
+	if(!isInitialized()) {
+		return;
+	}
+	
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	if(!wasOrIsFullscreen) {
+		return;
+	}
+	#else
+	// By default, always reinit to avoid issues on untested platforms
+	ARX_UNUSED(wasOrIsFullscreen);
+	#endif
+	
+	shutdown();
+	
 #endif
 	
-	LogInfo << "Using OpenGL " << glGetString(GL_VERSION);
-	CrashHandler::setVariable("OpenGL version", glGetString(GL_VERSION));
-	
-	LogInfo << " ├─ Vendor: " << glGetString(GL_VENDOR);
-	CrashHandler::setVariable("OpenGL vendor", glGetString(GL_VENDOR));
-	
-	LogInfo << " └─ Device: " << glGetString(GL_RENDERER);
-	CrashHandler::setVariable("OpenGL device", glGetString(GL_RENDERER));
-	
-	reinit();
+}
+
+void OpenGLRenderer::afterResize() {
+	if(!isInitialized()) {
+		reinit();
+	}
 }
 
 void OpenGLRenderer::reinit() {
 	
-	arx_assert(!initialized);
+	arx_assert(!isInitialized());
 	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(!GLEW_ARB_vertex_array_bgra) {
-		LogWarning << "Missing OpenGL extension ARB_vertex_array_bgra, not using vertex arrays!";
-	}
-#ifdef __AROS__
-	// the above shader doesn't work very well with AROSMesa
-	useVertexArrays = false;
-#else
-	useVertexArrays = GLEW_ARB_vertex_array_bgra == GL_TRUE;
-#endif
+	#if ARX_HAVE_EPOXY
+	const bool isES = !epoxy_is_desktop_gl();
+	#else
+	const bool isES = false;
+	#endif
 	
-	if(!GLEW_ARB_draw_elements_base_vertex) {
-		LogWarning << "Missing OpenGL extension ARB_draw_elements_base_vertex!";
+	if(isES) {
+		if(!ARX_HAVE_GLES_VER(1, 0)) {
+			LogError << "OpenGL ES version 1.0 or newer required";
+		}
+	} else {
+		if(!ARX_HAVE_GL_VER(1, 5)) {
+			LogError << "OpenGL version 1.5 or newer required";
+		}
 	}
 	
-	useVBOs = useVertexArrays;
-	if(useVBOs && !GLEW_ARB_map_buffer_range) {
-		LogWarning << "Missing OpenGL extension ARB_map_buffer_range, VBO performance will suffer.";
+	if(isES) {
+		m_hasTextureNPOT = ARX_HAVE_GLES_VER(2, 0) || ARX_HAVE_GLES_EXT(OES_texture_npot);
+		if(!m_hasTextureNPOT) {
+			LogWarning << "Missing OpenGL extension OES_texture_npot.";
+		}
+		m_hasSizedTextureFormats = ARX_HAVE_GLES_VER(3, 0) || ARX_HAVE_GLES_EXT(OES_required_internalformat);
+		m_hasIntensityTextures = false;
+		m_hasBGRTextureTransfer = false;
+	} else {
+		m_hasTextureNPOT = ARX_HAVE_GL_VER(2, 0) || ARX_HAVE_GL_EXT(ARB_texture_non_power_of_two);
+		if(!m_hasTextureNPOT) {
+			LogWarning << "Missing OpenGL extension ARB_texture_non_power_of_two.";
+		} else if(!ARX_HAVE_GL_VER(3, 0)) {
+			GLint max = 0;
+			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
+			if(max < 8192) {
+				LogWarning << "Old hardware detected, ignoring OpenGL extension ARB_texture_non_power_of_two.";
+				m_hasTextureNPOT = false;
+			}
+		}
+		m_hasSizedTextureFormats = true;
+		m_hasIntensityTextures = true;
+		m_hasBGRTextureTransfer = true;
 	}
-#endif
+	
+	// EXT_texture_filter_anisotropic is available for both OpenGL ES and desktop OpenGL
+	if(ARX_HAVE_GL_EXT(EXT_texture_filter_anisotropic) || ARX_HAVE_GL_EXT(ARB_texture_filter_anisotropic)) {
+		GLfloat limit;
+		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &limit);
+		m_maximumSupportedAnisotropy = limit;
+		setMaxAnisotropy(float(config.video.maxAnisotropicFiltering));
+	} else {
+		m_maximumSupportedAnisotropy = 1.f;
+	}
+	
+	if(isES) {
+		// OES_draw_elements_base_vertex requires OpenGL ES 2.0
+		// EXT_draw_elements_base_vertex requires OpenGL ES 2.0
+		m_hasDrawElementsBaseVertex = ARX_HAVE_GLES_VER(3, 2)
+		                              || ARX_HAVE_GLES_EXT(OES_draw_elements_base_vertex)
+		                              || ARX_HAVE_GLES_EXT(EXT_draw_elements_base_vertex);
+		m_hasDrawRangeElements = ARX_HAVE_GLES_VER(3, 0);
+	} else {
+		m_hasDrawElementsBaseVertex = ARX_HAVE_GL_VER(3, 2) || ARX_HAVE_GL_EXT(ARB_draw_elements_base_vertex);
+		if(!m_hasDrawElementsBaseVertex) {
+			LogWarning << "Missing OpenGL extension ARB_draw_elements_base_vertex.";
+		}
+		m_hasDrawRangeElements = true; // Introduced in OpenGL 1.2
+	}
+	
+	if(isES) {
+		// EXT_map_buffer_range requires OpenGL ES 1.1
+		m_hasMapBufferRange = ARX_HAVE_GLES_VER(3, 0) || ARX_HAVE_GLES_EXT(EXT_map_buffer_range);
+		if(!m_hasMapBufferRange) {
+			LogWarning << "Missing OpenGL extension EXT_map_buffer_range.";
+		}
+		// OES_mapbuffer requires OpenGL ES 1.1
+		m_hasMapBuffer = ARX_HAVE_GLES_EXT(OES_mapbuffer);
+		if(!m_hasMapBuffer) {
+			LogWarning << "Missing OpenGL extension OES_mapbuffer.";
+		}
+	} else {
+		// ARB_map_buffer_range requires OpenGL 2.1
+		m_hasMapBufferRange = ARX_HAVE_GL_VER(3, 0) || ARX_HAVE_GL_EXT(ARB_map_buffer_range);
+		if(!m_hasMapBufferRange) {
+			LogWarning << "Missing OpenGL extension ARB_map_buffer_range.";
+		}
+		m_hasMapBuffer = true; // Introduced in OpenGL 1.5
+	}
+	
+	if(isES) {
+		// EXT_buffer_storage requires OpenGL ES 3.1
+		m_hasBufferStorage = ARX_HAVE_GLES_EXT(EXT_buffer_storage);
+		m_hasBufferUsageStream = ARX_HAVE_GLES_VER(2, 0);
+	} else {
+		m_hasBufferStorage = ARX_HAVE_GL_VER(4, 4) || ARX_HAVE_GL_EXT(ARB_buffer_storage);
+		m_hasBufferUsageStream = true; // Introduced in OpenGL 1.5
+	}
+	
+	if(isES) {
+		m_hasClearDepthf = true;
+	} else {
+		m_hasClearDepthf = ARX_HAVE_GL_VER(4, 1) || ARX_HAVE_GL_EXT(ARB_ES2_compatibility)
+		                   || ARX_HAVE_GL_EXT(OES_single_precision);
+	}
+	
+	// Introduced in OpenGL 1.4, no extension available for OpenGL ES
+	m_hasVertexFogCoordinate = !isES;
+	
+	if(isES) {
+		m_hasSampleShading = ARX_HAVE_GLES_VER(3, 2) || ARX_HAVE_GLES_EXT(OES_sample_shading);
+	} else {
+		#if ARX_HAVE_GLEW
+		// The extension and core version have different entry points
+		m_hasSampleShading = ARX_HAVE_GL_EXT(ARB_sample_shading);
+		#else
+		m_hasSampleShading = ARX_HAVE_GL_VER(4, 0) || ARX_HAVE_GL_EXT(ARB_sample_shading);
+		#endif
+	}
+	
+	// Synchronize GL state cache
+	
+	m_MSAALevel = 0;
+	{
+		GLint buffers = 0;
+		glGetIntegerv(GL_SAMPLE_BUFFERS, &buffers);
+		if(buffers) {
+			GLint samples = 0;
+			glGetIntegerv(GL_SAMPLES, &samples);
+			m_MSAALevel = samples;
+		}
+	}
+	if(m_MSAALevel > 0) {
+		glDisable(GL_MULTISAMPLE);
+	}
+	m_hasMSAA = false;
+	
+	m_glcull = GL_BACK;
+	m_glstate.setCull(CullNone);
+	
+	if(isES) {
+		#if ARX_HAVE_EPOXY
+		glFogx(GL_FOG_MODE, GL_LINEAR);
+		#endif
+	} else {
+		glFogi(GL_FOG_MODE, GL_LINEAR);
+		if(ARX_HAVE_GL_EXT(NV_fog_distance)) {
+			// TODO Support radial fogs once all vertices are provided in view-space coordinates
+			glFogi(GL_FOG_DISTANCE_MODE_NV, GL_EYE_PLANE);
+		}
+	}
+	m_glstate.setFog(false);
+	
+	glAlphaFunc(GL_GREATER, 0.5f);
+	#ifdef GL_VERSION_4_0
+	if(hasSampleShading()) {
+		#if ARX_HAVE_GLEW
+		glMinSampleShadingARB(1.f);
+		#else
+		glMinSampleShading(1.f);
+		#endif
+	}
+	#endif
+	m_glstate.setAlphaCutout(false);
+	
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_ALWAYS);
+	m_glstate.setDepthTest(false);
+	
+	m_glstate.setDepthWrite(true);
 	
 	glEnable(GL_POLYGON_OFFSET_FILL);
+	m_glstate.setDepthOffset(0);
 	
-	glDepthFunc(GL_LEQUAL);
+	glEnable(GL_BLEND);
+	m_glstate.setBlend(BlendOne, BlendZero);
+	
+	m_glscissor = false;
 	
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -180,73 +428,39 @@ void OpenGLRenderer::reinit() {
 		m_TextureStages[i] = new GLTextureStage(this, i);
 	}
 	
-	SetRenderState(ColorKey, true);
-	
 	// Clear screen
 	Clear(ColorBuffer | DepthBuffer);
 	
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_COLOR_ARRAY);
+	glClientActiveTexture(GL_TEXTURE0);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	
 	currentTransform = GL_UnsetTransform;
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	glArrayClientState = GL_NoArray;
-#endif
+	switchVertexArray(GL_NoArray, 0, 1);
 	
-	CHECK_GL;
+	onRendererInit();
 	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(useVertexArrays && useVBOs) {
-		if(!GLEW_ARB_shader_objects) {
-			LogWarning << "Missing OpenGL extension ARB_shader_objects.";
-		} else if(!GLEW_ARB_vertex_program) {
-			LogWarning << "Missing OpenGL extension ARB_vertex_program.";
-		} else {
-			shader = loadVertexShader(vertexShaderSource);
-			CHECK_GL;
-		}
-		if(!shader) {
-			LogWarning << "Missing vertex shader, cannot use vertex arrays for pre-transformed vertices.";
-		}
-	}
-	
-	if(GLEW_EXT_texture_filter_anisotropic) {
-		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maximumAnisotropy);
-		CHECK_GL;
-	}
-#endif
-	
-	initialized = true;
 }
 
 void OpenGLRenderer::shutdown() {
 	
-	arx_assert(initialized);
+	arx_assert(isInitialized());
 	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(shader) {
-		glDeleteObjectARB(shader);
-		CHECK_GL;
-	}
-#endif
+	onRendererShutdown();
 	
 	for(size_t i = 0; i < m_TextureStages.size(); ++i) {
 		delete m_TextureStages[i];
 	}
 	m_TextureStages.clear();
 	
-	maximumAnisotropy = 1.f;
+	m_maximumAnisotropy = 1.f;
+	m_maximumSupportedAnisotropy = 1.f;
 	
-	initialized = false;
 }
 
-void OpenGLRenderer::BeginScene() {
-}
-
-void OpenGLRenderer::EndScene() {
-	
-	glFlush();
-}
-
-static EERIEMATRIX projection;
-static EERIEMATRIX view;
+static glm::mat4x4 projection;
+static glm::mat4x4 view;
 
 void OpenGLRenderer::enableTransform() {
 	
@@ -254,21 +468,17 @@ void OpenGLRenderer::enableTransform() {
 		return;
 	}
 	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(shader) {
-		glUseProgram(0);
-	}
-#endif
-	
 	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(&view._11);
+	glLoadMatrixf(glm::value_ptr(view));
 		
 	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(&projection._11);
+	glLoadMatrixf(glm::value_ptr(projection));
+	
+	if(hasVertexFogCoordinate()) {
+		glFogi(GL_FOG_COORDINATE_SOURCE, GL_FRAGMENT_DEPTH);
+	}
 	
 	currentTransform = GL_ModelViewProjectionTransform;
-	
-	CHECK_GL;
 }
 
 void OpenGLRenderer::disableTransform() {
@@ -280,34 +490,29 @@ void OpenGLRenderer::disableTransform() {
 	// D3D doesn't apply any transform for D3DTLVERTEX
 	// but we still need to change from D3D to OpenGL coordinates
 	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(shader) {
-		glUseProgram(shader);
-	} else 
-#endif
-	{
-		glMatrixMode(GL_MODELVIEW);
-		glLoadIdentity();
-	}
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 	
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	
 	// Change coordinate system from [0, width] x [0, height] to [-1, 1] x [-1, 1] and flip the y axis
 	glTranslatef(-1.f, 1.f, 0.f);
-	glScalef(2.f/viewport.width(), -2.f/viewport.height(), 1.f);
+	glScalef(2.f / viewport.width(), -2.f / viewport.height(), 1.f);
 	
-	// Change the viewport and pixel origins
-	glTranslatef(.5f - viewport.left, .5f - viewport.top, 0.f);
+	// Change pixel origins
+	glTranslatef(0.5f, 0.5f, 0.f);
+	
+	if(hasVertexFogCoordinate()) {
+		glFogi(GL_FOG_COORDINATE_SOURCE, GL_FOG_COORDINATE);
+	}
 	
 	currentTransform = GL_NoTransform;
-	
-	CHECK_GL;
 }
 
-void OpenGLRenderer::SetViewMatrix(const EERIEMATRIX & matView) {
+void OpenGLRenderer::SetViewMatrix(const glm::mat4x4 & matView) {
 	
-	if(!memcmp(&view, &matView, sizeof(EERIEMATRIX))) {
+	if(!memcmp(&view, &matView, sizeof(glm::mat4x4))) {
 		return;
 	}
 	
@@ -318,13 +523,9 @@ void OpenGLRenderer::SetViewMatrix(const EERIEMATRIX & matView) {
 	view = matView;
 }
 
-void OpenGLRenderer::GetViewMatrix(EERIEMATRIX & matView) const {
-	matView = view;
-}
-
-void OpenGLRenderer::SetProjectionMatrix(const EERIEMATRIX & matProj) {
+void OpenGLRenderer::SetProjectionMatrix(const glm::mat4x4 & matProj) {
 	
-	if(!memcmp(&projection, &matProj, sizeof(EERIEMATRIX))) {
+	if(!memcmp(&projection, &matProj, sizeof(glm::mat4x4))) {
 		return;
 	}
 	
@@ -335,103 +536,332 @@ void OpenGLRenderer::SetProjectionMatrix(const EERIEMATRIX & matProj) {
 	projection = matProj;
 }
 
-void OpenGLRenderer::GetProjectionMatrix(EERIEMATRIX & matProj) const {
-	matProj = projection;
-}
-
 void OpenGLRenderer::ReleaseAllTextures() {
 	for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
-		it->Destroy();
+		it->destroy();
 	}
 }
 
 void OpenGLRenderer::RestoreAllTextures() {
 	for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
-		it->Restore();
+		it->restore();
 	}
 }
 
-Texture2D * OpenGLRenderer::CreateTexture2D() {
-	GLTexture2D * texture = new GLTexture2D(this);
+void OpenGLRenderer::reloadColorKeyTextures() {
+	for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
+		if(it->hasColorKey()) {
+			it->restore();
+		}
+	}
+}
+
+Texture * OpenGLRenderer::createTexture() {
+	GLTexture * texture = new GLTexture(this);
 	textures.push_back(*texture);
 	return texture;
 }
 
-static inline void setGLState(GLenum state, bool enable) {
-	if(enable) {
-		glEnable(state);
+void OpenGLRenderer::SetViewport(const Rect & _viewport) {
+	
+	if(_viewport == viewport) {
+		return;
+	}
+	
+	viewport = _viewport;
+	
+	// TODO maybe it's better to always have the viewport cover the whole window and use glScissor instead?
+	
+	int height = mainApp->getWindow()->getSize().y;
+	
+	glViewport(viewport.left, height - viewport.bottom, viewport.width(), viewport.height());
+	
+	if(currentTransform == GL_NoTransform) {
+		currentTransform = GL_UnsetTransform;
+	}
+}
+
+void OpenGLRenderer::SetScissor(const Rect & rect) {
+	
+	if(rect.isValid()) {
+		m_scissor = true;
+		int height = mainApp->getWindow()->getSize().y;
+		glScissor(rect.left, height - rect.bottom, rect.width(), rect.height());
 	} else {
-		glDisable(state);
+		m_scissor = false;
 	}
 }
 
-void OpenGLRenderer::SetRenderState(RenderState renderState, bool enable) {
+void OpenGLRenderer::Clear(BufferFlags bufferFlags, Color clearColor, float clearDepth, size_t nrects, Rect * rect) {
 	
-	switch(renderState) {
-		
-		case AlphaBlending: {
-			setGLState(GL_BLEND, enable);
-			break;
-		}
-		
-		case AlphaTest: {
-			setGLState(GL_ALPHA_TEST, enable);
-			break;
-		}
-
-		case ColorKey: {
-			SetRenderState(AlphaTest, enable);
-			if(enable)
-				SetAlphaFunc(CmpNotEqual, 0.0f);
-			break;
-		}
-		
-		case DepthTest: {
-			setGLState(GL_DEPTH_TEST, enable);
-			break;
-		}
-		
-		case DepthWrite: {
-			glDepthMask(enable ? GL_TRUE : GL_FALSE);
-			break;
-		}
-		
-		case Fog: {
-			setGLState(GL_FOG, enable);
-			break;
-		}
-		
-		case Lighting: {
-			setGLState(GL_LIGHTING, enable);
-			break;
-		}
-		
-		case ZBias: {
-			setGLState(GL_POLYGON_OFFSET_FILL, enable);
-			break;
-		}
-		
-		default:
-			LogWarning << "Unsupported render state: " << renderState;
+	GLbitfield buffers = 0;
+	
+	if(bufferFlags & ColorBuffer) {
+		Color4f col = clearColor.to<float>();
+		glClearColor(col.r, col.g, col.b, col.a);
+		buffers |= GL_COLOR_BUFFER_BIT;
 	}
 	
-	CHECK_GL;
+	if(bufferFlags & DepthBuffer) {
+		if(!m_glstate.getDepthWrite()) {
+			// glClear() respects the depth mask
+			glDepthMask(GL_TRUE);
+			m_glstate.setDepthWrite(true);
+		}
+		#ifdef GL_VERSION_4_1
+		if(hasClearDepthf()) {
+			glClearDepthf(clearDepth);
+		}
+		else
+		#endif
+		{
+			// Not available in OpenGL ES
+			glClearDepth((GLclampd)clearDepth);
+		}
+		buffers |= GL_DEPTH_BUFFER_BIT;
+	}
+	
+	if(nrects) {
+		
+		arx_assert(!m_scissor);
+		
+		if(!m_glscissor) {
+			glEnable(GL_SCISSOR_TEST);
+			m_glscissor = true;
+		}
+		
+		int height = mainApp->getWindow()->getSize().y;
+		
+		for(size_t i = 0; i < nrects; i++) {
+			glScissor(rect[i].left, height - rect[i].bottom, rect[i].width(), rect[i].height());
+			glClear(buffers);
+		}
+		
+	} else {
+		
+		if(m_glscissor) {
+			glDisable(GL_SCISSOR_TEST);
+			m_glscissor = false;
+		}
+		
+		glClear(buffers);
+		
+	}
 }
 
-static const GLenum arxToGlPixelCompareFunc[] = {
-	GL_NEVER, // CmpNever,
-	GL_LESS, // CmpLess,
-	GL_EQUAL, // CmpEqual,
-	GL_LEQUAL, // CmpLessEqual,
-	GL_GREATER, // CmpGreater,
-	GL_NOTEQUAL, // CmpNotEqual,
-	GL_GEQUAL, // CmpGreaterEqual,
-	GL_ALWAYS // CmpAlways
+void OpenGLRenderer::SetFogColor(Color color) {
+	Color4f colorf = color.to<float>();
+	GLfloat fogColor[4] = { colorf.r, colorf.g, colorf.b, colorf.a };
+	glFogfv(GL_FOG_COLOR, fogColor);
+}
+
+void OpenGLRenderer::SetFogParams(float fogStart, float fogEnd) {
+	glFogf(GL_FOG_START, fogStart);
+	glFogf(GL_FOG_END, fogEnd);
+}
+
+void OpenGLRenderer::SetAntialiasing(bool enable) {
+	
+	if(m_MSAALevel <= 0) {
+		return;
+	}
+	
+	if(enable && !config.video.antialiasing) {
+		return;
+	}
+	
+	if(enable == m_hasMSAA) {
+		return;
+	}
+	
+	// The state used for alpha cutouts can differ between msaa and non-msaa.
+	// Clear the old flushed state.
+	if(m_glstate.getAlphaCutout()) {
+		bool alphaCutout = m_state.getAlphaCutout();
+		m_state.setAlphaCutout(false);
+		flushState();
+		m_state.setAlphaCutout(alphaCutout);
+	}
+	
+	// This is mostly useless as multisampling must be enabled/disabled at GL context creation.
+	if(enable) {
+		glEnable(GL_MULTISAMPLE);
+	} else {
+		glDisable(GL_MULTISAMPLE);
+	}
+	m_hasMSAA = enable;
+}
+
+static const GLenum arxToGlFillMode[] = {
+	GL_LINE,  // FillWireframe,
+	GL_FILL,  // FillSolid
 };
 
-void OpenGLRenderer::SetAlphaFunc(PixelCompareFunc func, float ref) {
-	glAlphaFunc(arxToGlPixelCompareFunc[func], ref);
-	CHECK_GL;
+void OpenGLRenderer::SetFillMode(FillMode mode) {
+	glPolygonMode(GL_FRONT_AND_BACK, arxToGlFillMode[mode]);
+}
+
+void OpenGLRenderer::setMaxAnisotropy(float value) {
+	
+	float maxAnisotropy = glm::clamp(value, 1.f, m_maximumSupportedAnisotropy);
+	if(m_maximumAnisotropy == maxAnisotropy) {
+		return;
+	}
+	
+	m_maximumAnisotropy = maxAnisotropy;
+	
+	for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
+		it->updateMaxAnisotropy();
+	}
+}
+
+Renderer::AlphaCutoutAntialising OpenGLRenderer::getMaxSupportedAlphaCutoutAntialiasing() const {
+	
+	#ifdef GL_VERSION_4_0
+	if(hasSampleShading()) {
+		return CrispAlphaCutoutAA;
+	}
+	#endif
+	
+	return FuzzyAlphaCutoutAA;
+}
+
+template <typename Vertex>
+static VertexBuffer<Vertex> * createVertexBufferImpl(OpenGLRenderer * renderer,
+                                                     size_t capacity,
+                                                     Renderer::BufferUsage usage,
+                                                     const std::string & setting) {
+	
+	bool matched = false;
+	
+	if(renderer->hasMapBufferRange()) {
+		
+		#ifdef GL_ARB_buffer_storage
+		
+		if(renderer->hasBufferStorage()) {
+			
+			if(setting.empty() || setting == "persistent-orphan") {
+				if(usage != Renderer::Static) {
+					return new GLPersistentOrphanVertexBuffer<Vertex>(renderer, capacity, usage);
+				}
+				matched = true;
+			}
+			if(setting.empty() || setting == "persistent-x3") {
+				if(usage == Renderer::Stream) {
+					return new GLPersistentFenceVertexBuffer<Vertex, 3>(renderer, capacity, usage, 3);
+				}
+				matched = true;
+			}
+			if(setting.empty() || setting == "persistent-x2") {
+				if(usage == Renderer::Stream) {
+					return new GLPersistentFenceVertexBuffer<Vertex, 3>(renderer, capacity, usage, 2);
+				}
+				matched = true;
+			}
+			if(setting == "persistent-nosync") {
+				if(usage != Renderer::Static) {
+					return new GLPersistentUnsynchronizedVertexBuffer<Vertex>(renderer, capacity, usage);
+				}
+				matched = true;
+			}
+			
+		}
+		
+		#endif // GL_ARB_buffer_storage
+		
+		if(setting.empty() || setting == "maprange" || setting == "maprange+subdata") {
+			return new GLMapRangeVertexBuffer<Vertex>(renderer, capacity, usage);
+		}
+		
+	}
+	
+	if(renderer->hasMapBuffer()) {
+		
+		if(setting.empty() || setting == "map" || setting == "map+subdata") {
+			return new GLMapVertexBuffer<Vertex>(renderer, capacity, usage);
+		}
+		
+	}
+	
+	if(setting.empty() || setting == "shadow" || setting == "shadow+subdata") {
+		return new GLShadowVertexBuffer<Vertex>(renderer, capacity, usage);
+	}
+	
+	static bool warned = false;
+	if(!matched && !warned) {
+		LogWarning << "Ignoring unsupported video.buffer_upload setting: " << setting;
+		warned = true;
+	}
+	return createVertexBufferImpl<Vertex>(renderer, capacity, usage, std::string());
+}
+
+template <typename Vertex>
+static VertexBuffer<Vertex> * createVertexBufferImpl(OpenGLRenderer * renderer,
+                                                     size_t capacity,
+                                                     Renderer::BufferUsage usage) {
+	const std::string & setting = config.video.bufferUpload;
+	return createVertexBufferImpl<Vertex>(renderer, capacity, usage, setting);
+}
+
+VertexBuffer<TexturedVertex> * OpenGLRenderer::createVertexBufferTL(size_t capacity, BufferUsage usage) {
+	return createVertexBufferImpl<TexturedVertex>(this, capacity, usage);
+}
+
+VertexBuffer<SMY_VERTEX> * OpenGLRenderer::createVertexBuffer(size_t capacity, BufferUsage usage) {
+	return createVertexBufferImpl<SMY_VERTEX>(this, capacity, usage);
+}
+
+VertexBuffer<SMY_VERTEX3> * OpenGLRenderer::createVertexBuffer3(size_t capacity, BufferUsage usage) {
+	return createVertexBufferImpl<SMY_VERTEX3>(this, capacity, usage);
+}
+
+const GLenum arxToGlPrimitiveType[] = {
+	GL_TRIANGLES, // TriangleList,
+	GL_TRIANGLE_STRIP, // TriangleStrip,
+	GL_TRIANGLE_FAN, // TriangleFan,
+	GL_LINES, // LineList,
+	GL_LINE_STRIP // LineStrip
+};
+
+void OpenGLRenderer::drawIndexed(Primitive primitive, const TexturedVertex * vertices, size_t nvertices, unsigned short * indices, size_t nindices) {
+	
+	beforeDraw<TexturedVertex>();
+	
+	bindBuffer(GL_NONE);
+	
+	setVertexArray(this, vertices, vertices);
+	
+	if(hasDrawRangeElements()) {
+		glDrawRangeElements(arxToGlPrimitiveType[primitive], 0, nvertices - 1, nindices, GL_UNSIGNED_SHORT, indices);
+	} else {
+		glDrawElements(arxToGlPrimitiveType[primitive], nindices, GL_UNSIGNED_SHORT, indices);
+	}
+	
+}
+
+bool OpenGLRenderer::getSnapshot(Image & image) {
+	
+	Vec2i size = mainApp->getWindow()->getSize();
+	
+	image.create(size_t(size.x), size_t(size.y), Image::Format_R8G8B8);
+	
+	glReadPixels(0, 0, size.x, size.y, GL_RGB, GL_UNSIGNED_BYTE, image.getData());
+	
+	image.flipY();
+	
+	return true;
+}
+
+bool OpenGLRenderer::getSnapshot(Image & image, size_t width, size_t height) {
+	
+	// TODO handle scaling on the GPU so we don't need to download the whole image
+	
+	Image fullsize;
+	getSnapshot(fullsize);
+	
+	image.resizeFrom(fullsize, width, height);
+	
+	return true;
 }
 
 static const GLenum arxToGlBlendFactor[] = {
@@ -448,301 +878,109 @@ static const GLenum arxToGlBlendFactor[] = {
 	GL_ONE_MINUS_DST_ALPHA // BlendInvDstAlpha
 };
 
-void OpenGLRenderer::SetBlendFunc(PixelBlendingFactor srcFactor, PixelBlendingFactor dstFactor) {
-	glBlendFunc(arxToGlBlendFactor[srcFactor], arxToGlBlendFactor[dstFactor]);
-	CHECK_GL;
-}
-
-void OpenGLRenderer::SetViewport(const Rect & _viewport) {
+void OpenGLRenderer::flushState() {
 	
-	viewport = _viewport;
-	
-	// TODO maybe it's better to always have the viewport cover the whole window and use glScissor instead?
-	
-	int height = mainApp->GetWindow()->getSize().y;
-	
-	glViewport(viewport.left, height - viewport.bottom, viewport.width(), viewport.height());
-	
-	if(currentTransform == GL_NoTransform) {
-		currentTransform = GL_UnsetTransform;
+	if(m_glscissor != m_scissor) {
+		if(m_scissor) {
+			glEnable(GL_SCISSOR_TEST);
+		} else {
+			glDisable(GL_SCISSOR_TEST);
+		}
+		m_glscissor = m_scissor;
 	}
 	
-	CHECK_GL;
-}
-
-Rect OpenGLRenderer::GetViewport() {
-	return viewport;
-}
-
-void OpenGLRenderer::Begin2DProjection(float left, float right, float bottom, float top, float zNear, float zFar) {
-	ARX_UNUSED(left), ARX_UNUSED(right), ARX_UNUSED(bottom), ARX_UNUSED(top), ARX_UNUSED(zNear), ARX_UNUSED(zFar);
-	// Do nothing!
-}
-
-void OpenGLRenderer::End2DProjection() {
-	// Do nothing!
-}
-
-void OpenGLRenderer::Clear(BufferFlags bufferFlags, Color clearColor, float clearDepth, size_t nrects, Rect * rect) {
-	
-	GLbitfield buffers = 0;
-	
-	if(bufferFlags & ColorBuffer) {
-		Color4f col = clearColor.to<float>();
-		glClearColor(col.r, col.g, col.b, col.a);
-		buffers |= GL_COLOR_BUFFER_BIT;
-	}
-	
-	if(bufferFlags & DepthBuffer) {
-		glClearDepth(clearDepth);
-		buffers |= GL_DEPTH_BUFFER_BIT;
-	}
-	
-	if(bufferFlags & StencilBuffer) {
-		buffers |= GL_STENCIL_BUFFER_BIT;
-	}
-	
-	if(nrects) {
+	if(m_glstate != m_state) {
 		
-		glEnable(GL_SCISSOR_TEST);
-		
-		int height = mainApp->GetWindow()->getSize().y;
-		
-		for(size_t i = 0; i < nrects; i++) {
-			glScissor(rect[i].left, height - rect[i].bottom, rect[i].width(), rect[i].height());
-			glClear(buffers);
+		if(m_glstate.getCull() != m_state.getCull()) {
+			if(m_state.getCull() == CullNone) {
+				glDisable(GL_CULL_FACE);
+			} else {
+				if(m_glstate.getCull() == CullNone) {
+					glEnable(GL_CULL_FACE);
+				}
+				GLenum glcull = m_state.getCull() == CullCW ? GL_BACK : GL_FRONT;
+				if(m_glcull != glcull) {
+					glCullFace(glcull);
+					m_glcull = glcull;
+				}
+			}
 		}
 		
-		glDisable(GL_SCISSOR_TEST);
-		
-	} else {
-		
-		glClear(buffers);
-		
-	}
-	
-	CHECK_GL;
-}
-
-void OpenGLRenderer::SetFogColor(Color color) {
-	Color4f colorf = color.to<float>();
-	GLfloat fogColor[4]= {colorf.r, colorf.g, colorf.b, colorf.a};
-	glFogfv(GL_FOG_COLOR, fogColor);
-	CHECK_GL;
-}
-
-static const GLint arxToGlFogMode[] = {
-	-1, // FogNone, TODO(unused) why is there a FogNone if there is also a separate Fog render state?
-	GL_EXP, // FogExp,
-	GL_EXP2, // FogExp2,
-	GL_LINEAR, // FogLinear
-};
-
-
-void OpenGLRenderer::SetFogParams(FogMode fogMode, float fogStart, float fogEnd, float fogDensity) {
-	
-	glFogi(GL_FOG_MODE, arxToGlFogMode[fogMode]);
-	
-	glFogf(GL_FOG_START, fogStart);
-	glFogf(GL_FOG_END, fogEnd);
-	glFogf(GL_FOG_DENSITY, fogDensity);
-	
-	CHECK_GL;
-}
-
-void OpenGLRenderer::SetAntialiasing(bool enable) {
-	
-	// This is mostly useless as multisampling must be enabled/disabled at GL context creation.
-	setGLState(GL_MULTISAMPLE, enable);
-	
-	CHECK_GL;
-}
-
-static const GLenum arxToGlCullMode[] = {
-	(GLenum)-1, // CullNone,
-	GL_BACK, // CullCW,
-	GL_FRONT, // CullCCW,
-};
-
-void OpenGLRenderer::SetCulling(CullingMode mode) {
-	if(mode == CullNone) {
-		glDisable(GL_CULL_FACE);
-	} else {
-		glEnable(GL_CULL_FACE);
-		glCullFace(arxToGlCullMode[mode]);
-	}
-	CHECK_GL;
-}
-
-void OpenGLRenderer::SetDepthBias(int depthBias) {
-	
-	float bias = -(float)depthBias;
-	
-	glPolygonOffset(bias, bias);
-	
-	CHECK_GL;
-}
-
-static const GLenum arxToGlFillMode[] = {
-	GL_POINT, // FillPoint,
-	GL_LINE,  // FillWireframe,
-	GL_FILL,  // FillSolid
-};
-
-void OpenGLRenderer::SetFillMode(FillMode mode) {
-	glPolygonMode(GL_FRONT_AND_BACK, arxToGlFillMode[mode]);
-	CHECK_GL;
-}
-
-void OpenGLRenderer::DrawTexturedRect(float x, float y, float w, float h, float uStart, float vStart, float uEnd, float vEnd, Color color) {
-	
-	applyTextureStages();
-	disableTransform();
-	
-	x -= .5f;
-	y -= .5f;
-	
-	glColor3ub(color.r, color.g, color.b);
-	
-	glBegin(GL_QUADS);
-		
-		glMultiTexCoord2f(GL_TEXTURE0, uStart, vStart);
-		glVertex3f(x, y, 0);
-		
-		glMultiTexCoord2f(GL_TEXTURE0, uEnd, vStart);
-		glVertex3f(x + w, y, 0);
-		
-		glMultiTexCoord2f(GL_TEXTURE0, uEnd, vEnd);
-		glVertex3f(x + w, y + h, 0);
-		
-		glMultiTexCoord2f(GL_TEXTURE0, uStart, vEnd);
-		glVertex3f(x, y + h, 0);
-		
-	glEnd();
-	
-	CHECK_GL;
-}
-
-VertexBuffer<TexturedVertex> * OpenGLRenderer::createVertexBufferTL(size_t capacity, BufferUsage usage) {
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(useVBOs && shader) {
-		return new GLVertexBuffer<TexturedVertex>(this, capacity, usage); 
-	} else 
-#endif
-	{
-		return new GLNoVertexBuffer<TexturedVertex>(this, capacity); 
-	}
-}
-
-VertexBuffer<SMY_VERTEX> * OpenGLRenderer::createVertexBuffer(size_t capacity, BufferUsage usage) {
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(useVBOs) {
-		return new GLVertexBuffer<SMY_VERTEX>(this, capacity, usage);
-	} else
-#endif
-	{
-		return new GLNoVertexBuffer<SMY_VERTEX>(this, capacity);
-	}
-}
-
-VertexBuffer<SMY_VERTEX3> * OpenGLRenderer::createVertexBuffer3(size_t capacity, BufferUsage usage) {
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(useVBOs) {
-		return new GLVertexBuffer<SMY_VERTEX3>(this, capacity, usage);
-	} else
-#endif
-	{
-		return new GLNoVertexBuffer<SMY_VERTEX3>(this, capacity);
-	}
-}
-
-const GLenum arxToGlPrimitiveType[] = {
-	GL_TRIANGLES, // TriangleList,
-	GL_TRIANGLE_STRIP, // TriangleStrip,
-	GL_TRIANGLE_FAN, // TriangleFan,
-	GL_LINES, // LineList,
-	GL_LINE_STRIP // LineStrip
-};
-
-void OpenGLRenderer::drawIndexed(Primitive primitive, const TexturedVertex * vertices, size_t nvertices, unsigned short * indices, size_t nindices) {
-	
-	beforeDraw<TexturedVertex>();
-	
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
-	if(useVertexArrays && shader) {
-		
-		glBindBuffer(GL_ARRAY_BUFFER, GL_NONE);
-		
-		setVertexArray(vertices, vertices);
-		
-		glDrawRangeElements(arxToGlPrimitiveType[primitive], 0, nvertices - 1, nindices, GL_UNSIGNED_SHORT, indices);
-		
-	} else
-#endif
-	{
-		
-		glBegin(arxToGlPrimitiveType[primitive]);
-		
-		for(size_t i = 0; i < nindices; i++) {
-			renderVertex(vertices[indices[i]]);
+		if(m_glstate.getFog() != m_state.getFog()) {
+			if(m_state.getFog()) {
+				glEnable(GL_FOG);
+			} else {
+				glDisable(GL_FOG);
+			}
 		}
 		
-		glEnd();
+		bool useA2C = m_hasMSAA && config.video.alphaCutoutAntialiasing == int(FuzzyAlphaCutoutAA);
+		if(m_glstate.getAlphaCutout() != m_state.getAlphaCutout()
+		   || (useA2C && m_state.getAlphaCutout() && m_glstate.isBlendEnabled() != m_state.isBlendEnabled())) {
+			
+			/* When rendering alpha cutouts with alpha blending enabled we still
+			 * need to 'discard' transparent texels, as blending might not use the src alpha!
+			 * On the other hand, we can't use GL_SAMPLE_ALPHA_TO_COVERAGE when blending
+			 * as that could result in the src alpha being applied twice (e.g. for text).
+			 * So we must toggle between alpha to coverage and alpha test when toggling blending.
+			 */
+			bool disableA2C = useA2C && !m_glstate.isBlendEnabled()
+			                  && (!m_state.getAlphaCutout() || m_state.isBlendEnabled());
+			bool enableA2C = useA2C && !m_state.isBlendEnabled()
+			                 && (!m_glstate.getAlphaCutout() || m_glstate.isBlendEnabled());
+			if(m_glstate.getAlphaCutout()) {
+				if(disableA2C) {
+					glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+				} else if(!m_state.getAlphaCutout() || enableA2C) {
+					#ifdef GL_VERSION_4_0
+					if(hasSampleShading() && m_hasMSAA
+					   && config.video.alphaCutoutAntialiasing == int(CrispAlphaCutoutAA)) {
+						glDisable(GL_SAMPLE_SHADING);
+					}
+					#endif
+					glDisable(GL_ALPHA_TEST);
+				}
+			}
+			if(m_state.getAlphaCutout()) {
+				if(enableA2C) {
+					glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+				} else if(!m_glstate.getAlphaCutout() || disableA2C) {
+					glEnable(GL_ALPHA_TEST);
+					#ifdef GL_VERSION_4_0
+					if(hasSampleShading() && m_hasMSAA
+					   && config.video.alphaCutoutAntialiasing == int(CrispAlphaCutoutAA)) {
+						glEnable(GL_SAMPLE_SHADING);
+					}
+					#endif
+				}
+			}
+		}
 		
+		if(m_glstate.getDepthTest() != m_state.getDepthTest()) {
+			glDepthFunc(m_state.getDepthTest() ? GL_LEQUAL : GL_ALWAYS);
+		}
+		
+		if(m_glstate.getDepthWrite() != m_state.getDepthWrite()) {
+			glDepthMask(m_state.getDepthWrite() ? GL_TRUE : GL_FALSE);
+		}
+		
+		if(m_glstate.getDepthOffset() != m_state.getDepthOffset()) {
+			GLfloat depthOffset = -GLfloat(m_state.getDepthOffset());
+			glPolygonOffset(depthOffset, depthOffset);
+		}
+		
+		if(m_glstate.getBlendSrc() != m_state.getBlendSrc()
+		   || m_glstate.getBlendDst() != m_state.getBlendDst()) {
+			GLenum blendSrc = arxToGlBlendFactor[m_state.getBlendSrc()];
+			GLenum blendDst = arxToGlBlendFactor[m_state.getBlendDst()];
+			glBlendFunc(blendSrc, blendDst);
+		}
+		
+		m_glstate = m_state;
 	}
 	
-	CHECK_GL;
-}
-
-bool OpenGLRenderer::getSnapshot(Image & image) {
-	
-	Vec2i size = mainApp->GetWindow()->getSize();
-	
-	image.Create(size.x, size.y, Image::Format_R8G8B8);
-	
-	glReadPixels(0, 0, size.x, size.y, GL_RGB, GL_UNSIGNED_BYTE, image.GetData()); 
-	
-	image.FlipY();
-	
-	CHECK_GL;
-	
-	return true;
-}
-
-bool OpenGLRenderer::getSnapshot(Image & image, size_t width, size_t height) {
-	
-	// TODO handle scaling on the GPU so we don't need to download the whole image
-
-	// duplication to ensure use of Image::Format_R8G8B8
-	Image fullsize;
-	Vec2i size = mainApp->GetWindow()->getSize();
-	fullsize.Create(size.x, size.y, Image::Format_R8G8B8);
-	glReadPixels(0, 0, size.x, size.y, GL_RGB, GL_UNSIGNED_BYTE, fullsize.GetData()); 
-
-	image.ResizeFrom(fullsize, width, height, true);
-
-	return true;
-}
-
-void OpenGLRenderer::applyTextureStages() {
 	for(size_t i = 0; i <= maxTextureStage; i++) {
 		GetTextureStage(i)->apply();
 	}
-}
-
-bool OpenGLRenderer::isFogInEyeCoordinates() {
-	return true;
-}
-
-const char * getGLErrorString(GLenum error) {
-	switch(error) {
-		case GL_NO_ERROR: return "GL_NO_ERROR";
-		case GL_INVALID_ENUM: return "GL_INVALID_ENUM";
-		case GL_INVALID_VALUE: return "GL_INVALID_VALUE";
-		case GL_INVALID_OPERATION: return "GL_INVALID_OPERATION";
-		case GL_STACK_OVERFLOW: return "GL_STACK_OVERFLOW";
-		case GL_STACK_UNDERFLOW: return "GL_STACK_UNDERFLOW";
-		case GL_OUT_OF_MEMORY: return "GL_OUT_OF_MEMORY";
-		default: return "(unknown error)";
-	}
+	
 }

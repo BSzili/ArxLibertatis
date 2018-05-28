@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,8 +51,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <string>
 
 #include "game/Item.h"
-#include "math/MathFwd.h"
-#include "platform/Flags.h"
+#include "math/Types.h"
+#include "util/Flags.h"
 
 class Entity;
 
@@ -84,7 +84,7 @@ void ARX_EQUIPMENT_SetEquip(Entity * io, bool special,
 //! Sets/unsets an object type flag
 bool ARX_EQUIPMENT_SetObjectType(Entity & io, const std::string & temp, bool set);
 
-ItemType ARX_EQUIPMENT_GetObjectTypeFlag(const std::string& temp);
+ItemType ARX_EQUIPMENT_GetObjectTypeFlag(const std::string & temp);
 void ARX_EQUIPMENT_Equip(Entity * target, Entity * toequip);
 void ARX_EQUIPMENT_UnEquip(Entity * target, Entity * toequip, long flags = 0);
 void ARX_EQUIPMENT_ReleaseAll(Entity * io);
@@ -94,12 +94,34 @@ void ARX_EQUIPMENT_AttachPlayerWeaponToBack();
 void ARX_EQUIPMENT_LaunchPlayerReadyWeapon();
  
 void ARX_EQUIPMENT_LaunchPlayerUnReadyWeapon();
-long ARX_EQUIPMENT_GetPlayerWeaponType();
-float ARX_EQUIPMENT_Apply(Entity * io, EquipmentModifierType ident,
-                                       float trueval);
-float ARX_EQUIPMENT_ApplyPercent(Entity * io, EquipmentModifierType ident,
-                                 float trueval);
-bool ARX_EQUIPMENT_Strike_Check(Entity * io_source, Entity * io_weapon, float percentaim, long flags, long targ = -1);
+WeaponType ARX_EQUIPMENT_GetPlayerWeaponType();
+
+/*!
+ * Get a base modifier (of a specific type) for all items equipped by the player.
+ *
+ * \param modifier The modifier type to calculate the value for.
+ * \param relative \c true to sum up relative modifiers,
+ *                 \c false to sum up absolute modifiers.
+ *
+ * \return an absolute modifier value to add to the base stat (for absolute modifiers),
+ *         or a relative modifier value to be moltiplied by the base and then added to
+ *         the base (for relative modifiers).
+ */
+float getEquipmentBaseModifier(EquipmentModifierType modifier, bool relative = false);
+
+/*!
+ * Get the total modifier (of a specific type) for all items equipped by the player.
+ *
+ * This includes both absolute and relative modifiers.
+ *
+ * \param modifier The modifier type to calculate the value for.
+ * \param baseval  The base value to apply to relative modifiers.
+ *
+ * \return an absolute modifier value to add to the base stat.
+ */
+float getEquipmentModifier(EquipmentModifierType modifier, float baseval);
+
+bool ARX_EQUIPMENT_Strike_Check(Entity * io_source, Entity * io_weapon, float percentaim, long flags, EntityHandle targ = EntityHandle());
 void ARX_EQUIPMENT_RecreatePlayerMesh();
 float ARX_EQUIPMENT_ComputeDamages(Entity * io_source, Entity * io_target, float ratioaim, Vec3f * pos = NULL);
  

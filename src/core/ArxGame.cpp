@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,6 +49,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <algorithm>
 #include <sstream>
 
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/foreach.hpp>
 
 #ifdef __amigaos4__
@@ -58,43 +59,66 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "ai/Paths.h"
 
 #include "animation/Animation.h"
-#include "animation/Cinematic.h"
+#include "animation/AnimationRender.h"
+#include "animation/Intro.h"
 
-#include "core/Core.h"
+#include "cinematic/Cinematic.h"
+#include "cinematic/CinematicController.h"
+
+#include "core/Benchmark.h"
 #include "core/Config.h"
+#include "core/Core.h"
 #include "core/GameTime.h"
 #include "core/Localisation.h"
 #include "core/SaveGame.h"
+#include "core/URLConstants.h"
 #include "core/Version.h"
 
 #include "game/Damage.h"
 #include "game/EntityManager.h"
+#include "game/Equipment.h"
 #include "game/Inventory.h"
 #include "game/Levels.h"
 #include "game/Missile.h"
 #include "game/NPC.h"
 #include "game/Player.h"
 #include "game/Spells.h"
+#include "game/spell/FlyingEye.h"
+#include "game/spell/Cheat.h"
+#include "game/effect/ParticleSystems.h"
+#include "game/effect/Quake.h"
 
 #include "graphics/BaseGraphicsTypes.h"
 #include "graphics/Color.h"
 #include "graphics/Draw.h"
-#include "graphics/GraphicsModes.h"
+#include "graphics/DrawDebug.h"
+#include "graphics/GlobalFog.h"
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Math.h"
-#include "graphics/Renderer.h"
 #include "graphics/Vertex.h"
 #include "graphics/VertexBuffer.h"
+#include "graphics/data/FTL.h"
 #include "graphics/data/Mesh.h"
 #include "graphics/data/TextureContainer.h"
+#include "graphics/effects/Fade.h"
 #include "graphics/effects/Fog.h"
+#include "graphics/effects/LightFlare.h"
 #include "graphics/font/Font.h"
+#include "graphics/opengl/GLDebug.h"
 #include "graphics/particle/ParticleEffects.h"
 #include "graphics/particle/ParticleManager.h"
+#include "graphics/particle/MagicFlare.h"
+#include "graphics/particle/Spark.h"
 #include "graphics/texture/TextureStage.h"
 
+#include "gui/Console.h"
+#include "gui/Cursor.h"
+#include "gui/DebugHud.h"
+#include "gui/Hud.h"
 #include "gui/Interface.h"
+#include "gui/LoadLevelScreen.h"
 #include "gui/Menu.h"
+#include "gui/MenuPublic.h"
 #include "gui/MenuWidgets.h"
 #include "gui/MiniMap.h"
 #include "gui/Speech.h"
@@ -105,19 +129,27 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "input/Keyboard.h"
 
 #include "math/Angle.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 #include "math/Rectangle.h"
-#include "math/Vector2.h"
-#include "math/Vector3.h"
+#include "math/Vector.h"
+
+#include "physics/Attractors.h"
 
 #include "io/fs/FilePath.h"
+#include "io/fs/Filesystem.h"
 #include "io/fs/SystemPaths.h"
 #include "io/resource/PakReader.h"
 #include "io/Screenshot.h"
+#include "io/log/CriticalLogger.h"
 #include "io/log/Logger.h"
 
-#include "platform/Flags.h"
+#include "platform/Dialog.h"
 #include "platform/Platform.h"
+#include "platform/Process.h"
+#include "platform/ProgramOptions.h"
+#include "platform/profiler/Profiler.h"
+#include "platform/Time.h"
+#include "platform/Thread.h"
 
 #include "scene/ChangeLevel.h"
 #include "scene/Interactive.h"
@@ -127,147 +159,232 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Object.h"
 #include "scene/Scene.h"
 
+#include "script/ScriptEvent.h"
+
 #include "Configure.h"
-#include "core/URLConstants.h"
 
-#ifdef ARX_HAVE_D3D9
-#include "window/D3D9Window.h"
+#include "window/RenderWindow.h"
+
+#if ARX_HAVE_SDL2
+#include "window/SDL2Window.h"
 #endif
-#ifdef ARX_HAVE_SDL
-#include "window/SDLWindow.h"
+#if ARX_HAVE_SDL1
+#include "window/SDL1Window.h"
 #endif
 
-static bool showFPS = false;
+InfoPanels g_debugInfo = InfoPanelNone;
 
-using std::string;
+extern bool START_NEW_QUEST;
+SavegameHandle LOADQUEST_SLOT = SavegameHandle(); // OH NO, ANOTHER GLOBAL! - TEMP PATCH TO CLEAN CODE FLOW
+static fs::path g_saveToLoad;
 
-extern long PLAY_LOADED_CINEMATIC;
-extern long START_NEW_QUEST;
-extern long CHANGE_LEVEL_ICON;
-extern long REFUSE_GAME_RETURN;
-extern bool PLAYER_MOUSELOOK_ON;
-extern bool TRUE_PLAYER_MOUSELOOK_ON;
-extern long FRAME_COUNT;
-extern long PLAYER_PARALYSED;
-extern long STOP_KEYBOARD_INPUT;
-extern long USEINTERNORM;
-extern long cur_mr;
-extern long cur_rf;
-extern long STRIKE_TIME;
-extern long DeadTime;
-extern long TRANSPOLYSPOS;
-extern long FORCE_FRONT_DRAW;
-extern long LAST_ROOM;
-extern long LAST_PORTALS_COUNT;
-extern int iTimeToDrawD7;
-extern long LaunchDemo;
+static const float CURRENT_BASE_FOCAL = 310.f;
+static const float defaultCameraFocal = 350.f;
 
-extern short uw_mode;
+static const PlatformDuration runeDrawPointInterval = PlatformDurationMs(16); // ~60fps
 
-extern long CURRENT_BASE_FOCAL;
-extern float BOW_FOCAL;
-
-extern float GLOBAL_SLOWDOWN;
-extern float sp_max_start;
-extern float LAST_FADEVALUE;
-
-extern float PROGRESS_BAR_TOTAL;
-extern float PROGRESS_BAR_COUNT;
-extern float OLD_PROGRESS_BAR_COUNT;
-
-extern bool bOLD_CLIPP;
-
-extern void DANAE_KillCinematic();
-extern void LaunchWaitingCine();
-
-extern Cinematic* ControlCinematique;
-extern EERIE_3DOBJ* eyeballobj;
 extern EERIE_3DOBJ * arrowobj;
-extern TextureContainer * Movable;
-extern TextureContainer * tflare;
-extern Entity * FlyingOverIO;
-extern E_ARX_STATE_MOUSE eMouseState;
-extern Vec3f LastValidPlayerPos;
-extern Color ulBKGColor;
-extern EERIE_CAMERA conversationcamera;
-extern ParticleManager * pParticleManager;
+
 extern CircularVertexBuffer<TexturedVertex> * pDynamicVertexBuffer_TLVERTEX; // VB using TLVERTEX format.
 extern CircularVertexBuffer<SMY_VERTEX3> * pDynamicVertexBuffer;
-extern CMenuState * pMenu;
 
-extern EERIEMATRIX ProjectionMatrix;
+bool EXTERNALVIEW = false;
+bool SHOW_INGAME_MINIMAP = true;
 
-TextureContainer * ChangeLevel = NULL;
-TextureContainer * Movable = NULL;   // TextureContainer for Movable Items (Red Cross)
-
-long WILL_QUICKLOAD=0;
-long WILL_QUICKSAVE=0;
-long NEED_SPECIAL_RENDEREND=0;
-long BOOKBUTTON=0;
-long LASTBOOKBUTTON=0;
-long EXTERNALVIEW=0;
-long ARX_CONVERSATION=0;
-long ARX_CONVERSATION_MODE=-1;
-long ARX_CONVERSATION_LASTIS=-1;
-static long LAST_CONVERSATION = 0;
-long SHOW_INGAME_MINIMAP= 1;
-long NEED_TEST_TEXT=0;
-static unsigned long FRAMETICKS=0;
-
-float PLAYER_ARMS_FOCAL = 350.f;
-float currentbeta=0.f;
-
-unsigned char ARX_FLARES_Block=1;
+bool ARX_FLARES_Block = true;
 
 Vec3f LASTCAMPOS;
 Anglef LASTCAMANGLE;
-Entity * CAMERACONTROLLER=NULL;
-Entity *lastCAMERACONTROLLER=NULL;
 
 // ArxGame constructor. Sets attributes for the app.
-ArxGame::ArxGame() : wasResized(false) { }
+ArxGame::ArxGame()
+	: m_wasResized(false)
+	, m_gameInitialized(false)
+{}
 
 ArxGame::~ArxGame() {
 }
 
-bool ArxGame::Initialize() {
+bool ArxGame::initialize()
+{
+	bool init;
 	
-	bool init = Application::Initialize();
+	init = initConfig();
+	if(!init) {
+		LogCritical << "Failed to initialize the config subsystem";
+		return false;
+	}
+	
+	init = initWindow();
 	if(!init) {
 		return false;
 	}
 	
-	init = InitGameData();
+	init = initGameData();
 	if(!init) {
-		LogCritical << "Failed to initialize the game data.";
+		return false;
+	}
+	
+	init = initInput();
+	if(!init) {
+		return false;
+	}
+	
+	init = initSound();
+	if(!init) {
 		return false;
 	}
 	
 	init = initLocalisation();
 	if(!init) {
-		LogCritical << "Failed to initialize the localisation subsystem.";
+		LogCritical << "Failed to initialize the localisation subsystem";
 		return false;
 	}
 	
-	Create();
+	init = initGame();
+	if(!init) {
+		LogCritical << "Failed to initialize game";
+		return false;
+	}
 	
 	return true;
 }
 
-void ArxGame::setFullscreen(bool fullscreen) {
+static bool migrateFilenames(fs::path path, bool is_dir) {
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__) 
+	return true;
+#else
+	
+	std::string name = path.filename();
+	std::string lowercase = boost::to_lower_copy(name);
+	
+	bool migrated = true;
+	
+	if(lowercase != name) {
+		
+		fs::path dst = path.parent() / lowercase;
+		
+		LogInfo << "Renaming " << path << " to " << dst.filename();
+		
+		if(fs::rename(path, dst)) {
+			path = dst;
+		} else {
+			migrated = false;
+		}
+	}
+	
+	if(is_dir) {
+		for(fs::directory_iterator it(path); !it.end(); ++it) {
+			migrated &= migrateFilenames(path / it.name(), it.is_directory());
+		}
+	}
+	
+	return migrated;
+#endif
+}
+
+static bool migrateFilenames(const fs::path & configFile) {
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__) 
+	return true;
+#else
+	
+	LogInfo << "Changing filenames to lowercase...";
+	
+	static const char * files[] = { "cfg.ini", "cfg_default.ini",
+	 "sfx.pak", "loc.pak", "data2.pak", "data.pak", "speech.pak", "loc_default.pak", "speech_default.pak",
+	 "save", "editor", "game", "graph", "localisation", "misc", "sfx", "speech" };
+	
+	std::set<std::string> fileset;
+	for(size_t i = 0; i < ARRAY_SIZE(files); i++) {
+		fileset.insert(files[i]);
+	}
+	
+	bool migrated = true;
+	
+	for(fs::directory_iterator it(fs::getUserDir()); !it.end(); ++it) {
+		std::string file = it.name();
+		if(fileset.find(boost::to_lower_copy(file)) != fileset.end()) {
+			migrated &= migrateFilenames(fs::getUserDir() / file, it.is_directory());
+		}
+	}
+	
+	if(!migrated) {
+		LogCritical << "Could not rename all files to lowercase, please do so manually and set migration=1 under [misc] in " << configFile;
+	}
+	
+	return migrated;
+#endif
+}
+
+bool ArxGame::initConfig() {
+	
+	// Initialize config first, before anything else.
+	fs::path configFile = fs::getConfigDir() / "cfg.ini";
+	
+	config.setOutputFile(configFile);
+	
+	bool migrated = false;
+	if(!fs::exists(configFile)) {
+		
+		migrated = migrateFilenames(configFile);
+		if(!migrated) {
+			return false;
+		}
+		
+		fs::path oldConfigFile = fs::getUserDir() / "cfg.ini";
+		if(fs::exists(oldConfigFile)) {
+			if(!fs::rename(oldConfigFile, configFile)) {
+				LogWarning << "Could not move " << oldConfigFile << " to "
+				           << configFile;
+			} else {
+				LogInfo << "Moved " << oldConfigFile << " to " << configFile;
+			}
+		}
+	}
+	
+	LogInfo << "Using config file " << configFile;
+	if(!config.init(configFile)) {
+		
+		fs::path file = fs::findDataFile("cfg_default.ini");
+		if(!config.init(file)) {
+			LogWarning << "Could not read config files cfg.ini and cfg_default.ini,"
+			           << " using defaults";
+		}
+		
+		// Save a default config file so users have a chance to edit it even if we crash.
+		config.save();
+	}
+	
+	Logger::configure(config.misc.debug);
+	
+	if(!migrated && config.misc.migration < Config::CaseSensitiveFilenames) {
+		migrated = migrateFilenames(configFile);
+		if(!migrated) {
+			return false;
+		}
+	}
+	if(migrated) {
+		config.misc.migration = Config::CaseSensitiveFilenames;
+	}
+	
+	if(!fs::create_directories(fs::getUserDir() / "save")) {
+		LogWarning << "Failed to create save directory";
+	}
+	
+	return true;
+}
+
+void ArxGame::setWindowSize(bool fullscreen) {
 	
 	if(fullscreen) {
 		
-		RenderWindow::DisplayMode mode(config.video.resolution, config.video.bpp);
-		if(mode.resolution == Vec2i::ZERO) {
-			mode = GetWindow()->getDisplayModes().back();
+		// Clamp to a sane resolution!
+		if(config.video.resolution != Vec2i_ZERO) {
+			config.video.resolution.x = std::max(config.video.resolution.x, s32(640));
+			config.video.resolution.y = std::max(config.video.resolution.y, s32(480));
 		}
 		
-		// Clamp to a sane resolution!
-		mode.resolution.x = std::max(mode.resolution.x, s32(640));
-		mode.resolution.y = std::max(mode.resolution.y, s32(480));
-		
-		GetWindow()->setFullscreenMode(mode.resolution, mode.depth);
+		getWindow()->setFullscreenMode(config.video.resolution);
 		
 	} else {
 		
@@ -282,7 +399,7 @@ void ArxGame::setFullscreen(bool fullscreen) {
 		config.window.size.y = std::max(config.window.size.y, s32(480));
 #endif
 		
-		GetWindow()->setWindowSize(config.window.size);
+		getWindow()->setWindowSize(config.window.size);
 		
 	}
 }
@@ -300,20 +417,12 @@ bool ArxGame::initWindow(RenderWindow * window) {
 	
 	// Register ourself as a listener for this window messages
 	m_MainWindow->addListener(this);
-	m_MainWindow->addRenderListener(this);
+	m_MainWindow->getRenderer()->addListener(this);
 	
-	const RenderWindow::DisplayModes & modes = window->getDisplayModes();
-	
-	RenderWindow::DisplayMode mode(config.video.resolution, config.video.bpp);
-	
-	if(config.video.resolution == Vec2i::ZERO) {
-		
-		// Use the largest available resolution.
-		mode = modes.back();
-		
-	} else {
-		
-		// Find the next best available fullscreen mode.
+	// Find the next best available fullscreen mode.
+	if(config.video.resolution != Vec2i_ZERO) {
+		const RenderWindow::DisplayModes & modes = window->getDisplayModes();
+		DisplayMode mode = config.video.resolution;
 		RenderWindow::DisplayModes::const_iterator i;
 		i = std::lower_bound(modes.begin(), modes.end(), mode);
 		if(i == modes.end()) {
@@ -321,27 +430,24 @@ bool ArxGame::initWindow(RenderWindow * window) {
 		} else {
 			mode = *i;
 		}
-		if(config.video.resolution != mode.resolution || unsigned(config.video.bpp) != mode.depth) {
-			LogWarning << "Fullscreen mode " << config.video.resolution.x << 'x' << config.video.resolution.y << '@' << config.video.bpp << " not supported, using " << mode.resolution.x << 'x' << mode.resolution.y 	<< '@' << mode.depth << " instead";
+		if(config.video.resolution != mode.resolution) {
+			LogWarning << "Fullscreen mode " << config.video.resolution.x << 'x'
+			           << config.video.resolution.y
+			           << " not supported, using " << mode.resolution.x << 'x'
+			           << mode.resolution.y << " instead";
+			config.video.resolution = mode.resolution;
 		}
-		
 	}
 	
-	// Clamp to a sane resolution and window size!
-	mode.resolution.x = std::max(mode.resolution.x, s32(640));
-	mode.resolution.y = std::max(mode.resolution.y, s32(480));
-#ifdef __AROS__
-#warning HACK!
-	config.window.size.x = s32(320);
-	config.window.size.y = s32(240);
-#else
-	config.window.size.x = std::max(config.window.size.x, s32(640));
-	config.window.size.y = std::max(config.window.size.y, s32(480));
-#endif
+	m_MainWindow->setTitle(arx_name + " " + arx_version);
+	m_MainWindow->setMinimizeOnFocusLost(config.window.minimizeOnFocusLost);
+	m_MainWindow->setMinTextureUnits(3);
+	m_MainWindow->setMaxMSAALevel(config.video.antialiasing ? 8 : 1);
+	m_MainWindow->setVSync(benchmark::isEnabled() ? 0 : config.video.vsync);
 	
-	Vec2i size = config.video.fullscreen ? mode.resolution : config.window.size;
+	setWindowSize(config.video.fullscreen);
 	
-	if(!m_MainWindow->initialize(arx_version, size, config.video.fullscreen, mode.depth)) {
+	if(!m_MainWindow->initialize()) {
 		m_MainWindow = NULL;
 		return false;
 	}
@@ -352,102 +458,81 @@ bool ArxGame::initWindow(RenderWindow * window) {
 		return false;
 	}
 	
-	if(!m_MainWindow->isFullScreen() && config.video.resolution != Vec2i::ZERO) {
-		config.video.resolution = mode.resolution;
-	}
-	config.video.bpp = mode.depth;
-	
 	return true;
 }
 
-bool ArxGame::InitWindow() {
+bool ArxGame::initWindow() {
 	
 	arx_assert(m_MainWindow == NULL);
 	
-	bool autoFramework = (config.window.framework == "auto");
-	
-	for(int i = 0; i < 2 && !m_MainWindow; i++) {
-		bool first = (i == 0);
-		
-		bool matched = false;
-		
-		#ifdef ARX_HAVE_SDL
-		if(!m_MainWindow && first == (autoFramework || config.window.framework == "SDL")) {
-			matched = true;
-			RenderWindow * window = new SDLWindow;
-			if(!initWindow(window)) {
-				delete window;
-			}
-		}
-		#endif
-		
-		#ifdef ARX_HAVE_D3D9
-		if(!m_MainWindow && first == (autoFramework || config.window.framework == "D3D9")) {
-			matched = true;
-			RenderWindow * window = new D3D9Window;
-			if(!initWindow(window)) {
-				delete window;
-			}
-		}
-		#endif
-		
-		if(first && !matched) {
-			LogError << "Unknown windowing framework: " << config.window.framework;
+	#if ARX_HAVE_SDL2
+	if(!m_MainWindow) {
+		RenderWindow * window = new SDL2Window;
+		if(!initWindow(window)) {
+			delete window;
 		}
 	}
+	#endif
+	
+	#if ARX_HAVE_SDL1
+	if(!m_MainWindow) {
+		RenderWindow * window = new SDL1Window;
+		if(!initWindow(window)) {
+			delete window;
+		}
+	}
+	#endif
 	
 	if(!m_MainWindow) {
-		LogCritical << "Graphics initialization failed.";
+		LogCritical << "Graphics initialization failed";
 		return false;
 	}
 	
 	return true;
 }
 
-bool ArxGame::InitInput() {
+bool ArxGame::initInput() {
 	
 	LogDebug("Input init");
-	bool init = ARX_INPUT_Init();
+	bool init = ARX_INPUT_Init(m_MainWindow);
 	if(!init) {
-		LogCritical << "Input initialization failed.";
+		LogCritical << "Input initialization failed";
 	}
 	
 	return init;
 }
 
-bool ArxGame::InitSound() {
+bool ArxGame::initSound() {
 	
 	LogDebug("Sound init");
 	bool init = ARX_SOUND_Init();
 	if(!init) {
-		LogWarning << "Sound initialization failed.";
+		LogWarning << "Sound initialization failed";
 	}
 	
 	return true;
 }
 
-bool ArxGame::InitGameData() {
+bool ArxGame::initGameData() {
 	
-	bool init = AddPaks();
+	bool init = addPaks();
 	if(!init) {
-		LogCritical << "Error loading pak files";
+		LogCritical << "Failed to initialize the game data";
 		return false;
 	}
-
-	ARX_SOUND_LoadData();
 	
 	savegames.update(true);
 	
 	return init;
 }
 
-static const char * default_paks[][2] = {
-	{ "data.pak", NULL },
-	{ "loc.pak", "loc_default.pak" },
-	{ "data2.pak", NULL },
-	{ "sfx.pak", NULL },
-	{ "speech.pak", "speech_default.pak" },
-};
+TextureContainer * enviro = NULL;
+TextureContainer * ombrignon = NULL;
+TextureContainer * TC_fire = NULL;
+TextureContainer * TC_fire2 = NULL;
+TextureContainer * TC_smoke = NULL;
+TextureContainer * Boom = NULL;
+TextureContainer * arx_logo_tc = NULL;
 
 #ifdef __MORPHOS__
 // terrible hackery based on arxunpak
@@ -513,325 +598,359 @@ static void dump(PakDirectory * dir, const fs::path & dirname = fs::current_path
 }
 #endif
 
-bool ArxGame::AddPaks() {
+static void LoadSysTextures() {
 	
-	arx_assert(!resources);
+	MagicFlareLoadTextures();
+
+	spellDataInit();
+
+	enviro = TextureContainer::LoadUI("graph/particles/enviro");
 	
-	resources = new PakReader;
+	ARX_INTERFACE_DrawNumberInit();
+	init2DFX();
+	ombrignon = TextureContainer::LoadUI("graph/particles/ombrignon");
+	TC_fire = TextureContainer::LoadUI("graph/particles/fire");
+	TC_fire2 = TextureContainer::LoadUI("graph/particles/fire2");
+	TC_smoke = TextureContainer::LoadUI("graph/particles/smoke");
+	Boom = TextureContainer::LoadUI("graph/particles/boom");
+	arx_logo_tc = TextureContainer::LoadUI("graph/interface/icons/arx_logo_32");
 	
-	// Load required pak files
-	std::vector<size_t> missing;
-	for(size_t i = 0; i < ARRAY_SIZE(default_paks); i++) {
-		if(resources->addArchive(fs::paths.find(default_paks[i][0]))) {
-			continue;
+	TextureContainer::LoadUI("graph/particles/fire_hit");
+	TextureContainer::LoadUI("graph/particles/light");
+	
+	//INTERFACE LOADING
+	g_hudRoot.init();
+	
+	// Load book textures and text
+	g_bookResouces.init();
+	
+}
+
+class GameFlow {
+
+public:
+	enum Transition {
+		FirstLogo,
+		SecondLogo,
+		LoadingScreen,
+		InGame
+	};
+
+	static void setTransition(Transition newTransition) {
+		s_currentTransition = newTransition;
+	}
+
+	static Transition getTransition() {
+		return s_currentTransition;
+	}
+
+private:
+	static Transition s_currentTransition;
+};
+
+GameFlow::Transition GameFlow::s_currentTransition = GameFlow::FirstLogo;
+
+enum LevelNumber {
+	LEVEL0     = 0,
+	LEVEL1     = 1,
+	LEVEL2     = 2,
+	LEVEL3     = 3,
+	LEVEL4     = 4,
+	LEVEL5     = 5,
+	LEVEL6     = 6,
+	LEVEL7     = 7,
+	LEVEL8     = 8,
+	LEVEL9     = 9,
+	LEVEL10    = 10,
+	LEVEL11    = 11,
+	LEVEL12    = 12,
+	LEVEL13    = 13,
+	LEVEL14    = 14,
+	LEVEL15    = 15,
+	LEVEL16    = 16,
+	LEVEL17    = 17,
+	LEVEL18    = 18,
+	LEVEL19    = 19,
+	LEVEL20    = 20,
+	LEVEL21    = 21,
+	LEVEL22    = 22,
+	LEVEL23    = 23,
+	LEVEL24    = 24,
+	LEVEL25    = 25,
+	LEVEL26    = 26,
+	LEVEL27    = 27,
+	LEVELDEMO  = 28,
+	LEVELDEMO2 = 29,
+	LEVELDEMO3 = 30,
+	LEVELDEMO4 = 31,
+	NOLEVEL    = 32
+};
+
+LevelNumber LEVEL_TO_LOAD = LEVEL10;
+
+static void loadLevel(u32 lvl) {
+	if(lvl < NOLEVEL) {
+		if(GameFlow::getTransition() != GameFlow::LoadingScreen) {
+			LEVEL_TO_LOAD = static_cast<LevelNumber>(lvl);
+			GameFlow::setTransition(GameFlow::LoadingScreen);
 		}
-		if(default_paks[i][1]
-		   && resources->addArchive(fs::paths.find(default_paks[i][1]))) {
-			continue;
+	}
+}
+ARX_PROGRAM_OPTION_ARG("loadlevel", "", "Load a specific level", &loadLevel, "LEVELID")
+
+static void loadSlot(u32 saveSlot) {
+	LOADQUEST_SLOT = SavegameHandle(saveSlot);
+	GameFlow::setTransition(GameFlow::InGame);
+}
+ARX_PROGRAM_OPTION_ARG("loadslot", "", "Load a specific savegame slot", &loadSlot, "SAVESLOT")
+
+static void loadSave(const std::string & saveFile) {
+	g_saveToLoad = saveFile;
+	GameFlow::setTransition(GameFlow::InGame);
+}
+ARX_PROGRAM_OPTION_ARG("loadsave", "", "Load a specific savegame file", &loadSave, "SAVEFILE")
+
+static void skipLogo() {
+	loadLevel(LEVEL10);
+}
+ARX_PROGRAM_OPTION("skiplogo", "", "Skip logos at startup", &skipLogo)
+
+static bool HandleGameFlowTransitions() {
+	
+	const PlatformDuration TRANSITION_DURATION = PlatformDurationMs(3600);
+	static PlatformInstant TRANSITION_START = 0;
+
+	if(GameFlow::getTransition() == GameFlow::InGame) {
+		return false;
+	}
+
+	if(GInput->isAnyKeyPressed()) {
+		ARXmenu.requestMode(Mode_MainMenu);
+		ARX_MENU_Launch(false);
+		GameFlow::setTransition(GameFlow::InGame);
+	}
+		
+	if(GameFlow::getTransition() == GameFlow::FirstLogo) {
+		benchmark::begin(benchmark::Splash);
+		//firsttime
+		if(TRANSITION_START == 0) {
+			if(!ARX_INTERFACE_InitFISHTANK()) {
+				GameFlow::setTransition(GameFlow::SecondLogo);
+				return true;
+			}
+			
+			TRANSITION_START = g_platformTime.frameStart();
 		}
-		missing.push_back(i);
+
+		ARX_INTERFACE_ShowFISHTANK();
+		
+		PlatformDuration elapsed = g_platformTime.frameStart() - TRANSITION_START;
+
+		if(elapsed > TRANSITION_DURATION) {
+			TRANSITION_START = 0;
+			GameFlow::setTransition(GameFlow::SecondLogo);
+		}
+		
+		return true;
 	}
 	
-	if(!missing.empty()) {
+	if(GameFlow::getTransition() == GameFlow::SecondLogo) {
+		benchmark::begin(benchmark::Splash);
+		//firsttime
+		if(TRANSITION_START == 0) {
+			if(!ARX_INTERFACE_InitARKANE()) {
+				GameFlow::setTransition(GameFlow::LoadingScreen);
+				return true;
+			}
+			
+			TRANSITION_START = g_platformTime.frameStart();
+			ARX_SOUND_PlayInterface(SND_PLAYER_HEART_BEAT);
+		}
+
+		ARX_INTERFACE_ShowARKANE();
 		
-		// Try to launch the data file installer on non-Windows systems
-		#if ARX_PLATFORM != ARX_PLATFORM_WIN32 && !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__) 
-		int ret = system("nohup arx-install-data --gui >/dev/null 2>&1 &");
-		(void)ret; // we really don't care!
-		#endif
+		PlatformDuration elapsed = g_platformTime.frameStart() - TRANSITION_START;
+
+		if(elapsed > TRANSITION_DURATION) {
+			TRANSITION_START = 0;
+			GameFlow::setTransition(GameFlow::LoadingScreen);
+		}
+
+		return true;
+	}
+
+	if(GameFlow::getTransition() == GameFlow::LoadingScreen) {
+		ARX_INTERFACE_KillFISHTANK();
+		ARX_INTERFACE_KillARKANE();
 		
-		// Construct an informative error message about missing files
+		benchmark::begin(benchmark::LoadLevel);
+		
+		ARX_CHANGELEVEL_StartNew();
+		
 		std::ostringstream oss;
-		oss << "Could not load required ";
-		oss << (missing.size() == 1 ? "file" : "files");
-		size_t length = oss.tellp();
-		for(size_t i = 0; i < missing.size(); i++) {
-			if(i != 0) {
-				if(i + 1 == missing.size()) {
-					oss << " and", length += 4;
-				} else {
-					oss << ",", length++;
-				}
-			}
-			size_t add = 1 + strlen(default_paks[missing[i]][0]) + 1;
-			if(default_paks[missing[i]][1]) {
-				add += 6 + strlen(default_paks[missing[i]][1]) + 2;
-			}
-			if(length + add > 75) {
-				oss << "\n ", length = add + 1;
-			} else {
-				oss << ' ', length += add + 1;
-			}
-			oss << '"' << default_paks[missing[i]][0] << '"';
-			if(default_paks[missing[i]][1]) {
-				oss << " (or \"" << default_paks[missing[i]][1] << "\")";
-				length += 3 + strlen(default_paks[missing[i]][1]) + 2;
-			}
-		}
-		oss << ".\n\nSearched in these locations:\n";
-		std::vector<fs::path> search = fs::paths.getSearchPaths();
-		BOOST_FOREACH(const fs::path & dir, search) {
-			oss << " * " << dir.string() << fs::path::dir_sep << "\n";
-		}
-		oss << "\nSee  " << url::help_get_data;
-		oss << "  and  " << url::help_install_data << "\n";
-		oss << "\nThe search path can be adjusted with command-line parameters.\n";
-		#if ARX_PLATFORM != ARX_PLATFORM_WIN32 && !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__) 
-		oss << "\nWe will now try to launch the data install script for you...\n";
-		#endif
-		LogCritical << oss.str();
+		oss << "graph/levels/level" << LEVEL_TO_LOAD << "/level" << LEVEL_TO_LOAD << ".dlf";
 		
+		progressBarReset();
+		progressBarSetTotal(108);
+		LoadLevelScreen(LEVEL_TO_LOAD);
+
+		DanaeLoadLevel(oss.str());
+		GameFlow::setTransition(GameFlow::InGame);
+		return false;
+	}
+
+	return false;
+}
+
+
+Vec3f PUSH_PLAYER_FORCE;
+
+bool ArxGame::initGame()
+{
+	// Check if the game will be able to use the current game directory.
+	if(!ARX_Changelevel_CurGame_Clear()) {
+		LogCritical << "Error accessing current game directory";
 		return false;
 	}
 	
-#ifdef __MORPHOS__
-	// streaming from the PAKs is super slow, we need to extract the sounds
-	dump(resources);
-#endif
+	ScriptEvent::init();
 	
-	// Load optional patch files
-	BOOST_REVERSE_FOREACH(const fs::path & base, fs::paths.data) {
-		resources->addFiles(base / "editor", "editor");
-		resources->addFiles(base / "game", "game");
-		resources->addFiles(base / "graph", "graph");
-		resources->addFiles(base / "localisation", "localisation");
-		resources->addFiles(base / "misc", "misc");
-		resources->addFiles(base / "sfx", "sfx");
-		resources->addFiles(base / "speech", "speech");
+	CalcFPS(true);
+	
+	g_miniMap.mapMarkerInit();
+	
+	ARX_SPELLS_CancelSpellTarget();
+	
+	LogDebug("Danae Start");
+	
+	LogDebug("Project Init");
+	
+	PUSH_PLAYER_FORCE = Vec3f_ZERO;
+	ARX_SPECIAL_ATTRACTORS_Reset();
+	LogDebug("Attractors Init");
+	ARX_SPELLS_Precast_Reset();
+	LogDebug("Spell Init");
+	
+	for(size_t t = 0; t < MAX_GOLD_COINS_VISUALS; t++) {
+		GoldCoinsObj[t] = NULL;
+		GoldCoinsTC[t] = NULL;
 	}
 	
-	return true;
-}
-
-//*************************************************************************************
-// Create()
-//*************************************************************************************
-bool ArxGame::Create() {
+	LogDebug("LSV Init");
+	TELEPORT_TO_LEVEL.clear();
+	TELEPORT_TO_POSITION.clear();
+	LogDebug("Mset");
 	
-	return true;
-}
-
-void ArxGame::onWindowGotFocus(const Window &) {
+	LogDebug("AnimManager Init");
+	ARX_SCRIPT_EventStackInit();
+	LogDebug("EventStack Init");
+	ARX_EQUIPMENT_Init();
+	LogDebug("AEQ Init");
 	
-	if(GInput) {
-		GInput->reset();
-		GInput->unacquireDevices();
-		GInput->acquireDevices();
+	ARX_SCRIPT_Timer_FirstInit(512);
+	LogDebug("Timer Init");
+	ARX_FOGS_Clear();
+	LogDebug("Fogs Init");
+	
+	EERIE_LIGHT_GlobalInit();
+	LogDebug("Lights Init");
+	
+	LogDebug("Svars Init");
+	
+	entities.init();
+	
+	player = ARXCHARACTER();
+	ARX_PLAYER_InitPlayer();
+	
+	CleanInventory();
+	
+	ARX_SPEECH_FirstInit();
+	ARX_SPEECH_Init();
+	ARX_SPEECH_ClearAll();
+	RemoveQuakeFX();
+	
+	LogDebug("Launching DANAE");
+	
+	if(!AdjustUI()) {
+		return false;
 	}
-}
+	
+	ARXMenu_Options_Video_SetFogDistance(config.video.fogDistance);
+	ARXMenu_Options_Video_SetDetailsQuality(config.video.levelOfDetail);
+	ARXMenu_Options_Video_SetGamma(config.video.gamma);
+	ARXMenu_Options_Audio_SetMasterVolume(config.audio.volume);
+	ARXMenu_Options_Audio_SetSfxVolume(config.audio.sfxVolume);
+	ARXMenu_Options_Audio_SetSpeechVolume(config.audio.speechVolume);
+	ARXMenu_Options_Audio_SetAmbianceVolume(config.audio.ambianceVolume);
+	ARXMenu_Options_Audio_ApplyGameVolumes();
+	
+	GInput->setMouseSensitivity(config.input.mouseSensitivity);
+	GInput->setMouseAcceleration(config.input.mouseAcceleration);
+	GInput->setInvertMouseY(config.input.invertMouse);
+	GInput->setRawMouseInput(config.input.rawMouseInput);
+	
+	g_miniMap.firstInit(&player, g_resources, &entities);
+	
+	player.m_torchColor = Color3f(1.f, 0.8f, 0.66666f);
+	LogDebug("InitializeDanae");
+	
+	InitTileLights();
+	
+	ARX_MISSILES_ClearAll();
+	spells.init();
 
-void ArxGame::onWindowLostFocus(const Window &) {
+	ARX_SPELLS_ClearAllSymbolDraw();
+	ARX_PARTICLES_ClearAll();
+	ParticleSparkClear();
+	ARX_MAGICAL_FLARES_FirstInit();
 	
-	if(GInput) {
-		GInput->unacquireDevices();
-	}
-}
-
-void ArxGame::onResizeWindow(const Window & window) {
+	LastLoadedScene.clear();
 	
-	arx_assert(window.getSize() != Vec2i::ZERO);
+	ACTIVEBKG = new BackgroundData();
+	InitBkg(ACTIVEBKG);
 	
-	// A new window size will require a new backbuffer
-	// size, so the 3D structures must be changed accordingly.
-	wasResized = true;
+	player.size = Vec3f(player.baseRadius(), -player.baseHeight(), player.baseRadius());
+	player.desiredangle = player.angle = Anglef(3.f, 268.f, 0.f);
 	
-	if(window.isFullScreen()) {
-		if(config.video.resolution == Vec2i::ZERO) {
-			LogInfo << "Auto-selected fullscreen resolution " << window.getSize().x << 'x' << window.getSize().y << '@' << window.getDepth();
-		} else {
-			LogInfo << "Changed fullscreen resolution to " << window.getSize().x << 'x' << window.getSize().y << '@' << window.getDepth();
-			config.video.resolution = window.getSize();
-		}
+	g_playerCamera.angle = player.angle;
+	g_playerCamera.m_pos = Vec3f(900.f, player.baseHeight(), 4340.f);
+	g_playerCamera.focal = defaultCameraFocal;
+	g_playerCamera.cdepth = 2100.f;
+	SetActiveCamera(&g_playerCamera);
+	
+	LoadSysTextures();
+	cursorTexturesInit();
+	
+	PakReader::ReleaseFlags release = g_resources->getReleaseType();
+	if((release & PakReader::Demo) && (release & PakReader::FullGame)) {
+		LogWarning << "Mixed demo and full game data files!";
+		CrashHandler::setVariable("Data files", "mixed");
+	} else if(release & PakReader::Demo) {
+		LogInfo << "Initialized Arx Fatalis (demo)";
+		CrashHandler::setVariable("Data files", "demo");
+	} else if(release & PakReader::FullGame) {
+		LogInfo << "Initialized Arx Fatalis (full game)";
+		CrashHandler::setVariable("Data files", "full");
 	} else {
-		LogInfo << "Changed window size to " << window.getSize().x << 'x' << window.getSize().y;
-		config.window.size = window.getSize();
+		LogWarning << "Neither demo nor full game data files loaded!";
+		CrashHandler::setVariable("Data files", "unknown");
 	}
-}
-
-void ArxGame::onPaintWindow(const Window& window)
-{
-	ARX_UNUSED(window);
-}
-
-void ArxGame::onDestroyWindow(const Window &) {
-	
-	LogInfo << "Application window is being destroyed";
-	Quit();
-}
-
-void ArxGame::onToggleFullscreen(const Window & window) {
-	config.video.fullscreen = window.isFullScreen();
-	GInput->reset();
-	wasResized = true;
-}
-
-//*************************************************************************************
-// Run()
-// Message-processing loop. Idle time is used to render the scene.
-//*************************************************************************************
-void ArxGame::Run() {
-	
-	BeforeRun();
-	
-	while(m_RunLoop) {
-		
-		m_MainWindow->tick();
-		if(!m_RunLoop) {
-			break;
-		}
-		
-		if(m_MainWindow->hasFocus() && m_bReady) {
-			Render3DEnvironment();
-		}
-	}
-}
-
-//*************************************************************************************
-// FrameMove()
-// Called once per frame.
-//*************************************************************************************
-void ArxGame::FrameMove() {
-	
-	if(!WILL_LAUNCH_CINE.empty()) {
-		// A cinematic is waiting to be played...
-		LaunchWaitingCine();
-	}
-}
-
-//*************************************************************************************
-// Render3DEnvironment()
-// Draws the scene.
-//*************************************************************************************
-void ArxGame::Render3DEnvironment() {
-		
-	FrameMove();
-	
-	Render();
-	
-	// Show the frame on the primary surface.
-	GetWindow()->showFrame();
-}
-
-//*************************************************************************************
-// Cleanup3DEnvironment()
-// Cleanup scene objects
-//*************************************************************************************
-void ArxGame::Cleanup3DEnvironment() {
-	
-	if(GetWindow()) {
-		FinalCleanup();
-	}
-	
-}
-
-//*************************************************************************************
-// OutputText()
-// Draws text on the window.
-//*************************************************************************************
-void ArxGame::OutputText(int x, int y, const string & str) {
-	if (m_bReady) {
-		hFontInGame->draw(x, y, str, Color(255, 255, 0));
-	}
-}
-
-//*************************************************************************************
-// OutputText()
-// Draws text on the window using selected font and color
-// at position defined by column,row.
-//*************************************************************************************
-void ArxGame::OutputTextGrid(float column, float row, const std::string &text, const Color &color)
-{
-	Font *selected_font = hFontInGame;
-
-	// find display size
-	const Vec2i &window = GetWindow()->getSize();
-
-	const int tsize = selected_font->getLineHeight();
-
-
-	// TODO: could use quadrants for width or something similar
-	// TODO: could center text in column/row
-	const Vector2<int> size(window.x / 4, selected_font->getLineHeight());
-
-	const Vector2<int> spacing(2, 2);
-	const Vector2<float> p(column + (column < 0), row + (row < 0));
-
-	// offset text into the screen a bit
-	const Vector2<int> offset((column < 0 ? window.x - tsize - size.x : tsize), (row < 0 ? window.y - tsize - size.y : tsize));
-
-	// print the text directly using our selected font
-	selected_font->draw(offset + Vector2<int>(p.x * (size + spacing).x, p.y * (size + spacing).y), text, color);
-
-}
-
-bool ArxGame::BeforeRun() {
 	
 	LogDebug("Before Run...");
 	
-	const Vec2i & size = GetWindow()->getSize();
-	ControlCinematique = new Cinematic(size.x, size.y);
-	
-	memset(&necklace,0,sizeof(ARX_NECKLACE));
+	cinematicInit();
 	
 	long old = GLOBAL_EERIETEXTUREFLAG_LOADSCENE_RELEASE;
 	GLOBAL_EERIETEXTUREFLAG_LOADSCENE_RELEASE = -1;
 	
-	necklace.lacet = loadObject("graph/interface/book/runes/lacet.teo");
+	gui::NecklaceInit();
+
 	
-	necklace.runes[RUNE_AAM] =         loadObject("graph/interface/book/runes/runes_aam.teo");
-	necklace.runes[RUNE_CETRIUS] =     loadObject("graph/interface/book/runes/runes_citrius.teo");
-	necklace.runes[RUNE_COMUNICATUM] = loadObject("graph/interface/book/runes/runes_comunicatum.teo");
-	necklace.runes[RUNE_COSUM] =       loadObject("graph/interface/book/runes/runes_cosum.teo");
-	necklace.runes[RUNE_FOLGORA] =     loadObject("graph/interface/book/runes/runes_folgora.teo");
-	necklace.runes[RUNE_FRIDD] =       loadObject("graph/interface/book/runes/runes_fridd.teo");
-	necklace.runes[RUNE_KAOM] =        loadObject("graph/interface/book/runes/runes_kaom.teo");
-	necklace.runes[RUNE_MEGA] =        loadObject("graph/interface/book/runes/runes_mega.teo");
-	necklace.runes[RUNE_MORTE] =       loadObject("graph/interface/book/runes/runes_morte.teo");
-	necklace.runes[RUNE_MOVIS] =       loadObject("graph/interface/book/runes/runes_movis.teo");
-	necklace.runes[RUNE_NHI] =         loadObject("graph/interface/book/runes/runes_nhi.teo");
-	necklace.runes[RUNE_RHAA] =        loadObject("graph/interface/book/runes/runes_rhaa.teo");
-	necklace.runes[RUNE_SPACIUM] =     loadObject("graph/interface/book/runes/runes_spacium.teo");
-	necklace.runes[RUNE_STREGUM] =     loadObject("graph/interface/book/runes/runes_stregum.teo");
-	necklace.runes[RUNE_TAAR] =        loadObject("graph/interface/book/runes/runes_taar.teo");
-	necklace.runes[RUNE_TEMPUS] =      loadObject("graph/interface/book/runes/runes_tempus.teo");
-	necklace.runes[RUNE_TERA] =        loadObject("graph/interface/book/runes/runes_tera.teo");
-	necklace.runes[RUNE_VISTA] =       loadObject("graph/interface/book/runes/runes_vista.teo");
-	necklace.runes[RUNE_VITAE] =       loadObject("graph/interface/book/runes/runes_vitae.teo");
-	necklace.runes[RUNE_YOK] =         loadObject("graph/interface/book/runes/runes_yok.teo");
-	
-	necklace.pTexTab[RUNE_AAM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_aam[icon]");
-	necklace.pTexTab[RUNE_CETRIUS] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_cetrius[icon]");
-	necklace.pTexTab[RUNE_COMUNICATUM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_comunicatum[icon]");
-	necklace.pTexTab[RUNE_COSUM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_cosum[icon]");
-	necklace.pTexTab[RUNE_FOLGORA] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_folgora[icon]");
-	necklace.pTexTab[RUNE_FRIDD] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_fridd[icon]");
-	necklace.pTexTab[RUNE_KAOM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_kaom[icon]");
-	necklace.pTexTab[RUNE_MEGA] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_mega[icon]");
-	necklace.pTexTab[RUNE_MORTE] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_morte[icon]");
-	necklace.pTexTab[RUNE_MOVIS] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_movis[icon]");
-	necklace.pTexTab[RUNE_NHI] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_nhi[icon]");
-	necklace.pTexTab[RUNE_RHAA] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_rhaa[icon]");
-	necklace.pTexTab[RUNE_SPACIUM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_spacium[icon]");
-	necklace.pTexTab[RUNE_STREGUM] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_stregum[icon]");
-	necklace.pTexTab[RUNE_TAAR] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_taar[icon]");
-	necklace.pTexTab[RUNE_TEMPUS] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_tempus[icon]");
-	necklace.pTexTab[RUNE_TERA] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_tera[icon]");
-	necklace.pTexTab[RUNE_VISTA] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_vista[icon]");
-	necklace.pTexTab[RUNE_VITAE] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_vitae[icon]");
-	necklace.pTexTab[RUNE_YOK] = TextureContainer::LoadUI("graph/obj3d/interactive/items/magic/rune_aam/rune_yok[icon]");
-	
-	for(size_t i = 0; i < RUNE_COUNT-1; i++) { // TODO why -1?
-		if(necklace.pTexTab[i]) {
-			necklace.pTexTab[i]->getHalo();
-		}
-	}
-	
-	EERIE_3DOBJ * _fogobj = LoadTheObj("editor/obj3d/fog_generator.teo", "node_teo maps");
-	ARX_FOGS_Set_Object(_fogobj);
-	
-	eyeballobj = LoadTheObj("editor/obj3d/eyeball.teo", "eyeball_teo maps");
-	cabal = LoadTheObj("editor/obj3d/cabal.teo", "cabal_teo maps");
-	nodeobj = LoadTheObj("editor/obj3d/node.teo", "node_teo maps");
+	drawDebugInitialize();
+
+	FlyingEye_Init();
+	LoadSpellModels();
+	particleParametersInit();
 	
 	cameraobj = loadObject("graph/obj3d/interactive/system/camera/camera.teo");
 	markerobj = loadObject("graph/obj3d/interactive/system/marker/marker.teo");
@@ -849,7 +968,7 @@ bool ArxGame::BeforeRun() {
 		
 		GoldCoinsObj[i] = loadObject(oss.str());
 		
-		oss.str(string());
+		oss.str(std::string());
 		
 		if(i == 0) {
 			oss << "graph/obj3d/interactive/items/jewelry/gold_coin/gold_coin[icon]";
@@ -860,1478 +979,1303 @@ bool ArxGame::BeforeRun() {
 		GoldCoinsTC[i] = TextureContainer::LoadUI(oss.str());
 	}
 	
-	Movable = TextureContainer::LoadUI("graph/interface/cursors/wrong");
-	ChangeLevel = TextureContainer::LoadUI("graph/interface/icons/change_lvl");
-	
 	ARX_PLAYER_LoadHeroAnimsAndMesh();
 	
 	GLOBAL_EERIETEXTUREFLAG_LOADSCENE_RELEASE = old;
 	
+	m_gameInitialized = true;
+	
 	return true;
 }
 
-void ArxGame::Render() {
+static const char * default_paks[][2] = {
+	{ "data.pak", NULL },
+	{ "loc.pak", "loc_default.pak" },
+	{ "data2.pak", NULL },
+	{ "sfx.pak", NULL },
+	{ "speech.pak", "speech_default.pak" },
+};
+
+#if ARX_PLATFORM != ARX_PLATFORM_WIN32
+static void runDataFilesInstaller() {
+	static const char * const command[] = { "arx-install-data", "--gui", NULL };
+	if(platform::runHelper(command, true) < 0) {
+		std::ostringstream error;
+		error << "Could not run `" << command[0] << "`.";
+		platform::showErrorDialog(error.str(), "Critical Error - " + arx_name);
+	}
+}
+#endif
+
+bool ArxGame::addPaks() {
 	
-	arxtime.update_frame_time();
-
-	// before modulation by "GLOBAL_SLOWDOWN"
-	Original_framedelay = arxtime.get_frame_delay();
-	arx_assert(Original_framedelay >= 0.0f);
-
-	// TODO this code shouldn't exist. ARXStartTime should be constant.
-	if (GLOBAL_SLOWDOWN != 1.0f)
-	{
-		arxtime.increment_start_time((u64)(Original_framedelay * (1.0f - GLOBAL_SLOWDOWN) * 1000.0f));
-
-		// recalculate frame delta
-		arxtime.update_frame_time();
+	arx_assert(!g_resources);
+	
+	g_resources = new PakReader;
+	
+	// Load required pak files
+	bool missing = false;
+	for(size_t i = 0; i < ARRAY_SIZE(default_paks); i++) {
+		if(g_resources->addArchive(fs::findDataFile(default_paks[i][0]))) {
+			continue;
+		}
+		if(default_paks[i][1] && g_resources->addArchive(fs::findDataFile(default_paks[i][1]))) {
+			continue;
+		}
+		std::ostringstream oss;
+		oss << "Missing required data file: \"" << default_paks[i][0] << "\"";
+		if(default_paks[i][1]) {
+			oss << " (or \"" << default_paks[i][1] << "\")";
+		}
+		LogError << oss.str();
+		missing = true;
 	}
-
-	framedelay = arxtime.get_frame_delay();
-	arx_assert(framedelay >= 0.0f);
-
-	// limit fps above 10fps
-	const float max_framedelay = 1000.0f / 10.0f;
-	framedelay = framedelay > max_framedelay ? max_framedelay : framedelay;
-
-	// TODO eliminate FrameDiff == framedelay (replace)
-	FrameDiff = framedelay;
-
-	if (GInput->isKeyPressedNowPressed(Keyboard::Key_F12))
-	{
-		EERIE_PORTAL_ReleaseOnlyVertexBuffer();
-		ComputePortalVertexBuffer();
+	
+	if(missing) {
+		
+		// Print the search path to the log
+		std::ostringstream oss;
+		oss << "Searched in these locations:\n";
+		std::vector<fs::path> search = fs::getDataSearchPaths();
+		BOOST_FOREACH(const fs::path & dir, search) {
+			oss << " * " << dir.string() << fs::path::dir_sep << "\n";
+		}
+		oss << "See " << url::help_install_data << " or `arx --list-dirs` for details.";
+		LogInfo << oss.str();
+		
+		// Try to launch the data file installer on non-Windows systems
+		#if ARX_PLATFORM != ARX_PLATFORM_WIN32
+		const char * question = "Install the Arx Fatalis data files now?";
+		logger::CriticalErrorDialog::setExitQuestion(question, runDataFilesInstaller);
+		#endif
+		
+		// Construct an informative error message about missing files
+		oss.str(std::string());
+		oss << "Could not load required data files!\n";
+		oss << "\nSee " << url::help_get_data << " for help.\n";
+		LogCritical << oss.str();
+		
+		return false;
 	}
+	
+#ifdef __MORPHOS__
+	// streaming from the PAKs is super slow, we need to extract the sounds
+	dump(resources);
+#endif
+	
+	// Load optional patch files
+	BOOST_REVERSE_FOREACH(const fs::path & base, fs::getDataDirs()) {
+		g_resources->addFiles(base / "editor", "editor");
+		g_resources->addFiles(base / "game", "game");
+		g_resources->addFiles(base / "graph", "graph");
+		g_resources->addFiles(base / "localisation", "localisation");
+		g_resources->addFiles(base / "misc", "misc");
+		g_resources->addFiles(base / "sfx", "sfx");
+		g_resources->addFiles(base / "speech", "speech");
+	}
+	
+	return true;
+}
 
-	ACTIVECAM = &subj;
+static void ReleaseSystemObjects() {
+	
+	delete hero, hero = NULL;
+	
+	if(entities.size() > 0 && entities.player() != NULL) {
+		entities.player()->obj = NULL; // already deleted above (hero)
+		delete entities.player();
+		arx_assert(entities.size() > 0 && entities.player() == NULL);
+	}
+	
+	FlyingEye_Release();
+	ReleaseSpellModels();
+	
+	delete cameraobj, cameraobj = NULL;
+	delete markerobj, markerobj = NULL;
+	delete arrowobj, arrowobj = NULL;
+	
+	drawDebugRelease();
 
-	if(wasResized) {
+	BOOST_FOREACH(EERIE_3DOBJ * & obj, GoldCoinsObj) {
+		delete obj, obj = NULL;
+	}
+}
+
+long EXITING = 0;
+
+void ArxGame::shutdown() {
+	
+	if(m_gameInitialized)
+		shutdownGame();
+	
+	Application::shutdown();
+	
+	LogInfo << "Clean shutdown";
+}
+
+void ArxGame::shutdownGame() {
+	
+	ARX_Menu_Resources_Release();
+	
+	mainApp->getWindow()->hide();
+	
+	Menu2_Close();
+	DanaeClearLevel();
+	TextureContainer::DeleteAll();
+	
+	cinematicDestroy();
+	
+	config.save();
+	
+	RoomDrawRelease();
+	EXITING = 1;
+	TREATZONE_Release();
+	ClearTileLights();
+	
+	// texts and textures
+	spellDataRelease();
+	
+	g_particleManager.Clear();
+	
+	//sound
+	ARX_SOUND_Release();
+	MCache_ClearAll();
+	
+	//pathfinding
+	ARX_PATH_ReleaseAllPath();
+	ReleaseSystemObjects();
+	
+	//background
+	ClearBackground(ACTIVEBKG);
+	
+	//animations
+	EERIE_ANIMMANAGER_ClearAll();
+
+	//sprites
+	g_renderBatcher.reset();
+	
+	//Scripts
+	svar.clear();
+	
+	
+	ARX_SCRIPT_Timer_ClearAll();
+	
+	delete[] scr_timer, scr_timer = NULL;
+	
+	//Speech
+	ARX_SPEECH_ClearAll();
+	ARX_Text_Close();
+	
+	//object loaders from beforerun
+	gui::ReleaseNecklace();
+	
+	delete g_resources;
+	
+	// Current game
+	ARX_Changelevel_CurGame_Clear();
+	
+	//Halo
+	FreeSnapShot();
+	ARX_INPUT_Release();
+	
+	if(getWindow()) {
+		EERIE_PATHFINDER_Release();
+		ARX_INPUT_Release();
+		ARX_SOUND_Release();
+	}
+	
+	ScriptEvent::shutdown();
+	
+}
+
+void ArxGame::onWindowGotFocus(const Window & /* window */) {
+	
+	if(GInput) {
+		GInput->reset();
+	}
+	
+	if(config.audio.muteOnFocusLost) {
+		ARXMenu_Options_Audio_SetMuted(false);
+	}
+	
+}
+
+void ArxGame::onWindowLostFocus(const Window & /* window */) {
+	
+	// TODO(option-control) add a config option for this
+	ARX_INTERFACE_setCombatMode(COMBAT_MODE_OFF);
+	TRUE_PLAYER_MOUSELOOK_ON = false;
+	PLAYER_MOUSELOOK_ON = false;
+	
+	// TODO(option-audio) add a config option to disable audio on focus loss
+	
+	if(config.audio.muteOnFocusLost) {
+		ARXMenu_Options_Audio_SetMuted(true);
+	}
+	
+}
+
+void ArxGame::onResizeWindow(const Window & window) {
+	
+	arx_assert(window.getSize() != Vec2i_ZERO);
+	
+	// A new window size will require a new backbuffer
+	// size, so the 3D structures must be changed accordingly.
+	m_wasResized = true;
+	
+	if(window.isFullScreen()) {
+		if(config.video.resolution == Vec2i_ZERO) {
+			LogInfo << "Auto-selected fullscreen resolution " << window.getDisplayMode();
+		} else {
+			LogInfo << "Changed fullscreen resolution to " << window.getDisplayMode();
+			config.video.resolution = window.getSize();
+		}
+	} else {
+		LogInfo << "Changed window size to " << window.getDisplayMode();
+		config.window.size = window.getSize();
+	}
+}
+
+void ArxGame::onDestroyWindow(const Window & /* window */) {
+	LogInfo << "Application window is being destroyed";
+	quit();
+}
+
+void ArxGame::onToggleFullscreen(const Window & window) {
+	config.video.fullscreen = window.isFullScreen();
+}
+
+void ArxGame::onDroppedFile(const Window & /* window */, const fs::path & path) {
+	g_saveToLoad = path;
+}
+
+/*!
+ * \brief Message-processing loop. Idle time is used to render the scene.
+ */
+void ArxGame::run() {
+	
+	while(m_RunLoop) {
+		
+		ARX_PROFILE(Main Loop);
+		
+		platform::reapZombies();
+		
+		m_MainWindow->tick();
+		if(!m_RunLoop) {
+			break;
+		}
+		
+		if(m_MainWindow->isVisible() && !m_MainWindow->isMinimized() && m_bReady) {
+			doFrame();
+		}
+	}
+	
+	benchmark::begin(benchmark::Shutdown);
+	
+}
+
+/*!
+ * \brief Draws the scene.
+ */
+void ArxGame::doFrame() {
+	
+	if(config.video.fpsLimit && !benchmark::isEnabled()) {
+		
+		PlatformDuration renderDuration = platform::getTime() - g_platformTime.frameStart();
+		
+		int targetFps = config.video.fpsLimit;
+		if(config.video.vsync) {
+			targetFps = std::max(targetFps, 480);
+		}
+		PlatformDuration targetDuration = PlatformDurationUs(1000000 / (targetFps + targetFps / 20 + 1) - 100);
+		if(renderDuration < targetDuration) {
+			Thread::sleep(targetDuration - renderDuration);
+		}
+		
+	}
+	
+	ARX_PROFILE_FUNC();
+	
+	updateTime();
+
+	updateInput();
+
+	if(m_wasResized) {
 		LogDebug("was resized");
-		wasResized = false;
-		DanaeRestoreFullScreen();
+		m_wasResized = false;
+		MenuReInitAll();
+		AdjustUI();
+		LoadScreen();
+		g_hudRoot.recalcScale();
 	}
-
-	// Update input
-	GInput->update();
-	ReMappDanaeButton();
-	AdjustMousePosition();
 
 	// Manages Splash Screens if needed
-	if (DANAE_ManageSplashThings()) 
-	{
-		goto norenderend;
+	if(HandleGameFlowTransitions()) {
+		m_MainWindow->showFrame();
+		return;
 	}
 
 	// Clicked on New Quest ? (TODO:need certainly to be moved somewhere else...)
-	if (START_NEW_QUEST)
-	{
+	if(START_NEW_QUEST) {
 		LogDebug("start quest");
 		DANAE_StartNewQuest();
 	}
 
-	// Update Various Player Infos for this frame.
-	if (FirstFrame==0)
-		ARX_PLAYER_Frame_Update();
-
 	// Are we being teleported ?
-	if ((TELEPORT_TO_LEVEL[0]) && (CHANGE_LEVEL_ICON==200))
-	{
-		LogDebug("teleport to " << TELEPORT_TO_LEVEL << " " << TELEPORT_TO_POSITION << " "
-		         << TELEPORT_TO_ANGLE);
-		CHANGE_LEVEL_ICON=-1;
+	if(!TELEPORT_TO_LEVEL.empty() && CHANGE_LEVEL_ICON != NoChangeLevel
+	   && (CHANGE_LEVEL_ICON == ChangeLevelNow
+	       || config.input.quickLevelTransition == ChangeLevelImmediately
+	       || (config.input.quickLevelTransition == JumpToChangeLevel
+	           && GInput->actionPressed(CONTROLS_CUST_JUMP)))) {
+		// TODO allow binding the same key to multiple actions so that we can have a separate binding for this
+		benchmark::begin(benchmark::LoadLevel);
+		LogDebug("teleport to " << TELEPORT_TO_LEVEL << " " << TELEPORT_TO_POSITION << " " << TELEPORT_TO_ANGLE);
+		CHANGE_LEVEL_ICON = NoChangeLevel;
 		ARX_CHANGELEVEL_Change(TELEPORT_TO_LEVEL, TELEPORT_TO_POSITION, TELEPORT_TO_ANGLE);
-		memset(TELEPORT_TO_LEVEL,0,64);
-		memset(TELEPORT_TO_POSITION,0,64);
-	}
-	
-	subj.center = Vec2i(DANAECENTERX, DANAECENTERY);
-	subj.pos2 = subj.transform.mod = subj.center.to<float>();
-	
-	// Finally computes current focal
-	BASE_FOCAL=(float)CURRENT_BASE_FOCAL+(BOW_FOCAL*( 1.0f / 4 ));
-
-	// SPECIFIC code for Snapshot MODE... to insure constant capture framerate
-
-	PULSATE=EEsin(arxtime.get_frame_time() / 800);
-	EERIEDrawnPolys=0;
-
-	// EditMode Specific code
-	if (EDITMODE)
-	{
-		TOTIOPDL=0;
-		BLOCK_PLAYER_CONTROLS=0;
+		TELEPORT_TO_LEVEL.clear();
+		TELEPORT_TO_POSITION.clear();
 	}
 
-	if (FirstFrame==0) // Checks for Keyboard & Moulinex
-	{
-		ARX_MOUSE_OVER=0;
+	if(LOADQUEST_SLOT != SavegameHandle() && LOADQUEST_SLOT.handleData() < int(savegames.size())) {
+		ARX_LoadGame(savegames[LOADQUEST_SLOT.handleData()]);
+		LOADQUEST_SLOT = SavegameHandle();
+	}
+	
+	if(!g_saveToLoad.empty()) {
+		if(fs::is_directory(g_saveToLoad)) {
+			g_saveToLoad /= SAVEGAME_NAME;
+		}
+		std::string name;
+		float version;
+		long level;
+		if(ARX_CHANGELEVEL_GetInfo(g_saveToLoad, name, version, level) == -1) {
+			LogError << "Unable to get save file info for " << g_saveToLoad;
+		} else {
+			SaveGame save;
+			save.name = name;
+			save.level = level;
+			save.savefile = g_saveToLoad;
+			ARX_LoadGame(save);
+		}
+		g_saveToLoad.clear();
+	}
+	
+	if(cinematicIsStopped()
+	   && !cinematicBorder.isActive()
+	   && !BLOCK_PLAYER_CONTROLS
+	) {
+		
+		if(GInput->actionNowPressed(CONTROLS_CUST_QUICKLOAD) && savegames.size() > 0) {
+			ARX_QuickLoad();
+		}
+		
+		if(GInput->actionNowPressed(CONTROLS_CUST_QUICKSAVE) && ARXmenu.mode() == Mode_InGame) {
+			g_hudRoot.quickSaveIconGui.show();
+			GRenderer->getSnapshot(savegame_thumbnail, config.interface.thumbnailSize.x, config.interface.thumbnailSize.y);
+			ARX_QuickSave();
+			g_platformTime.updateFrame();
+		}
+		
+	}
+	
+	if(g_requestLevelInit) {
+		g_requestLevelInit = false;
+		levelInit();
+	} else {
+		cinematicLaunchWaiting();
+		render();
+		m_MainWindow->showFrame();
+	}
+}
 
-		if (!EDITMODE && (ARXmenu.currentmode == AMCM_OFF)) // Playing Game
-		{
-			// Checks Clicks in Book Interface
-			if (ARX_INTERFACE_MouseInBook())
-			{
-				ARX_MOUSE_OVER|=ARX_MOUSE_OVER_BOOK;
-				LASTBOOKBUTTON=BOOKBUTTON;
-				BOOKBUTTON=EERIEMouseButton;
+void ArxGame::updateFirstPersonCamera() {
 
-				if ( ((EERIEMouseButton & 1) && !(LastMouseClick & 1) )
-					|| ((EERIEMouseButton & 2) && !(LastMouseClick & 2) ) )
-				{
-					bookclick = DANAEMouse;
+	arx_assert(entities.player());
+	
+	Entity * io = entities.player();
+	AnimLayer & layer1 = io->animlayer[1];
+	ANIM_HANDLE ** alist = io->anims;
+
+	if(player.m_bowAimRatio != 0.f
+	   && layer1.cur_anim != alist[ANIM_MISSILE_STRIKE_PART_1]
+	   && layer1.cur_anim != alist[ANIM_MISSILE_STRIKE_PART_2]
+	   && layer1.cur_anim != alist[ANIM_MISSILE_STRIKE_CYCLE]) {
+		player.m_bowAimRatio -= bowZoomFromDuration(toMs(g_platformTime.lastFrameDuration()));
+		if(player.m_bowAimRatio < 0) {
+			player.m_bowAimRatio = 0;
+		}
+	}
+	
+	Vec3f targetPos;
+	Anglef targetAngle;
+	if(eyeball.exist == 2) {
+		
+		targetPos = eyeball.pos;
+		targetAngle = eyeball.angle;
+		EXTERNALVIEW = true;
+		
+	} else if(EXTERNALVIEW) {
+		
+		for(long l = 0; l < 250; l += 10) {
+			Vec3f tt = player.pos;
+			tt += angleToVectorXZ_180offset(player.angle.getYaw()) * float(l);
+			tt += Vec3f(0.f, -50.f, 0.f);
+			if(l == 0 || CheckInPoly(tt)) {
+				targetPos = tt;
+			} else {
+				break;
+			}
+		}
+		
+		targetAngle = player.angle;
+		targetAngle.setPitch(targetAngle.getPitch() + 30.f);
+		
+	} else {
+		
+		g_playerCamera.angle = player.angle;
+		
+		ActionPoint id = entities.player()->obj->fastaccess.view_attach;
+		if(id != ActionPoint()) {
+			
+			g_playerCamera.m_pos = actionPointPosition(entities.player()->obj, id);
+			
+			Vec3f vect(g_playerCamera.m_pos.x - player.pos.x, 0.f, g_playerCamera.m_pos.z - player.pos.z);
+			float len = ffsqrt(arx::length2(vect));
+			if(len > 46.f) {
+				vect *= 46.f / len;
+				g_playerCamera.m_pos.x = player.pos.x + vect.x;
+				g_playerCamera.m_pos.z = player.pos.z + vect.z;
+			}
+			
+		} else {
+			g_playerCamera.m_pos = player.basePosition();
+		}
+		
+	}
+	
+	if(EXTERNALVIEW) {
+		g_playerCamera.m_pos = (g_playerCamera.m_pos + targetPos) * 0.5f;
+		g_playerCamera.angle = interpolate(g_playerCamera.angle, targetAngle, 0.1f);
+	}
+	
+}
+
+void ArxGame::speechControlledCinematic() {
+
+	/////////////////////////////////////////////
+	// Now checks for speech controlled cinematic
+
+	long valid = -1;
+
+	for(size_t i = 0; i < MAX_ASPEECH; i++) {
+		if(aspeech[i].exist && aspeech[i].cine.type > 0) {
+			valid = i;
+			break;
+		}
+	}
+
+	if(valid >= 0) {
+		const CinematicSpeech & acs = aspeech[valid].cine;
+		const Entity * io = aspeech[valid].io;
+		
+		const GameDuration elapsed = g_gameTime.now() - aspeech[valid].time_creation;
+		float rtime = elapsed / aspeech[valid].duration;
+
+		rtime = glm::clamp(rtime, 0.f, 1.f);
+		
+		float itime = 1.f - rtime;
+		
+		if(rtime >= 0.f && rtime <= 1.f && io) {
+			switch(acs.type) {
+				
+				case ARX_CINE_SPEECH_KEEP: {
+					arx_assert(isallfinite(acs.pos1));
+					g_playerCamera.m_pos = acs.pos1;
+					g_playerCamera.angle.setPitch(acs.pos2.x);
+					g_playerCamera.angle.setYaw(acs.pos2.y);
+					g_playerCamera.angle.setRoll(acs.pos2.z);
+					EXTERNALVIEW = true;
+					break;
 				}
+				
+				case ARX_CINE_SPEECH_ZOOM: {
+					
+					arx_assert(isallfinite(acs.pos1));
+					
+					//need to compute current values
+					float alpha = acs.startangle.getPitch() * itime + acs.endangle.getPitch() * rtime;
+					float beta = acs.startangle.getYaw() * itime + acs.endangle.getYaw() * rtime;
+					float distance = acs.startpos * itime + acs.endpos * rtime;
+					Vec3f targetpos = acs.pos1;
+					
+					g_playerCamera.m_pos = angleToVectorXZ(io->angle.getYaw() + beta) * distance;
+					g_playerCamera.m_pos.y = std::sin(glm::radians(MAKEANGLE(io->angle.getPitch() + alpha))) * distance;
+					g_playerCamera.m_pos += targetpos;
+					
+					g_playerCamera.lookAt(targetpos);
+					
+					EXTERNALVIEW = true;
+					
+					break;
+				}
+				
+				case ARX_CINE_SPEECH_SIDE_LEFT:
+				case ARX_CINE_SPEECH_SIDE: {
+					
+					if(ValidIONum(acs.ionum)) {
+						
+						arx_assert(isallfinite(acs.pos1));
+						arx_assert(isallfinite(acs.pos2));
+						
+						const Vec3f & from = acs.pos1;
+						const Vec3f & to = acs.pos2;
+						
+						Vec3f vect = glm::normalize(to - from);
+						Vec3f vect2;
+						if(acs.type == ARX_CINE_SPEECH_SIDE_LEFT) {
+							vect2 = VRotateY(vect, -90.f);
+						} else {
+							vect2 = VRotateY(vect, 90.f);
+						}
+						
+						float distance = acs.m_startdist * itime + acs.m_enddist * rtime;
+						vect2 *= distance;
+						float _dist = glm::distance(from, to);
+						Vec3f tfrom = from + vect * acs.startpos * (1.0f / 100) * _dist;
+						Vec3f tto = from + vect * acs.endpos * (1.0f / 100) * _dist;
+						Vec3f targetpos = tfrom * itime + tto * rtime + Vec3f(0.f, acs.m_heightModifier, 0.f);
+						
+						g_playerCamera.m_pos = targetpos + vect2 + Vec3f(0.f, acs.m_heightModifier, 0.f);
+						
+						g_playerCamera.lookAt(targetpos);
+						
+						EXTERNALVIEW = true;
+						
+					}
+					
+					break;
+				}
+				
+				case ARX_CINE_SPEECH_CCCLISTENER_R:
+				case ARX_CINE_SPEECH_CCCLISTENER_L:
+				case ARX_CINE_SPEECH_CCCTALKER_R:
+				case ARX_CINE_SPEECH_CCCTALKER_L: {
+					
+					//need to compute current values
+					if(ValidIONum(acs.ionum)) {
+						
+						arx_assert(isallfinite(acs.pos1));
+						arx_assert(isallfinite(acs.pos2));
+						
+						Vec3f sourcepos;
+						Vec3f targetpos;
+						if(acs.type == ARX_CINE_SPEECH_CCCLISTENER_L || acs.type == ARX_CINE_SPEECH_CCCLISTENER_R) {
+							sourcepos = acs.pos2;
+							targetpos = acs.pos1;
+						} else {
+							sourcepos = acs.pos1;
+							targetpos = acs.pos2;
+						}
+						
+						float distance = (acs.startpos * itime + acs.endpos * rtime) * 0.01f;
+						Vec3f vect = sourcepos - targetpos;
+						Vec3f vect2 = VRotateY(vect, 90.f);;
+						vect2 = glm::normalize(vect2);
+						Vec3f vect3 = glm::normalize(vect);
+						vect = vect * distance + vect3 * 80.f;
+						vect2 *= 45.f;
+						if(acs.type == ARX_CINE_SPEECH_CCCLISTENER_R || acs.type == ARX_CINE_SPEECH_CCCTALKER_R) {
+							vect2 = -vect2;
+						}
+						
+						g_playerCamera.m_pos = vect + targetpos + vect2;
+						
+						g_playerCamera.lookAt(targetpos);
+						
+						EXTERNALVIEW = true;
+						
+					}
+					
+					break;
+				}
+				
+				case ARX_CINE_SPEECH_NONE: break;
+				
 			}
-			else if (InSecondaryInventoryPos(&DANAEMouse))
-				ARX_MOUSE_OVER|=ARX_MOUSE_OVER_INVENTORY_2;
-			else if (InPlayerInventoryPos(&DANAEMouse))
-				ARX_MOUSE_OVER|=ARX_MOUSE_OVER_INVENTORY;
+			
+			LASTCAMPOS = g_playerCamera.m_pos;
+			LASTCAMANGLE = g_playerCamera.angle;
 		}
+	}
+}
 
-		if ( (player.Interface & INTER_COMBATMODE)
-			|| (PLAYER_MOUSELOOK_ON) )
-		{
-			FlyingOverIO = NULL; // Avoid to check with those modes
+void ArxGame::handlePlayerDeath() {
+	
+	if(player.lifePool.current <= 0) {
+		
+		player.DeadTime += g_gameTime.lastFrameDuration();
+		float mdist = glm::abs(player.physics.cyl.height) - 60;
+		
+		float startDistance = 40.f;
+
+		GameDuration startTime = GameDurationMs(2000);
+		GameDuration endTime = GameDurationMs(7000);
+
+		float DeadCameraDistance = startDistance + (mdist - startDistance) * ((player.DeadTime - startTime) / (endTime - startTime));
+		
+		ActionPoint id  = entities.player()->obj->fastaccess.view_attach;
+		Vec3f targetpos = (id != ActionPoint()) ? actionPointPosition(entities.player()->obj, id) : player.pos;
+		
+		ActionPoint id2 = GetActionPointIdx(entities.player()->obj, "chest2leggings");
+		Vec3f chest = (id2 != ActionPoint()) ? actionPointPosition(entities.player()->obj, id2) : targetpos;
+		
+		g_playerCamera.m_pos = chest - Vec3f(0.f, DeadCameraDistance, 0.f);
+		
+		g_playerCamera.lookAt(targetpos);
+		
+		EXTERNALVIEW = true;
+		BLOCK_PLAYER_CONTROLS = true;
+		
+	}
+	
+}
+
+void ArxGame::updateActiveCamera() {
+	
+	ARX_PROFILE_FUNC();
+	
+	Camera * cam = NULL;
+	if(g_cameraEntity) {
+		cam = &g_cameraEntity->_camdata->cam;
+		if(cam->focal < 100.f) {
+			cam->focal = 350.f;
 		}
+		EXTERNALVIEW = true;
+	} else {
+		cam = &g_playerCamera;
+	}
+	
+	ManageQuakeFX(cam);
+	
+	PrepareCamera(cam, g_size);
+	
+}
+
+void ArxGame::updateTime() {
+	
+	g_platformTime.updateFrame();
+	
+	if(g_requestLevelInit) {
+		g_platformTime.overrideFrameDuration(0);
+	}
+	
+	g_gameTime.update(g_platformTime.lastFrameDuration());
+	
+	g_framedelay = toMsf(g_gameTime.lastFrameDuration());
+	
+}
+
+void ArxGame::updateInput() {
+
+	// Update input
+	GInput->update(toMs(g_platformTime.lastFrameDuration()));
+	
+	// Handle double clicks.
+	const ActionKey & button = config.actions[CONTROLS_CUST_ACTION];
+	if((button.key[0] != -1 && (button.key[0] & Mouse::ButtonBase)
+	    && GInput->getMouseButtonDoubleClick(button.key[0]))
+	   || (button.key[1] != -1 && (button.key[1] & Mouse::ButtonBase)
+	    && GInput->getMouseButtonDoubleClick(button.key[1]))) {
+		EERIEMouseButton |= 4;
+		EERIEMouseButton &= ~1;
+	}
+	
+	if(GInput->actionNowPressed(CONTROLS_CUST_ACTION)) {
+		if(EERIEMouseButton & 4) {
+			EERIEMouseButton &= ~1;
+		} else {
+			EERIEMouseButton |= 1;
+		}
+		
+	}
+	if(GInput->actionNowReleased(CONTROLS_CUST_ACTION)) {
+		EERIEMouseButton &= ~1;
+		EERIEMouseButton &= ~4;
+	}
+	
+	if(GInput->actionNowPressed(CONTROLS_CUST_USE)) {
+		EERIEMouseButton |= 2;
+	}
+	if(GInput->actionNowReleased(CONTROLS_CUST_USE)) {
+		EERIEMouseButton &= ~2;
+	}
+	
+	
+	// Overwrite the mouse button status when menu is active
+	if(ARXmenu.mode() != Mode_InGame) {
+		
+		EERIEMouseButton = 0;
+		
+		if(GInput->getMouseButtonRepeat(Mouse::Button_0))
+			EERIEMouseButton |= 1;
 		else
-		{
-			if ((DRAGINTER == NULL) && (FRAME_COUNT<=0))
-			{
-				if (!BLOCK_PLAYER_CONTROLS && !TRUE_PLAYER_MOUSELOOK_ON && !(ARX_MOUSE_OVER & ARX_MOUSE_OVER_BOOK)
-					&& (eMouseState != MOUSE_IN_NOTE)
-				   )
-					FlyingOverIO = FlyingOverObject(&DANAEMouse);
-				else
-					FlyingOverIO = NULL;
-			}
-		}
-
-		if ( (!PLAYER_PARALYSED)
-			|| (ARXmenu.currentmode != AMCM_OFF) )
-
-		{
-			if (!STOP_KEYBOARD_INPUT)
-				ManageKeyMouse();
-			else
-			{
-				STOP_KEYBOARD_INPUT++;
-
-				if (STOP_KEYBOARD_INPUT>2) STOP_KEYBOARD_INPUT=0;
-			}
-		}
+			EERIEMouseButton &= ~1;
+		
+		if(GInput->getMouseButtonRepeat(Mouse::Button_1))
+			EERIEMouseButton |= 2;
+		else
+			EERIEMouseButton &= ~2;
 	}
-	else // Manages our first frameS
-	{
-		LogDebug("first frame");
-		arxtime.update();
-
-		FirstFrameHandling();
-		goto norenderend;
-	}
-	
-	if(CheckInPolyPrecis(player.pos.x,player.pos.y,player.pos.z)) {
-		LastValidPlayerPos = player.pos;
-	}
-	
-	// Updates Externalview
-	EXTERNALVIEW = 0;
-	
-	GRenderer->SetRenderState(Renderer::Fog, false);
 
 	if(GInput->actionNowPressed(CONTROLS_CUST_TOGGLE_FULLSCREEN)) {
-		setFullscreen(!GetWindow()->isFullScreen());
+		setWindowSize(!getWindow()->isFullScreen());
+	}
+
+	if(GInput->isKeyPressedNowPressed(Keyboard::Key_F12)) {
+		/*
+		EERIE_PORTAL_ReleaseOnlyVertexBuffer();
+		ComputePortalVertexBuffer();
+		*/
+		
+		profiler::flush();
+	}
+
+	if(GInput->isKeyPressedNowPressed(Keyboard::Key_F11)) {
+
+		g_debugInfo = static_cast<InfoPanels>(g_debugInfo + 1);
+
+		if(g_debugInfo == InfoPanelEnumSize)
+			g_debugInfo = InfoPanelNone;
+	}
+
+	if(g_debugInfo == InfoPanelDebugToggles) {
+		
+		for(size_t i = 0; i < ARRAY_SIZE(g_debugToggles); i++) {
+			g_debugTriggers[i] = false;
+			
+			if(GInput->isKeyPressed(Keyboard::Key_NumPadEnter)) {
+				if(   GInput->isKeyPressed(Keyboard::Key_NumPad0 + i)
+				   && g_platformTime.frameStart() - g_debugTriggersTime[i] > g_debugTriggersDecayDuration
+				) {
+					g_debugTriggersTime[i] = g_platformTime.frameStart();
+					g_debugTriggers[i] = true;
+				}
+			} else {
+				if(GInput->isKeyPressedNowPressed(Keyboard::Key_NumPad0 + i)) {
+					g_debugToggles[i] = !g_debugToggles[i];
+				}
+				if(GInput->isKeyPressed(Keyboard::Key_LeftShift)
+				   && GInput->isKeyPressed(Keyboard::Key_LeftAlt)
+				   && GInput->isKeyPressedNowPressed(Keyboard::Key_0 + i)) {
+					g_debugToggles[i] = !g_debugToggles[i];
+				}
+			}
+		}
+	}
+
+	if(GInput->isKeyPressedNowPressed(Keyboard::Key_F10)) {
+		GetSnapShot();
+	}
+
+	if(GInput->isKeyPressedNowPressed(Keyboard::Key_ScrollLock)) {
+		drawDebugCycleViews();
 	}
 	
-	if(ARX_Menu_Render()) {
-		goto norenderend;
-	}
-
-	if(WILL_QUICKSAVE) {
-		GRenderer->getSnapshot(savegame_thumbnail, 160, 100);
-		if(WILL_QUICKSAVE >= 2) {
-			ARX_QuickSave();
-			WILL_QUICKSAVE=0;
+	g_console.update();
+	
+#ifdef ARX_DEBUG
+	if(GInput->isKeyPressedNowPressed(Keyboard::Key_Pause)) {
+		if(g_gameTime.isPaused() & GameTime::PauseUser) {
+			g_gameTime.resume(GameTime::PauseUser);
+		} else {
+			g_gameTime.pause(GameTime::PauseUser);
 		}
-		else WILL_QUICKSAVE++;
+	}
+#endif
+}
+
+extern int iHighLight;
+
+void ArxGame::updateLevel() {
+
+	arx_assert(entities.player());
+	
+	ARX_PROFILE_FUNC();
+	
+	g_renderBatcher.clear();
+	
+	if(!player.m_paralysed) {
+		manageEditorControls();
+
+		if(!BLOCK_PLAYER_CONTROLS) {
+			managePlayerControls();
+		}
 	}
 
-	if (WILL_QUICKLOAD)
-	{
-		WILL_QUICKLOAD=0;
+	{ ARX_PROFILE("Entity preprocessing");
+	
+	for(size_t i = 0; i < entities.size(); i++) {
+		const EntityHandle handle = EntityHandle(i);
+		
+		Entity * entity = entities[handle];
+		if(!entity) {
+			continue;
+		}
+		
+		if(entity->ignition > 0.f || (entity->ioflags & IO_FIERY))
+			ManageIgnition(entity);
 
-		if (ARX_QuickLoad())
-			NEED_SPECIAL_RENDEREND=1;
-	}
-
-	if (NEED_SPECIAL_RENDEREND)
-	{
-		NEED_SPECIAL_RENDEREND=0;
-		goto norenderend;
-	}
-
-	GRenderer->SetRenderState(Renderer::Fog, true);
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
-
-	// Are we displaying a 2D cinematic ? Yes = manage it
-	if ( PLAY_LOADED_CINEMATIC
-		&& ControlCinematique
-			&& ControlCinematique->projectload)
-	{
-		if (DANAE_Manage_Cinematic()==1)
-			goto norenderend;
-
-		goto renderend;
-	}
-
-	if (ARXmenu.currentmode == AMCM_OFF)
-	{
-		if (!PLAYER_PARALYSED)
-		{
-			if (ManageEditorControls()) goto finish;
+		//Highlight entity
+		if(entity == FlyingOverIO && !(entity->ioflags & IO_NPC)) {
+			entity->highlightColor = Color3f::gray(float(iHighLight));
+		} else {
+			entity->highlightColor = Color3f::black;
 		}
 
-		if ((!BLOCK_PLAYER_CONTROLS) && (!PLAYER_PARALYSED))
-		{
-			ManagePlayerControls();
+		Cedric_ApplyLightingFirstPartRefactor(entity);
+
+		float speedModifier = 0.f;
+
+		if(entity == entities.player()) {
+			if(cur_mr == 3)
+				speedModifier += 0.5f;
+
+			if(cur_rf == 3)
+				speedModifier += 1.5f;
 		}
+
+		SpellBase * spell;
+		
+		spell = spells.getSpellOnTarget(entity->index(), SPELL_SPEED);
+		if(spell) {
+			speedModifier += spell->m_level * 0.1f;
+		}
+		
+		spell = spells.getSpellOnTarget(entity->index(), SPELL_SLOW_DOWN);
+		if(spell) {
+			speedModifier -= spell->m_level * 0.05f;
+		}
+		
+		entity->speed_modif = speedModifier;
+	}
 	}
 
 	ARX_PLAYER_Manage_Movement();
 
 	ARX_PLAYER_Manage_Visual();
 
-	if(FRAME_COUNT <= 0) {
-		g_miniMap.setActiveBackground(ACTIVEBKG);
-		g_miniMap.validatePlayerPos(CURRENTLEVEL, BLOCK_PLAYER_CONTROLS, Book_Mode);
-	}
+	g_miniMap.setActiveBackground(ACTIVEBKG);
+	g_miniMap.validatePlayerPos(CURRENTLEVEL, BLOCK_PLAYER_CONTROLS, g_playerBook.currentPage());
 
-	// SUBJECTIVE VIEW UPDATE START  *********************************************************
-	{
-		// Clear screen & Z buffers
-		if(desired.flags & GMOD_DCOLOR) {
-			GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer, current.depthcolor.to<u8>());
-		}
-		else
-		{
-			subj.bkgcolor=ulBKGColor;
-			GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer, subj.bkgcolor);
-		}
 
-		//-------------------------------------------------------------------------------
-		//               DRAW CINEMASCOPE 16/9
-		if(CINEMA_DECAL != 0.f) {
-			Rect rectz[2];
-			rectz[0].left = rectz[1].left = 0;
-			rectz[0].right = rectz[1].right = DANAESIZX;
-			rectz[0].top = 0;
-			long lMulResult = checked_range_cast<long>(CINEMA_DECAL * Yratio);
-			rectz[0].bottom = lMulResult;
-			rectz[1].top = DANAESIZY - lMulResult;
-			rectz[1].bottom = DANAESIZY;
-			GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer, Color::none, 0.0f, 2, rectz);
-		}
-		//-------------------------------------------------------------------------------
-
-	GRenderer->BeginScene();
-	
-	GRenderer->SetRenderState(Renderer::DepthWrite, true);
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-
-	if ( (entities.player()) && (entities.player()->animlayer[0].cur_anim) )
-	{
+	if(entities.player()->animlayer[0].cur_anim) {
 		ManageNONCombatModeAnimations();
-		long old=USEINTERNORM;
-		USEINTERNORM=0;
-		float speedfactor;
-		speedfactor=entities.player()->basespeed+entities.player()->speed_modif;
+		
+		{
+			AnimationDuration framedelay = toAnimationDuration(g_platformTime.lastFrameDuration());
+			Entity * entity = entities.player();
+			
+			EERIEDrawAnimQuatUpdate(entity->obj,
+			                        entity->animlayer,
+			                        entity->angle,
+			                        entity->pos,
+			                        framedelay,
+			                        entity,
+			                        true);
+		}
+		
+		if((player.Interface & INTER_COMBATMODE) && entities.player()->animlayer[1].cur_anim)
+			ManageCombatModeAnimations();
 
-		if (cur_mr==3) speedfactor+=0.5f;
+		if(entities.player()->animlayer[1].cur_anim)
+			ManageCombatModeAnimationsEND();
+	}
 
-		if (cur_rf==3) speedfactor+=1.5f;
-
-		if (speedfactor < 0) speedfactor = 0;
-
-		long tFrameDiff = Original_framedelay;
+	updateFirstPersonCamera();
 	
-		if ((player.Interface & INTER_COMBATMODE) && (STRIKE_TIME))// need some precision for weapon...
-		{
-			float restore=ACTIVECAM->use_focal;
+	ARX_SCRIPT_Timer_Check();
 
-			if ((!EXTERNALVIEW) && (!BOW_FOCAL))
-			{
-				ACTIVECAM->use_focal=PLAYER_ARMS_FOCAL*Xratio;
-			}
+	speechControlledCinematic();
 
-			float cur=0;
-
-			while ((cur<tFrameDiff) && (!(entities.player()->ioflags & IO_FREEZESCRIPT)))
-			{
-				long step=min(50L,tFrameDiff);
-
-				if (entities.player()->ioflags & IO_FREEZESCRIPT) step=0;
-
-
-				float iCalc = step*speedfactor ;
-
-				arx_assert(entities.player()->obj != NULL);
-				EERIEDrawAnimQuat(entities.player()->obj, &entities.player()->animlayer[0], &entities.player()->angle,
-				                  &entities.player()->pos, checked_range_cast<unsigned long>(iCalc), entities.player(), false, false);
-
-					if ((player.Interface & INTER_COMBATMODE) && (entities.player()->animlayer[1].cur_anim != NULL))
-				ManageCombatModeAnimations();
-
-				if (entities.player()->animlayer[1].cur_anim!=NULL)
-					ManageCombatModeAnimationsEND();
-
-				cur+=step*speedfactor;
-			}
-
-			ACTIVECAM->use_focal=restore;
-		}
-		else
-		{
-			float restore=ACTIVECAM->use_focal;
-
-			if ((!EXTERNALVIEW) && (!BOW_FOCAL))
-			{
-				ACTIVECAM->use_focal=PLAYER_ARMS_FOCAL*Xratio;
-			}
-
-
-			float val=(float)tFrameDiff*speedfactor;
-
-			if (entities.player()->ioflags & IO_FREEZESCRIPT) val=0;
-
-			arx_assert(entities.player()->obj != NULL);
-			EERIEDrawAnimQuat(entities.player()->obj, &entities.player()->animlayer[0], &entities.player()->angle,
-			                  &entities.player()->pos, checked_range_cast<unsigned long>(val), entities.player(), false, false);
-
-
-				if ((player.Interface & INTER_COMBATMODE) && (entities.player()->animlayer[1].cur_anim != NULL))
-				ManageCombatModeAnimations();
-
-			if (entities.player()->animlayer[1].cur_anim!=NULL)
-					ManageCombatModeAnimationsEND();
-
-			ACTIVECAM->use_focal=restore;
-		}
-
-		USEINTERNORM=old;
-	}
-
-	Entity * io;
-	io=entities.player();
-	ANIM_USE * useanim;
-	useanim=&io->animlayer[1];
-	ANIM_HANDLE ** alist;
-	alist=io->anims;
-
-	if ( BOW_FOCAL
-			&& (useanim->cur_anim!=alist[ANIM_MISSILE_STRIKE_PART_1])
-			&& (useanim->cur_anim!=alist[ANIM_MISSILE_STRIKE_PART_2])
-			&& (useanim->cur_anim!=alist[ANIM_MISSILE_STRIKE_CYCLE]))
-		{
-			BOW_FOCAL-=Original_framedelay;
-
-			if (BOW_FOCAL<0) BOW_FOCAL=0;
-		}
-
-		if(eyeball.exist == 2) {
-		subj.d_pos = eyeball.pos;
-		subj.d_angle = eyeball.angle;
-		EXTERNALVIEW = 1;
-	}
-	else if (EXTERNALVIEW)
-	{
-		float t=radians(player.angle.b);
-		Vec3f tt;
-
-		for (long l=0;l<250;l+=10)
-		{
-			tt.x=player.pos.x+(float)EEsin(t)*(float)l;
-			tt.y=player.pos.y-50.f;
-			tt.z=player.pos.z-(float)EEcos(t)*(float)l;
-			EERIEPOLY * ep = EECheckInPoly(&tt);
-			if(ep) {
-				subj.d_pos = tt;
-			}
-			else break;
-		}
-
-		subj.d_angle.a=player.angle.a+30.f;
-		subj.d_angle.b=player.angle.b;
-		subj.d_angle.g=player.angle.g;
-		EXTERNALVIEW=1;
-		
-	} else {
-		
-		subj.angle = player.angle;
-		EXTERNALVIEW=0;
-		
-		if(entities.player()) {
-			long id = entities.player()->obj->fastaccess.view_attach;
-			if(id != -1) {
-				subj.pos = entities.player()->obj->vertexlist3[id].v;
-				Vec3f vect;
-				vect.x = subj.pos.x - player.pos.x;
-				vect.y = 0;
-				vect.z = subj.pos.z - player.pos.z;
-				float len = ffsqrt(vect.lengthSqr());
-				if(len > 46.f) {
-					float div = 46.f / len;
-					vect.x *= div;
-					vect.z *= div;
-					subj.pos.x=player.pos.x+vect.x;
-					subj.pos.z=player.pos.z+vect.z;
-				}
-			} else {
-				subj.pos = player.basePosition();
-			}
-		}
-	}
+	handlePlayerDeath();
 	
-	if(EXTERNALVIEW) {
-		subj.pos = (subj.pos + subj.d_pos) * 0.5f;
-		subj.angle = interpolate(subj.angle, subj.d_angle, 0.1f);
-	}
-	
-	if ((ARX_CONVERSATION) && (main_conversation.actors_nb))
-	{
-		// Decides who speaks !!
-		if (main_conversation.current<0)
-		for (long j=0;j<main_conversation.actors_nb;j++)
-		{
-			if (main_conversation.actors[j]>=0)
-			{
-				for(size_t k = 0 ; k < MAX_ASPEECH; k++) {
-					if (aspeech[k].exist)
-						if (aspeech[k].io==entities[main_conversation.actors[j]])
-						{
-							main_conversation.current=k;
-							j=main_conversation.actors_nb+1;
-							k=MAX_ASPEECH+1;
-						}
-				}
-			}
-		}
-
-		long is=main_conversation.current;
-
-		if (ARX_CONVERSATION_LASTIS!=is) ARX_CONVERSATION_MODE=-1;
-
-		ARX_CONVERSATION_LASTIS=is;
-		
-		if(ARX_CONVERSATION_MODE == -1) {
-			ARX_CONVERSATION_MODE = 0;
-			if(rnd() > 0.5f) {
-				conversationcamera.size = Anglef(MAKEANGLE(170.f + rnd() * 20.f), 0.f, 0.f);
-				conversationcamera.d_angle = Anglef(0.f, 0.f, 0.08f);
-			} else {
-				conversationcamera.size = Anglef(rnd() * 50.f, 0.f, rnd() * 50.f);
-				conversationcamera.d_angle = Anglef::ZERO;
-				if(rnd() > 0.4f) {
-					conversationcamera.d_angle.a = (1.f - rnd() * 2.f) * (1.f / 30);
-				}
-				if(rnd() > 0.4f) {
-					conversationcamera.d_angle.b = (1.f - rnd() * 1.2f) * 0.2f;
-				}
-				if(rnd() > 0.4f) {
-					conversationcamera.d_angle.g = (1.f - rnd() * 2.f) * 0.025f;
-				}
-			}
-		} else {
-			conversationcamera.size += conversationcamera.d_angle * FrameDiff;
-		}
-		
-		Vec3f sourcepos,targetpos;
-
-		if(ApplySpeechPos(&conversationcamera, is)) {
-			targetpos = conversationcamera.d_pos;
-			sourcepos = conversationcamera.pos;
-		} else {
-			targetpos = player.pos;
-			float t=radians(player.angle.b);
-			sourcepos.x=targetpos.x+(float)EEsin(t)*100.f;
-			sourcepos.y=targetpos.y;
-			sourcepos.z=targetpos.z-(float)EEcos(t)*100.f;
-			}
-
-		Vec3f vec2;
-		Vec3f vect = targetpos - sourcepos;
-		fnormalize(vect);
-		float dist=250.f-conversationcamera.size.g;
-
-		if (dist<0.f) dist=(90.f-(dist*( 1.0f / 20 )));
-		else if (dist<90.f) dist=90.f;
-
-		YRotatePoint(&vect,&vec2,EEcos(radians(conversationcamera.size.a)),EEsin(radians(conversationcamera.size.a)));
-		
-		sourcepos = targetpos - vec2 * dist;
-
-		if (conversationcamera.size.b!=0.f)
-			sourcepos.y+=120.f-conversationcamera.size.b*( 1.0f / 10 );
-
-		conversationcamera.pos = sourcepos;
-		SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-		subj.pos = conversationcamera.pos;
-		subj.angle.a = MAKEANGLE(-conversationcamera.angle.a);
-		subj.angle.b = MAKEANGLE(conversationcamera.angle.b - 180.f);
-		subj.angle.g = 0.f;
-		EXTERNALVIEW = 1;
-	}
-	else
-	{
-		ARX_CONVERSATION_MODE=-1;
-		ARX_CONVERSATION_LASTIS=-1;
-
-		if (LAST_CONVERSATION)
-		{
-			AcquireLastAnim(entities.player());
-			ANIM_Set(&entities.player()->animlayer[1],entities.player()->anims[ANIM_WAIT]);
-			entities.player()->animlayer[1].flags|=EA_LOOP;
-		}
-	}
-
-		////////////////////////
-	// Checks SCRIPT TIMERS.
-	if (FirstFrame==0)
-		ARX_SCRIPT_Timer_Check();
-
-	/////////////////////////////////////////////
-	// Now checks for speech controlled cinematic
-	{
-		long valid=-1;
-
-		for(size_t i = 0; i < MAX_ASPEECH; i++) {
-			if ((aspeech[i].exist) && (aspeech[i].cine.type>0))
-			{
-				valid=i;
-				break;
-			}
-		}
-
-		if (valid>=0)
-		{
-			CinematicSpeech * acs=&aspeech[valid].cine;
-			Entity * io=aspeech[valid].io;
-			float rtime=(float)(arxtime.get_updated()-aspeech[valid].time_creation)/(float)aspeech[valid].duration;
-
-			if (rtime<0) rtime=0;
-
-			if (rtime>1) rtime=1;
-
-			float itime=1.f-rtime;
-
-			if ((rtime>=0.f) && (rtime<=1.f) && io)
-			{
-				float alpha,beta,distance,_dist;
-
-				switch (acs->type)
-				{
-					case ARX_CINE_SPEECH_KEEP: {
-						subj.pos = acs->pos1;
-						subj.angle.a=acs->pos2.x;
-						subj.angle.b=acs->pos2.y;
-						subj.angle.g=acs->pos2.z;
-						EXTERNALVIEW=1;
-						break;
-					}
-					case ARX_CINE_SPEECH_ZOOM: {
-						//need to compute current values
-						alpha=acs->startangle.a*itime+acs->endangle.a*rtime;
-						beta=acs->startangle.b*itime+acs->endangle.b*rtime;
-						distance=acs->startpos*itime+acs->endpos*rtime;
-						Vec3f targetpos = acs->pos1;
-						conversationcamera.pos.x=-EEsin(radians(MAKEANGLE(io->angle.b+beta)))*distance+targetpos.x;
-						conversationcamera.pos.y= EEsin(radians(MAKEANGLE(io->angle.a+alpha)))*distance+targetpos.y;
-						conversationcamera.pos.z= EEcos(radians(MAKEANGLE(io->angle.b+beta)))*distance+targetpos.z;
-						SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-						subj.pos = conversationcamera.pos;
-						subj.angle.a=MAKEANGLE(-conversationcamera.angle.a);
-						subj.angle.b=MAKEANGLE(conversationcamera.angle.b-180.f);
-						subj.angle.g=0.f;
-						EXTERNALVIEW=1;
-						break;
-					}
-					case ARX_CINE_SPEECH_SIDE_LEFT:
-					case ARX_CINE_SPEECH_SIDE: {
-
-						if (ValidIONum(acs->ionum))
-						{
-
-							const Vec3f & from = acs->pos1;
-							const Vec3f & to = acs->pos2;
-
-							Vec3f vect = (to - from).getNormalized();
-
-							Vec3f vect2;
-							if (acs->type==ARX_CINE_SPEECH_SIDE_LEFT)
-							{
-								Vector_RotateY(&vect2,&vect,-90);
-							}
-							else
-							{
-								Vector_RotateY(&vect2,&vect,90);
-							}
-
-							distance=acs->f0*itime+acs->f1*rtime;
-							vect2 *= distance;
-							_dist = dist(from, to);
-							Vec3f tfrom = from + vect * acs->startpos * (1.0f / 100) * _dist;
-							Vec3f tto = from + vect * acs->endpos * (1.0f / 100) * _dist;
-							Vec3f targetpos;
-							targetpos.x=tfrom.x*itime+tto.x*rtime;
-							targetpos.y=tfrom.y*itime+tto.y*rtime+acs->f2;
-							targetpos.z=tfrom.z*itime+tto.z*rtime;
-							conversationcamera.pos.x=targetpos.x+vect2.x;
-							conversationcamera.pos.y=targetpos.y+vect2.y+acs->f2;
-							conversationcamera.pos.z=targetpos.z+vect2.z;
-							SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-							subj.pos = conversationcamera.pos;
-							subj.angle.a=MAKEANGLE(-conversationcamera.angle.a);
-							subj.angle.b=MAKEANGLE(conversationcamera.angle.b-180.f);
-							subj.angle.g=0.f;
-							EXTERNALVIEW=1;
-						}
-
-						break;
-					}
-					case ARX_CINE_SPEECH_CCCLISTENER_R:
-					case ARX_CINE_SPEECH_CCCLISTENER_L:
-					case ARX_CINE_SPEECH_CCCTALKER_R:
-					case ARX_CINE_SPEECH_CCCTALKER_L: {
-
-						//need to compute current values
-						if (ValidIONum(acs->ionum))
-						{
-							Vec3f targetpos;
-							if(acs->type == ARX_CINE_SPEECH_CCCLISTENER_L
-							   || acs->type == ARX_CINE_SPEECH_CCCLISTENER_R) {
-								conversationcamera.pos = acs->pos2;
-								targetpos = acs->pos1;
-							} else {
-								conversationcamera.pos = acs->pos1;
-								targetpos = acs->pos2;
-							}
-							
-							distance=(acs->startpos*itime+acs->endpos*rtime)*( 1.0f / 100 );
-							
-							Vec3f vect = conversationcamera.pos - targetpos;
-							Vec3f vect2;
-							Vector_RotateY(&vect2,&vect,90);
-							vect2.normalize();
-							Vec3f vect3 = vect.getNormalized();
-
-							vect = vect * distance + vect3 * 80.f;
-							vect2 *= 45.f;
-
-							if ((acs->type==ARX_CINE_SPEECH_CCCLISTENER_R)
-								|| (acs->type==ARX_CINE_SPEECH_CCCTALKER_R))
-							{
-								vect2 = -vect2;
-							}
-
-							conversationcamera.pos = vect + targetpos + vect2;
-							SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-							subj.pos = conversationcamera.pos;
-							subj.angle.a=MAKEANGLE(-conversationcamera.angle.a);
-							subj.angle.b=MAKEANGLE(conversationcamera.angle.b-180.f);
-							subj.angle.g=0.f;
-							EXTERNALVIEW=1;
-						}
-
-						break;
-					}
-					case ARX_CINE_SPEECH_NONE: break;
-				}
-
-				LASTCAMPOS = subj.pos;
-				LASTCAMANGLE = subj.angle;
-			}
-		}
-	}
-
-	if (player.life<=0)
-	{
-			DeadTime += static_cast<long>(FrameDiff);
-		float mdist = EEfabs(player.physics.cyl.height)-60;
-		DeadCameraDistance+=(float)FrameDiff*( 1.0f / 80 )*((mdist-DeadCameraDistance)/mdist)*2.f;
-
-		if (DeadCameraDistance>mdist) DeadCameraDistance=mdist;
-
-		Vec3f targetpos = player.pos;
-		
-		long id  = entities.player()->obj->fastaccess.view_attach;
-		long id2 = GetActionPointIdx( entities.player()->obj, "chest2leggings" );
-		
-		if(id != -1) {
-			targetpos = entities.player()->obj->vertexlist3[id].v;
-		}
-		
-		conversationcamera.pos.x = targetpos.x;
-		conversationcamera.pos.y = targetpos.y - DeadCameraDistance;
-		conversationcamera.pos.z = targetpos.z;
-
-		if (id2!=-1)
-		{
-				conversationcamera.pos.x=entities.player()->obj->vertexlist3[id2].v.x;
-				conversationcamera.pos.y=entities.player()->obj->vertexlist3[id2].v.y-DeadCameraDistance;
-				conversationcamera.pos.z=entities.player()->obj->vertexlist3[id2].v.z;
-		}
-
-		SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-		subj.pos = conversationcamera.pos;
-		subj.angle.a=MAKEANGLE(-conversationcamera.angle.a);
-		subj.angle.b=MAKEANGLE(conversationcamera.angle.b-180.f);
-			subj.angle.g = 0;
-		EXTERNALVIEW=1;
-		
-		BLOCK_PLAYER_CONTROLS = 1;
-	}
-	else
-	{
-		DeadCameraDistance=0;
-
-	}
-
-	/////////////////////////////////////
-	LAST_CONVERSATION=ARX_CONVERSATION;
-
-	if (GInput->isKeyPressedNowPressed(Keyboard::Key_Spacebar) && (CAMERACONTROLLER!=NULL))
-		CAMERACONTROLLER=NULL;
-
-	if (CAMERACONTROLLER!=NULL)
-	{
-		if (lastCAMERACONTROLLER!=CAMERACONTROLLER)
-		{
-			currentbeta=CAMERACONTROLLER->angle.b;
-		}
-
-			Vec3f targetpos = CAMERACONTROLLER->pos + player.baseOffset();
-
-			float delta_angle = AngleDifference(currentbeta, CAMERACONTROLLER->angle.b);
-			float delta_angle_t = delta_angle * FrameDiff * ( 1.0f / 1000 );
-
-			if (EEfabs(delta_angle_t) > EEfabs(delta_angle)) delta_angle_t = delta_angle;
-
-			currentbeta += delta_angle_t;
-		float t=radians(MAKEANGLE(currentbeta));
-		conversationcamera.pos.x=targetpos.x+(float)EEsin(t)*160.f;
-		conversationcamera.pos.y=targetpos.y+40.f;
-		conversationcamera.pos.z=targetpos.z-(float)EEcos(t)*160.f;
-
-		SetTargetCamera(&conversationcamera,targetpos.x,targetpos.y,targetpos.z);
-		subj.pos = conversationcamera.pos;
-		subj.angle.a=MAKEANGLE(-conversationcamera.angle.a);
-		subj.angle.b=MAKEANGLE(conversationcamera.angle.b-180.f);
-		subj.angle.g=0.f;
-		EXTERNALVIEW=1;
-	}
-
-	lastCAMERACONTROLLER=CAMERACONTROLLER;
-
-	if ((USE_CINEMATICS_CAMERA) && (USE_CINEMATICS_PATH.path!=NULL))
-	{
-		Vec3f pos,pos2;
-			USE_CINEMATICS_PATH._curtime = arxtime.get_updated();
-
-		USE_CINEMATICS_PATH._curtime+=50;
-		long pouet2=ARX_PATHS_Interpolate(&USE_CINEMATICS_PATH,&pos);
-		USE_CINEMATICS_PATH._curtime-=50;
-		long pouet=ARX_PATHS_Interpolate(&USE_CINEMATICS_PATH,&pos2);
-
-		if ((pouet!=-1) && (pouet2!=-1))
-		{
-			if(USE_CINEMATICS_CAMERA == 2) {
-				subj.pos = pos;
-				subj.d_angle = subj.angle;
-				pos2 = (pos2 + pos) * (1.0f/2);
-				SetTargetCamera(&subj, pos2.x, pos2.y, pos2.z);
-			} else {
-				DebugSphere(pos.x, pos.y, pos.z, 2, 50, Color::red);
-			}
-
-			if (USE_CINEMATICS_PATH.aupflags & ARX_USEPATH_FLAG_FINISHED) // was .path->flags
-			{
-				USE_CINEMATICS_CAMERA=0;
-				USE_CINEMATICS_PATH.path=NULL;
-			}
-		}
-		else
-		{
-			USE_CINEMATICS_CAMERA=0;
-			USE_CINEMATICS_PATH.path=NULL;
-		}
-	}
-
 	UpdateCameras();
 
-		///////////////////////////////////////////
-	ARX_PLAYER_FrameCheck(Original_framedelay);
+	ARX_PLAYER_FrameCheck(g_platformTime.lastFrameDuration());
 
-	if (MasterCamera.exist)
-	{
-		if (MasterCamera.exist & 2)
-		{
-			MasterCamera.exist&=~2;
-			MasterCamera.exist|=1;
-			MasterCamera.io=MasterCamera.want_io;
-			MasterCamera.aup=MasterCamera.want_aup;
-			MasterCamera.cam=MasterCamera.want_cam;
-		}
-
-		if (MasterCamera.cam->focal<100.f) MasterCamera.cam->focal=350.f;
-
-		SetActiveCamera(MasterCamera.cam);
-		EXTERNALVIEW=1;
-	}
-	else
-	{
-		// Set active camera for this viewport
-		SetActiveCamera(&subj);
-	}
+	updateActiveCamera();
 
 	ARX_GLOBALMODS_Apply();
-
-	if (EDITMODE) GRenderer->SetRenderState(Renderer::Fog, false);
-
-		ManageQuakeFX();
-
-	// Prepare ActiveCamera
-	PrepareCamera(ACTIVECAM);
-	// Recenter Viewport depending on Resolution
-	
-	ACTIVECAM->center = Vec2i(DANAECENTERX, DANAECENTERY);
-	ACTIVECAM->pos2 = ACTIVECAM->transform.mod = ACTIVECAM->center.to<float>();
 	
 	// Set Listener Position
 	{
-		float t = radians(MAKEANGLE(ACTIVECAM->angle.b));
-		Vec3f front(-EEsin(t), 0.f, EEcos(t));
-		front.normalize();
-		Vec3f up(0.f, 1.f, 0.f);
-		ARX_SOUND_SetListener(&ACTIVECAM->pos, &front, &up);
+		std::pair<Vec3f, Vec3f> frontUp = angleToFrontUpVec(g_camera->angle);
+		ARX_SOUND_SetListener(g_camera->m_pos, frontUp.first, frontUp.second);
 	}
-
-	// Reset Transparent Polys Idx
-	TRANSPOLYSPOS = 0;
-
+	
 	// Check For Hiding/unHiding Player Gore
-	if ((EXTERNALVIEW) || (player.life<=0))
-	{
-		ARX_INTERACTIVE_Show_Hide_1st(entities.player(),0);
+	if(EXTERNALVIEW || player.lifePool.current <= 0) {
+		ARX_INTERACTIVE_Show_Hide_1st(entities.player(), 0);
 	}
 
-	if (!EXTERNALVIEW)
-	{
-		ARX_INTERACTIVE_Show_Hide_1st(entities.player(),1);
+	if(!EXTERNALVIEW) {
+		ARX_INTERACTIVE_Show_Hide_1st(entities.player(), 1);
 	}
 
-	// NOW DRAW the player (Really...)
-	if ( (entities.player())
-		&& (entities.player()->animlayer[0].cur_anim) )
-	{
-		float restore=ACTIVECAM->use_focal;
-
-		if ((!EXTERNALVIEW) && (!BOW_FOCAL))
-		{
-			ACTIVECAM->use_focal=PLAYER_ARMS_FOCAL*Xratio;
-		}
-
-		if (!EXTERNALVIEW)
-			FORCE_FRONT_DRAW=1;
-
-		if (entities.player()->invisibility>0.9f) entities.player()->invisibility=0.9f;
-
-		arx_assert(entities.player()->obj != NULL);
-		EERIEDrawAnimQuat(entities.player()->obj, &entities.player()->animlayer[0], &entities.player()->angle,
-		                  &entities.player()->pos, 0, entities.player());
-		
-		ACTIVECAM->use_focal=restore;
-		FORCE_FRONT_DRAW=0;
-	}
-
-	// SUBJECTIVE VIEW UPDATE START  *********************************************************
-	GRenderer->SetRenderState(Renderer::DepthWrite, true);
-	GRenderer->SetRenderState(Renderer::DepthTest, true);
-
-	if (FirstFrame==0)
-	{
-		PrepareIOTreatZone();
-			ARX_PHYSICS_Apply();
-
-		if (FRAME_COUNT<=0)
-				PrecalcIOLighting(&ACTIVECAM->pos, ACTIVECAM->cdepth * 0.6f);
-		
-		ACTIVECAM->fadecolor = current.depthcolor;
-		
-		if (uw_mode)
-		{
-			float val=10.f;
-			GRenderer->GetTextureStage(0)->SetMipMapLODBias(val);
-			ARX_SCENE_Render(1);
-			val=-0.3f;
-			GRenderer->GetTextureStage(0)->SetMipMapLODBias(val);
-		} else {
-			ARX_SCENE_Render(1);
-		}
-	}
+	PrepareIOTreatZone();
+	ARX_PHYSICS_Apply();
 	
-	// Begin Particles
+	PrecalcIOLighting(g_camera->m_pos, g_camera->cdepth * 0.6f);
 	
-	if(pParticleManager) {
-		pParticleManager->Update(static_cast<long>(FrameDiff));
-		pParticleManager->Render();
-	}
-	
-	GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendOne);
-	GRenderer->SetRenderState(Renderer::DepthWrite, false);
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
+	ARX_SCENE_Update();
+
+	g_particleManager.Update(g_gameTime.lastFrameDuration());
+
 	ARX_FOGS_Render();
+
+	TreatBackgroundActions();
+
+	// Checks Magic Flares Drawing
+	if(!player.m_paralysed) {
+		if(eeMousePressed1()) {
+			if(!ARX_FLARES_Block) {
+				static PlatformDuration runeDrawPointElapsed = 0;
+				if(!config.input.useAltRuneRecognition) {
+					runeDrawPointElapsed += g_platformTime.lastFrameDuration();
+					
+					if(runeDrawPointElapsed >= runeDrawPointInterval) {
+						ARX_SPELLS_AddPoint(DANAEMouse);
+						while(runeDrawPointElapsed >= runeDrawPointInterval) {
+							runeDrawPointElapsed -= runeDrawPointInterval;
+						}
+					}
+				} else {
+					ARX_SPELLS_AddPoint(DANAEMouse);
+				}
+			} else {
+				spellRecognitionPointsReset();
+				ARX_FLARES_Block = false;
+			}
+		} else if(!ARX_FLARES_Block) {
+			ARX_FLARES_Block = true;
+		}
+	}
+
+	ARX_SPELLS_Precast_Check();
 	
-	ARX_PARTICLES_Render(&subj);
-	UpdateObjFx();
+	if(ARXmenu.mode() == Mode_InGame) {
+		ARX_SPELLS_ManageMagic();
+	}
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
+	ARX_SPELLS_UpdateSymbolDraw();
+
+	ManageTorch();
+	
+	{
+		float magicSightZoom = 0.f;
+		
+		SpellBase * spell = spells.getSpellByCaster(EntityHandle_Player, SPELL_MAGIC_SIGHT);
+		if(spell) {
+			GameDuration duration = g_gameTime.now() - spell->m_timcreation;
+			magicSightZoom = glm::clamp(duration / GameDurationMs(500), 0.f, 1.f);
+		}
+		
+		float BASE_FOCAL = CURRENT_BASE_FOCAL + (magicSightZoom * -30.f) + (player.m_bowAimRatio * 177.5f);
+		if(g_playerCamera.focal < BASE_FOCAL) {
+			static const float INC_FOCAL = 75.0f;
+			g_playerCamera.focal += INC_FOCAL;
+		}
+		if(g_playerCamera.focal > BASE_FOCAL) {
+			g_playerCamera.focal = BASE_FOCAL;
+		}
+		
+	}
+	
+	ARX_INTERACTIVE_DestroyIOdelayedExecute();
+}
+
+void ArxGame::renderLevel() {
+	
+	ARX_PROFILE_FUNC();
+	
+	// Clear screen & Z buffers
+	GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer, g_fogColor);
+	
+	cinematicBorder.render();
+	
+	GRenderer->SetAntialiasing(true);
+	
+	GRenderer->SetFogParams(fZFogStart * g_camera->cdepth, fZFogEnd * g_camera->cdepth);
+	GRenderer->SetFogColor(g_fogColor);
+	
+	ARX_SCENE_Render();
+	
+	drawDebugRender();
+
+	// Begin Particles
+	g_particleManager.Render();
+	
+	ARX_PARTICLES_Update();
+	ParticleSparkUpdate();
 	
 	// End Particles
-	
-	if (!EDITMODE) // Playing Game
-	{
-		// Checks Magic Flares Drawing
-		if(!PLAYER_PARALYSED) {
-			if(EERIEMouseButton & 1) {
-				if(ARX_FLARES_Block == 0) {
-					ARX_SPELLS_AddPoint(DANAEMouse);
-				} else {
-					CurrPoint = 0;
-					ARX_FLARES_Block = 0;
-				}
-			} else if(ARX_FLARES_Block == 0) {
-				ARX_FLARES_Block = 1;
-			}
-		}
-		
-		ARX_SPELLS_Precast_Check();
-		ARX_SPELLS_ManageMagic();
-		ARX_SPELLS_UpdateSymbolDraw();
 
-		ManageTorch();
-
-		// Renders Magical Flares
-		if ( !((player.Interface & INTER_MAP )
-			&& (!(player.Interface & INTER_COMBATMODE)))
-			&& flarenum
-			)
-		{
-			ARX_MAGICAL_FLARES_Draw(FRAMETICKS);
-			FRAMETICKS = (unsigned long)(arxtime);
-		}
+	// Renders Magical Flares
+	if(!((player.Interface & INTER_PLAYERBOOK) && !(player.Interface & INTER_COMBATMODE))) {
+		ARX_MAGICAL_FLARES_Update();
 	}
-#ifdef BUILD_EDITOR
-	else  // EDITMODE == true
-	{
-		RenderAllNodes();
-
-		std::stringstream ss("EDIT MODE - Selected ");
-		ss <<  NbIOSelected;
-		ARX_TEXT_Draw(hFontInBook, 100, 2, ss.str(), Color::yellow);
-	
-		if (EDITION==EDITION_FOGS)
-			ARX_FOGS_RenderAll();
-	}
-#endif
-	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-	GRenderer->SetRenderState(Renderer::DepthWrite, false);
 
 	// Checks some specific spell FX
 	CheckMr();
 
-	if (Project.improve)
+	if(player.m_improve) {
 		DrawImproveVisionInterface();
-	else
-	{
-		if ((subj.focal<BASE_FOCAL))
-		{
-			static const float INC_FOCAL = 75.0f;
-			subj.focal+=INC_FOCAL;
-
-			if (subj.focal>BASE_FOCAL) subj.focal=BASE_FOCAL;
-		}
-		else if (subj.focal>BASE_FOCAL) subj.focal=BASE_FOCAL;
 	}
 
-	if (eyeball.exist!=0)
-	{
+	if(eyeball.exist != 0)
 		DrawMagicSightInterface();
+
+	if(player.m_paralysed) {
+		UseRenderState state(render2D().blendAdditive());
+		EERIEDrawBitmap(Rectf(g_size), 0.0001f, NULL, Color(71, 71, 255));
 	}
 
-		if (PLAYER_PARALYSED)
-	{
-		GRenderer->SetRenderState(Renderer::DepthWrite, false);
-		GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-		GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendOne);
-
-		EERIEDrawBitmap(0.f, 0.f, (float)DANAESIZX, (float)DANAESIZY, 0.0001f, NULL, Color(71, 71, 255));
-		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-		GRenderer->SetRenderState(Renderer::DepthWrite, true);
-	}
-
-	if (FADEDIR)
-	{
-		ManageFade();
-	}
-
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-	GRenderer->SetRenderState(Renderer::DepthWrite, true);
-	
 	// Red screen fade for damages.
 	ARX_DAMAGE_Show_Hit_Blood();
 
-	// Manage Notes/Books opened on screen
-	GRenderer->SetRenderState(Renderer::Fog, false);
-
-	finish:; //----------------------------------------------------------------
 	// Update spells
 	ARX_SPELLS_Update();
-	
-	GRenderer->SetCulling(Renderer::CullNone);
-	GRenderer->SetRenderState(Renderer::Fog, true);
 
+	GRenderer->SetFogColor(Color::none);
+	g_renderBatcher.render();
+	GRenderer->SetFogColor(g_fogColor);
+	
+	GRenderer->SetAntialiasing(false);
+	
 	// Manage Death visual & Launch menu...
-	if (DeadTime>2000)
-		ARX_PLAYER_Manage_Death();
+	ARX_PLAYER_Manage_Death();
 
-	//-------------------------------------------------------------------------
-	
 	// INTERFACE
-	// Remove the Alphablend State if needed : NO Z Clear
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-	GRenderer->SetRenderState(Renderer::Fog, false);
+	g_renderBatcher.clear();
 	
 	// Draw game interface if needed
-	if(ARXmenu.currentmode == AMCM_OFF && !CINEMASCOPE) {
-		
-		GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapClamp);
-		GRenderer->SetRenderState(Renderer::DepthTest, false);
+	if(ARXmenu.mode() == Mode_InGame && !cinematicBorder.isActive()) {
+	
+		GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapClamp);
 		
 		ARX_INTERFACE_NoteManage();
-		DrawAllInterface();
-		DrawAllInterfaceFinish();
+		g_hudRoot.draw();
 		
-		if((player.Interface & INTER_MAP) && !(player.Interface & INTER_COMBATMODE)
-		   && flarenum) {
-			ARX_MAGICAL_FLARES_Draw(FRAMETICKS);
-			FRAMETICKS = (unsigned long)(arxtime);
+		if((player.Interface & INTER_PLAYERBOOK) && !(player.Interface & INTER_COMBATMODE)) {
+			ARX_MAGICAL_FLARES_Update();
+			g_renderBatcher.render();
 		}
 		
-		GRenderer->SetRenderState(Renderer::DepthTest, true);
+		GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
+		
 	}
-	
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
-	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-	PopAllTriangleList();
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-	PopAllTriangleListTransparency();
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 
-	GRenderer->SetRenderState(Renderer::Fog, true);
-		this->GoFor2DFX();
-	GRenderer->SetRenderState(Renderer::Fog, false);
+	update2DFX();
+	goFor2DFX();
+
 	GRenderer->Clear(Renderer::DepthBuffer);
 
 	// Speech Management
-	if (!EDITMODE)
-	{
-		ARX_SPEECH_Check();
-		ARX_SPEECH_Update();
-	}
+	ARX_SPEECH_Check();
 
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
+	GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 
-	if(pTextManage && !pTextManage->Empty())
-	{
-		pTextManage->Update(FrameDiff);
+	if(pTextManage && !pTextManage->Empty()) {
+		pTextManage->Update(g_platformTime.lastFrameDuration());
 		pTextManage->Render();
 	}
 
-	if (SHOW_INGAME_MINIMAP && ((PLAY_LOADED_CINEMATIC == 0) && (!CINEMASCOPE) && (!BLOCK_PLAYER_CONTROLS) && (ARXmenu.currentmode == AMCM_OFF))
-		&& (!(player.Interface & INTER_MAP ) ))
+	if(SHOW_INGAME_MINIMAP
+		&& cinematicIsStopped()
+		&& !cinematicBorder.isActive()
+		&& !BLOCK_PLAYER_CONTROLS
+		&& !(player.Interface & INTER_PLAYERBOOK))
 	{
-			long SHOWLEVEL = ARX_LEVELS_GetRealNum(CURRENTLEVEL);
+		long SHOWLEVEL = ARX_LEVELS_GetRealNum(CURRENTLEVEL);
 
 		if(SHOWLEVEL >= 0 && SHOWLEVEL < 32)
 			g_miniMap.showPlayerMiniMap(SHOWLEVEL);
 	}
 
-		//-------------------------------------------------------------------------
-
 	// CURSOR Rendering
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 
-	if (DRAGINTER)
-	{
-		ARX_INTERFACE_RenderCursor();
-
-		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-		PopAllTriangleList();
-		GRenderer->SetRenderState(Renderer::AlphaBlending, true);
+	if(DRAGINTER) {
+		ARX_INTERFACE_RenderCursor(false);
+		PopAllTriangleListOpaque();
 		PopAllTriangleListTransparency();
-		GRenderer->SetRenderState(Renderer::AlphaBlending, false);
-
-		ARX_INTERFACE_HALO_Flush();
+	} else {
+		ARX_INTERFACE_RenderCursor(false);
 	}
-	else
+
+	CheatDrawText();
+
+	if(FADEDIR)
+		ManageFade();
+	
+	GRenderer->SetScissor(Rect::ZERO);
+	
+	ARX_SPEECH_Update();
+	
+}
+
+void ArxGame::render() {
+	
+	SetActiveCamera(&g_playerCamera);
+	
+	// Update Various Player Infos for this frame.
+	ARX_PLAYER_Frame_Update();
+		
+	PULSATE = timeWaveSin(g_gameTime.now(), GameDurationMsf(5026.548245f));
+	EERIEDrawnPolys = 0;
+	
+	// Checks for Keyboard & Moulinex
 	{
-		ARX_INTERFACE_HALO_Flush();
-		ARX_INTERFACE_RenderCursor();
-	}
-
-	GRenderer->SetRenderState(Renderer::Fog, true);
-
-	//----------------RENDEREND------------------------------------------------
-	renderend:
-		;
-
-	if (sp_max_start)
-		Manage_sp_max();
-
-	// Some Visual Debug/Info Text
-	//CalcFPS();
-
-	if(NEED_TEST_TEXT) {
+		g_cursorOverBook = false;
 		
-		ShowTestText();
-		
-		if(ViewMode & VIEWMODE_INFOTEXT) {
-			ShowInfoText();
-		}
-		
-		if(USE_PORTALS) {
-			char tex[250];
-			switch(USE_PORTALS) {
-				case 1:
-					sprintf(tex, "2DPortals_ROOM: %ld", LAST_ROOM);
-					break;
-				case 2:
-					sprintf(tex, "3DPortals_ROOM: %ld - Vis %ld", LAST_ROOM, LAST_PORTALS_COUNT);
-					break;
-				case 3:
-					sprintf(tex, "3DPortals_ROOM(Transform): %ld - Vis %ld", LAST_ROOM, LAST_PORTALS_COUNT);
-					break;
-				case 4:
-					sprintf(tex, "3DPortals_ROOM(TransformSC): %ld - Vis %ld", LAST_ROOM, LAST_PORTALS_COUNT);
-					break;
+		if(ARXmenu.mode() == Mode_InGame) { // Playing Game
+			// Checks Clicks in Book Interface
+			if(ARX_INTERFACE_MouseInBook()) {
+				g_cursorOverBook = true;
 			}
-			OutputText( 320, 240, tex );
 		}
 		
-		if(bOLD_CLIPP) {
-			OutputText(0, 240, "New Clipp");
+		if((player.Interface & INTER_COMBATMODE) || PLAYER_MOUSELOOK_ON) {
+			FlyingOverIO = NULL; // Avoid to check with those modes
 		} else {
-			OutputText(0, 274, "New Clipp");
+			if(!DRAGINTER) {
+				if(!BLOCK_PLAYER_CONTROLS
+					&& !TRUE_PLAYER_MOUSELOOK_ON
+					&& !g_cursorOverBook
+					&& eMouseState != MOUSE_IN_NOTE
+				) {
+					FlyingOverIO = FlyingOverObject(DANAEMouse);
+				} else {
+					FlyingOverIO = NULL;
+				}
+			}
 		}
-	}
-
-	//----------------------------------------------------------------------------
-	// Begin 2D Pass for Lense Flares
-
-	if ((PLAY_LOADED_CINEMATIC == 0) && (!CINEMASCOPE) && (!BLOCK_PLAYER_CONTROLS) && (ARXmenu.currentmode == AMCM_OFF))
-	{
-		if (GInput->actionNowPressed(CONTROLS_CUST_QUICKLOAD) && !WILL_QUICKLOAD)
-		{
-			WILL_QUICKLOAD=1;
+		
+		if(!player.m_paralysed || ARXmenu.mode() != Mode_InGame) {
+			manageKeyMouse();
 		}
-
-		if (GInput->actionNowPressed(CONTROLS_CUST_QUICKSAVE) && !WILL_QUICKSAVE)
-		{
-			iTimeToDrawD7=2000;
-			WILL_QUICKSAVE=1;
-		}
-
-		ARX_DrawAfterQuickLoad();
-	}
-
-	GRenderer->EndScene();
-
-	//--------------NORENDEREND---------------------------------------------------
-norenderend:
-
-	if(GInput->isKeyPressedNowPressed(Keyboard::Key_F11)) {
-		showFPS = !showFPS;
-	}
-
-	if(showFPS) {
-		GRenderer->BeginScene();
-		CalcFPS();
-		ShowFPS();
-		GRenderer->EndScene();
 	}
 	
-	if(GInput->isKeyPressedNowPressed(Keyboard::Key_F10))
-	{
-		GetSnapShot();
-	}
-
-	if ((LaunchDemo) && (FirstFrame == 0))
-	{
-		LaunchDemo=0;
-		LaunchDummyParticle();
-	}
+	if(CheckInPoly(player.pos)) {
+		LastValidPlayerPos = player.pos;
 	}
 	
-	if (ARXmenu.currentmode == AMCM_OFF)
-	{
+	// Updates Externalview
+	EXTERNALVIEW = false;
+	
+	if(g_debugTriggers[1])
+		g_hudRoot.bookIconGui.requestFX();
+	
+	if(ARXmenu.mode() != Mode_InGame) {
+		benchmark::begin(benchmark::Menu);
+		ARX_Menu_Render();
+		GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat); // << NEEDED?
+	} else if(isInCinematic()) {
+		benchmark::begin(benchmark::Cinematic);
+		cinematicRender();
+	} else {
+		benchmark::begin(cinematicBorder.CINEMA_DECAL != 0.f ? benchmark::Cutscene : benchmark::Scene);
+		updateLevel();
+		renderLevel();
+		#ifdef ARX_DEBUG
+		if(g_debugToggles[9]) {
+			renderLevel();
+		}
+		#endif
+	}
+	
+	if(g_debugInfo != InfoPanelNone) {
+		switch(g_debugInfo) {
+		case InfoPanelFramerate: {
+			CalcFPS();
+			ShowFPS();
+			break;
+		}
+		case InfoPanelFramerateGraph: {
+			ShowFrameDurationPlot();
+			break;
+		}
+		case InfoPanelDebug: {
+			ShowInfoText();
+			break;
+		}
+		case InfoPanelDebugToggles: {
+			ShowDebugToggles();
+			break;
+		}
+		default: break;
+		}
+	}
+	
+	g_console.draw();
+	
+	if(ARXmenu.mode() == Mode_InGame) {
 		ARX_SCRIPT_AllowInterScriptExec();
 		ARX_SCRIPT_EventStackExecute();
 		// Updates Damages Spheres
 		ARX_DAMAGES_UpdateAll();
 		ARX_MISSILES_Update();
 
-		if (FirstFrame==0)
-			ARX_PATH_UpdateAllZoneInOutInside();
+		ARX_PATH_UpdateAllZoneInOutInside();
 	}
 
-	arxtime.update_last_frame_time();
-	LastMouseClick=EERIEMouseButton;
-}
-
-void ArxGame::GoFor2DFX()
-{
-	TexturedVertex lv,ltvv;
-
-	long needed = 0;
-
-	for (long i=0;i<TOTPDL;i++)
-	{
-		EERIE_LIGHT * el=PDL[i];
-
-		if (el->extras & EXTRAS_FLARE)
-		{
-			if(distSqr(ACTIVECAM->pos, el->pos) < square(2200)) {
-				needed=1;
-				break;
-			}
-		}
-	}
-
-	if (!needed) return;
-
-					{
-		Entity* pTableIO[256];
-		int nNbInTableIO = 0;
-
-		float temp_increase=framedelay*( 1.0f / 1000 )*4.f;
-		{
-			bool bComputeIO = false;
-
-			for (int i=0;i<TOTPDL;i++)
-			{
-				EERIE_LIGHT * el=PDL[i];
-
-				long lPosx=(long)(float)(el->pos.x*ACTIVEBKG->Xmul);
-				long lPosz=(long)(float)(el->pos.z*ACTIVEBKG->Zmul);
-
-				if( (lPosx<0)||
-					(lPosx>=ACTIVEBKG->Xsize)||
-					(lPosz<0)||
-					(lPosz>=ACTIVEBKG->Zsize)||
-					(!ACTIVEBKG->fastdata[lPosx][lPosz].treat) )
-				{
-					el->treat=0;
-					continue;
-				}
-
-				if (el->extras & EXTRAS_FLARE)
-				{
-					lv.p = el->pos;
-					specialEE_RTP(&lv,&ltvv);
-					el->temp-=temp_increase;
-
-					if (!(player.Interface & INTER_COMBATMODE)
-						&& (player.Interface & INTER_MAP))
-						continue;
-
-					if ((ltvv.rhw > 0.f) &&
-						(ltvv.p.x>0.f) &&
-						(ltvv.p.y>(CINEMA_DECAL*Yratio)) &&
-						(ltvv.p.x<DANAESIZX) &&
-						(ltvv.p.y<(DANAESIZY-(CINEMA_DECAL*Yratio)))
-						)
-					{
-						Vec3f vector = lv.p - ACTIVECAM->pos;
-						lv.p -= vector * (50.f / vector.length());
-						TexturedVertex ltvv2;
-						specialEE_RTP(&lv, &ltvv2);
-
-						float fZFar=ProjectionMatrix._33*(1.f/(ACTIVECAM->cdepth*fZFogEnd))+ProjectionMatrix._43;
-
-						Vec3f hit;
-						EERIEPOLY *tp=NULL;
-						Vec2s ees2dlv;
-						Vec3f ee3dlv = lv.p;
-
-						ees2dlv.x = checked_range_cast<short>(ltvv.p.x);
-						ees2dlv.y = checked_range_cast<short>(ltvv.p.y);
-
-
-						if( !bComputeIO )
-						{
-							GetFirstInterAtPos(&ees2dlv, 2, &ee3dlv, pTableIO, &nNbInTableIO );
-							bComputeIO = true;
-						}
-
-						if(
-							(ltvv.p.z>fZFar)||
-							EERIELaunchRay3(&ACTIVECAM->pos,&ee3dlv,&hit,tp,1)||
-							GetFirstInterAtPos(&ees2dlv, 3, &ee3dlv, pTableIO, &nNbInTableIO )
-							)
-						{
-							el->temp-=temp_increase*2.f;
-						}
-						else
-						{
-							el->temp+=temp_increase*2.f;
-						}
-
-					}
-
-					if (el->temp<0.f) el->temp=0.f;
-					else if (el->temp>.8f) el->temp=.8f;
-				}
-			}
-		}
-
-		// End 2D Pass ***************************************************************************
-
-		{
-			GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendOne);
-			GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-			GRenderer->SetRenderState(Renderer::DepthWrite, false);
-			GRenderer->SetCulling(Renderer::CullNone);
-			GRenderer->SetRenderState(Renderer::DepthTest, false);
-			GRenderer->SetFogColor(Color::none);
-
-			for (int i=0;i<TOTPDL;i++)
-			{
-				EERIE_LIGHT * el=PDL[i];
-
-				if ((!el->exist) || (!el->treat)) continue;
-
-				if (el->extras & EXTRAS_FLARE)
-				{
-					if (el->temp>0.f)
-					{
-						lv.p = el->pos;
-						lv.rhw = 1.f;
-						specialEE_RT(&lv, &ltvv.p);
-						float v=el->temp;
-
-						if (FADEDIR)
-						{
-							v*=1.f-LAST_FADEVALUE;
-						}
-
-						float siz;
-
-						if (el->extras & EXTRAS_FIXFLARESIZE)
-							siz=el->ex_flaresize;
-						else
-							siz=-el->ex_flaresize;
-
-						EERIEDrawSprite(&lv, siz, tflare, (el->rgb * v).to<u8>(), ltvv.p.z);
-
-					}
-				}
-			}
-
-			GRenderer->SetRenderState(Renderer::DepthTest, true);
-		}
-	}
-
-	GRenderer->SetRenderState(Renderer::DepthWrite, true);
-}
-
-
-bool ArxGame::InitDeviceObjects() {
+	LastMouseClick = EERIEMouseButton;
 	
-	// Enable Z-buffering RenderState
-	GRenderer->SetRenderState(Renderer::DepthTest, true);
+	gldebug::endFrame();
+}
+
+void ArxGame::onRendererInit(Renderer & renderer) {
+	
+	arx_assert(GRenderer == NULL);
+	
+	GRenderer = &renderer;
+	
+	arx_assert_msg(renderer.getTextureStageCount() >= 3, "not enough texture units");
+	arx_assert(m_MainWindow);
+	
+	renderer.Clear(Renderer::ColorBuffer);
+	m_MainWindow->showFrame();
 	
 	// Restore All Textures RenderState
-	GRenderer->RestoreAllTextures();
+	renderer.RestoreAllTextures();
 
 	ARX_PLAYER_Restore_Skin();
 	
-	// Disable Lighting RenderState
-	GRenderer->SetRenderState(Renderer::Lighting, false);
-
 	// Setup Texture Border RenderState
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
-
-	GRenderer->GetTextureStage(1)->DisableColor();
+	renderer.GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 	
 	// Fog
 	float fogEnd = 0.48f;
 	float fogStart = fogEnd * 0.65f;
-	GRenderer->SetFogParams(Renderer::FogLinear, fogStart, fogEnd);
-	GRenderer->SetFogColor(current.depthcolor.to<u8>());
-	GRenderer->SetRenderState(Renderer::Fog, true);
+	renderer.SetFogParams(fogStart, fogEnd);
+	renderer.SetFogColor(g_fogColor);
 	
-	SetZBias(0);
-
 	ComputePortalVertexBuffer();
-	VertexBuffer<SMY_VERTEX3> * vb3 = GRenderer->createVertexBuffer3(4000, Renderer::Stream);
+	VertexBuffer<SMY_VERTEX3> * vb3 = renderer.createVertexBuffer3(4000, Renderer::Stream);
 	pDynamicVertexBuffer = new CircularVertexBuffer<SMY_VERTEX3>(vb3);
 	
-	VertexBuffer<TexturedVertex> * vb = GRenderer->createVertexBufferTL(4000, Renderer::Stream);
+	size_t size = (config.video.bufferSize < 1) ? 32 * 1024 : config.video.bufferSize * 1024;
+	VertexBuffer<TexturedVertex> * vb = renderer.createVertexBufferTL(size, Renderer::Stream);
 	pDynamicVertexBuffer_TLVERTEX = new CircularVertexBuffer<TexturedVertex>(vb);
-
-	if(pMenu) {
-		pMenu->bReInitAll=true;
-	}
-
-	ARX_SetAntiAliasing();
-
-	return true;
-}
-
-//*************************************************************************************
-// FinalCleanup()
-// Called before the app exits
-//*************************************************************************************
-bool ArxGame::FinalCleanup() {
 	
-	EERIE_PATHFINDER_Release();
-	ARX_INPUT_Release();
-	ARX_SOUND_Release();
-	
-	return true;
-}
-
-void ArxGame::onRendererInit(RenderWindow & window) {
-	
-	arx_assert(GRenderer == NULL);
-	
-	GRenderer = window.getRenderer();
-	
-	if(GRenderer->GetTextureStageCount() < 3) {
-		LogError << "Arx Libertatis needs at least 3 texture units,"
-		         << " but only " << GRenderer->GetTextureStageCount() << " are available";
-		GRenderer = NULL;
-		return;
-	}
-	
-	InitDeviceObjects();
+	MenuReInitAll();
 	
 	// The app is ready to go
 	m_bReady = true;
 }
 
-void ArxGame::onRendererShutdown(RenderWindow &) {
+void ArxGame::onRendererShutdown(Renderer & renderer) {
 	
-	if(!GRenderer) {
+	if(GRenderer != &renderer) {
 		// onRendererInit() failed
 		return;
 	}
@@ -2339,7 +2283,7 @@ void ArxGame::onRendererShutdown(RenderWindow &) {
 	m_bReady = false;
 	
 	GRenderer->ReleaseAllTextures();
-	
+
 	delete pDynamicVertexBuffer_TLVERTEX, pDynamicVertexBuffer_TLVERTEX = NULL;
 	delete pDynamicVertexBuffer, pDynamicVertexBuffer = NULL;
 	

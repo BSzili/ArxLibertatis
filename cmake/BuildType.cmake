@@ -3,24 +3,24 @@ include(CompileCheck)
 
 option(DEBUG_EXTRA "Expensive debug options" OFF)
 option(SET_WARNING_FLAGS "Adjust compiler warning flags" ON)
+option(SET_NOISY_WARNING_FLAGS "Enable noisy compiler warnings" OFF)
 option(SET_OPTIMIZATION_FLAGS "Adjust compiler optimization flags" ON)
+
 
 if(MSVC)
 	
-	if(SET_WARNING_FLAGS)
+	if(SET_WARNING_FLAGS AND NOT SET_NOISY_WARNING_FLAGS)
 		
 		# Disable deprecation warnings
 		add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 		add_definitions(-D_CRT_NONSTDC_NO_DEPRECATE)
 		add_definitions(-D_SCL_SECURE_NO_WARNINGS)
-		# 'func': name was marked as #pragma deprecated
-		add_definitions(/wd4995)
 		
-		# TEMP - disable warning caused by the F2L removal
-		# Conversion from 'float' to 'long', possible loss of data
+		# TODO TEMP - disable very noisy warning
+		# Conversion from 'A' to 'B', possible loss of data
 		add_definitions(/wd4244)
 		
-		# TEMP - disable warning caused by conversion from a 64-bit type to a 32-bit one...
+		# TODO TEMP - disable warning caused by conversion from a 64-bit type to a 32-bit one...
 		if(CMAKE_CL_64)
 			# Conversion from 'size_t' to 'xxx', possible loss of data
 			add_definitions(/wd4267)
@@ -28,19 +28,19 @@ if(MSVC)
 		
 		# warning C4127: conditional expression is constant
 		add_definitions(/wd4127)
-		# warning C4201: nonstandard extension used : nameless struct/union
-		add_definitions(/wd4201)
+		# warning C4250: 'xxx' : inherits 'std::basic_{i,o}stream::...' via dominance
+		add_definitions(/wd4250) # harasses you when inheriting from std::basic_{i,o}stream
 		# warning C4503: 'xxx' : decorated name length exceeded, name was truncated
 		add_definitions(/wd4503)
 		
-	endif(SET_WARNING_FLAGS)
+	endif()
 	
 	if(NOT DEBUG_EXTRA)
 		add_definitions(-D_HAS_ITERATOR_DEBUGGING=0)
 		add_definitions(-D_SECURE_SCL=0)
 		add_definitions(-D_SECURE_SCL_THROWS=0)
 		add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)
-	endif(NOT DEBUG_EXTRA)
+	endif()
 	
 	if(SET_OPTIMIZATION_FLAGS)
 		
@@ -53,15 +53,19 @@ if(MSVC)
 		# Enable multiprocess build
 		add_definitions(/MP)
 		
-	endif(SET_OPTIMIZATION_FLAGS)
+	endif()
 	
 	foreach(flag_var CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE)
 		
 		# Disable Run time checks
-		string(REGEX REPLACE "/RTC1" "" ${flag_var} "${${flag_var}}")
+		if(NOT DEBUG_EXTRA)
+			string(REGEX REPLACE "/RTC1" "" ${flag_var} "${${flag_var}}")
+		endif()
 		
 		# Change runtime library from "Multi-threaded Debug DLL" to "Multi-threaded DLL"
-		string(REGEX REPLACE "/MDd" "/MD" ${flag_var} "${${flag_var}}")
+		if(NOT DEBUG_EXTRA)
+			string(REGEX REPLACE "/MDd" "/MD" ${flag_var} "${${flag_var}}")
+		endif()
 		
 		# Remove definition of _DEBUG as it might conflict with libs we're linking with
 		string(REGEX REPLACE "/D_DEBUG" "/DNDEBUG" ${flag_var} "${${flag_var}}")
@@ -82,7 +86,10 @@ if(MSVC)
 	
 	# Enable compiler optimization in release
 	set(CMAKE_CXX_FLAGS_RELEASE
-	    "${CMAKE_CXX_FLAGS_RELEASE} /Ox /Oi /Ot /GL /arch:SSE2 /GS- /fp:fast")
+	    "${CMAKE_CXX_FLAGS_RELEASE} /Ox /Oi /Ot /GL /GS- /fp:fast")
+	if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+		set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /arch:SSE2")
+	endif()
 	
 	# Always build with debug information
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi")
@@ -92,39 +99,80 @@ if(MSVC)
 	#  /OPT:ICF   COMDAT folding (merge functions generating the same code)
 	set(CMAKE_EXE_LINKER_FLAGS_RELEASE
 		"${CMAKE_EXE_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /LTCG")
+	set(CMAKE_SHARED_LINKER_FLAGS_RELEASE
+		"${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /LTCG")
+	set(CMAKE_STATIC_LINKER_FLAGS_RELEASE
+		"${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 	
 else(MSVC)
 	
 	if(SET_WARNING_FLAGS)
 		
-		# GCC (and compatible)
+		# GCC or Clang (and compatible)
+		
 		add_cxxflag("-Wall")
 		add_cxxflag("-Wextra")
-		add_cxxflag("-Wformat=2")
-		add_cxxflag("-Wundef")
-		add_cxxflag("-Wpointer-arith")
+		
+		add_cxxflag("-Warray-bounds=2")
 		add_cxxflag("-Wcast-qual")
-		add_cxxflag("-Woverloaded-virtual")
+		add_cxxflag("-Wcatch-value=3")
+		add_cxxflag("-Wdocumentation")
+		add_cxxflag("-Wdouble-promotion")
+		add_cxxflag("-Wduplicated-cond")
+		add_cxxflag("-Wextra-semi")
+		add_cxxflag("-Wformat=2")
+		add_cxxflag("-Wheader-guard")
 		add_cxxflag("-Wlogical-op")
+		add_cxxflag("-Wmissing-declarations")
 		add_cxxflag("-Woverflow")
-		
-		# TODO consider adding these
-		# add_cxxflag("-Wconversion") # very noisy
-		# add_cxxflag("-Wsign-conversion") # very noisy
-		# to catch functions that should be marked as static:
-		# add_cxxflag("-Wmissing-declarations")
-		# to catch extern definitions in .cpp files (with UNITYBUILD):
-		# add_cxxflag("-Wredundant-decls")
-		
-		# clang
-		add_cxxflag("-Wliteral-conversion")
+		add_cxxflag("-Woverloaded-virtual")
+		add_cxxflag("-Wpessimizing-move")
+		add_cxxflag("-Wpointer-arith")
+		add_cxxflag("-Wredundant-decls")
 		add_cxxflag("-Wshift-overflow")
-		add_cxxflag("-Wbool-conversions")
+		add_cxxflag("-Wstringop-overflow=4")
+		add_cxxflag("-Wundef")
+		add_cxxflag("-Wunused-const-variable=1")
+		add_cxxflag("-Wunused-macros")
+		add_cxxflag("-Wvla")
 		
-		if(NOT DEBUG_EXTRA)
+		add_cxxflag("-Wliteral-conversion") # part of -Wconversion
+		add_cxxflag("-Wbool-conversion") # part of -Wconversion
+		add_cxxflag("-Wfloat-conversion") # part of -Wconversion
+		add_cxxflag("-Wstring-conversion") # part of -Wconversion
+		
+		if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5
+		   AND NOT SET_NOISY_WARNING_FLAGS)
+			# In older GCC versions this warning is too strict
+		elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5
+		       AND NOT SET_NOISY_WARNING_FLAGS)
+			# In older Clang verstions this warns on BOOST_SCOPE_EXIT
+		elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel" AND NOT SET_NOISY_WARNING_FLAGS)
+			# For icc this warning is too strict
+		else()
+			add_cxxflag("-Wshadow")
+		endif()
+		
+		if(SET_NOISY_WARNING_FLAGS OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+			# TODO for some reason this warns in /usr/include/boost/type_traits/alignment_of.hpp for -m32 builds
+			add_cxxflag("-Wduplicated-branches")
+		endif()
+		
+		if(SET_NOISY_WARNING_FLAGS)
+			
+			# These are too noisy to enable right now but we still want to track new warnings.
+			# TODO enable by default as soon as most are silenced
+			add_cxxflag("-Wconversion") # very noisy
+			# add_cxxflag("-Wsign-conversion") # part of -Wconversion
+			# add_cxxflag("-Wshorten-64-to-32") # part of -Wconversion
+			add_cxxflag("-Wstrict-aliasing=1") # has false positives
+			add_cxxflag("-Wuseless-cast") # has false positives
+			# add_cxxflag("-Wnull-dereference") not that useful without deduction path
+			
+		else()
 			
 			# icc
-			if(${CMAKE_CXX_COMPILER} MATCHES "(^|/)icp?c$")
+			if(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
 				# '... was declared but never referenced'
 				# While normally a sensible warning, it also fires when a member isn't used for
 				# *all* instantiations of a template class, making the warning too annoying to
@@ -138,18 +186,24 @@ else(MSVC)
 				add_cxxflag("-wd2279")
 			endif()
 			
-			# -Wuninitialized causes too many false positives
-			add_cxxflag("-Wno-uninitialized")
-			
-			# (clang only) Conflicts with using const variables for configuration.
-			add_cxxflag("-Wno-constant-logical-operand")
+			# -Wuninitialized causes too many false positives in older gcc versions
+			if(CMAKE_COMPILER_IS_GNUCXX)
+				# GCC is 'clever' and silently accepts -Wno-*  - check for the non-negated variant
+				check_compiler_flag(FLAG_FOUND "-Wmaybe-uninitialized")
+				if(FLAG_FOUND)
+					add_cxxflag("-Wno-maybe-uninitialized")
+				endif()
+				if(NOT FLAG_FOUND)
+					add_cxxflag("-Wno-uninitialized")
+				endif()
+			endif()
 			
 			# Xcode does not support -isystem yet
-			if(MACOSX)
+			if(MACOS)
 				add_cxxflag("-Wno-undef")
 			endif()
 			
-		endif(NOT DEBUG_EXTRA)
+		endif()
 		
 	endif(SET_WARNING_FLAGS)
 	
@@ -157,7 +211,11 @@ else(MSVC)
 		add_cxxflag("-ftrapv") # to add checks for (undefined) signed integer overflow
 		add_cxxflag("-fbounds-checking")
 		add_cxxflag("-fcatch-undefined-behavior")
-		add_cxxflag("-Wstrict-aliasing=1")
+		add_cxxflag("-fstack-protector-all")
+		add_cxxflag("-fsanitize=address")
+		add_cxxflag("-fsanitize=thread")
+		add_cxxflag("-fsanitize=leak")
+		add_cxxflag("-fsanitize=undefined")
 	endif(DEBUG_EXTRA)
 	
 	if(CMAKE_BUILD_TYPE STREQUAL "")
@@ -166,8 +224,10 @@ else(MSVC)
 	
 	if(SET_OPTIMIZATION_FLAGS)
 		
-		if(MACOSX)
-			# TODO For some reason this check succeeds on OS X, but then
+		add_cxxflag("-fno-rtti")
+		
+		if(MACOS)
+			# TODO For some reason this check succeeds on macOS, but then
 			# flag causes the actual build to fail :(
 		else()
 			# Link as few libraries as possible
@@ -198,8 +258,13 @@ else(MSVC)
 				add_cxxflag("-g2")
 			endif()
 			
+			add_cxxflag("-ffast-math")
+			
 		endif()
 		
 	endif(SET_OPTIMIZATION_FLAGS)
 	
 endif(MSVC)
+
+set(BUILD_TYPES ${CMAKE_CONFIGURATION_TYPES} ${CMAKE_BUILD_TYPE})
+list(REMOVE_DUPLICATES BUILD_TYPES)

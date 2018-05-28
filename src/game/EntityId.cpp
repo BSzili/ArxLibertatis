@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,11 +25,18 @@
 #include <boost/lexical_cast.hpp>
 
 #include "game/Entity.h"
+#include "io/resource/ResourcePath.h"
 
 const EntityId EntityId::self("self", 0);
 
-EntityId::EntityId(const std::string & id) : instance_(-1) {
-	
+EntityId::EntityId(const res::path & classPath, EntityInstance instance)
+	: m_className(classPath.filename())
+	, m_instance(instance)
+{ }
+
+EntityId::EntityId(const std::string & id)
+	: m_instance(-1)
+{
 	if(id.empty() || id == "none") {
 		
 		// empty className, instance = -1
@@ -38,22 +45,22 @@ EntityId::EntityId(const std::string & id) : instance_(-1) {
 		
 		size_t sep = id.find_last_of('_');
 		
-		instance_ = 0;
+		m_instance = 0;
 		if(sep != std::string::npos) {
 			try {
-				instance_ = boost::lexical_cast<EntityInstance>(id.c_str() + sep + 1);
+				m_instance = boost::lexical_cast<EntityInstance>(id.c_str() + sep + 1);
 			} catch(...) {
-				className_ = id;
-				instance_ = -1;
+				m_className = id;
+				m_instance = -1;
 				return;
 			}
 		}
 		
-		className_ = id.substr(0, sep);
+		m_className = id.substr(0, sep);
 	}
 }
 
-std::string EntityId::string() {
+std::string EntityId::string() const {
 	return boost::lexical_cast<std::string>(*this);
 }
 

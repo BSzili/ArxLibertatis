@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -24,9 +24,6 @@
 
 #include "platform/Platform.h"
 
-using std::string;
-using std::copy;
-
 namespace res {
 
 const char path::dir_or_ext_sep[] = "/.";
@@ -39,7 +36,7 @@ inline bool is_path_up(const std::string & str, size_t pos) {
 	           && str[pos + 2] == path::dir_sep);
 }
 
-}
+} // anonymous namespace
 
 #ifdef ARX_DEBUG
 
@@ -65,9 +62,8 @@ void path::check() const {
 		
 		arx_assert_msg(next - pos > 1 || pathstr[pos] != '.', "bad path: \"%s\"", pathstr.c_str());
 		
-		if(next - pos == 2) {
-			arx_assert_msg(pathstr[pos] != '.' || pathstr[pos + 1] != '.', "bad path: \"%s\"", pathstr.c_str());
-		}
+		arx_assert_msg(next - pos != 2 || pathstr[pos] != '.' || pathstr[pos + 1] != '.',
+		               "bad path: \"%s\"", pathstr.c_str());
 		
 		pos = next + 1;
 	}
@@ -88,16 +84,16 @@ path path::resolve(const path & a, const path & b) {
 		
 		size_t dirpos = a.pathstr.find_last_of(dir_sep, apos - 1);
 		
+		if(is_path_up(a.pathstr, (dirpos == std::string::npos) ? 0 : dirpos + 1)) {
+			return path(a.pathstr.substr(0, apos) + dir_sep + b.pathstr.substr(bpos));
+		}
+		
 		if(dirpos == std::string::npos) {
 			if(bpos + 3 >= b.pathstr.length()) {
 				return path();
 			} else {
 				return b.pathstr.substr(bpos + 3);
 			}
-		}
-		
-		if(is_path_up(a.pathstr, dirpos + 1)) {
-			return path(a.pathstr.substr(0, apos) + dir_sep + b.pathstr.substr(bpos));
 		}
 		
 		apos = dirpos, bpos += 3;
@@ -132,12 +128,12 @@ path & path::operator/=(const path & other) {
 	}
 }
 
-string path::basename() const {
+std::string path::basename() const {
 	if(!has_info()) {
 		return empty() ? std::string() : std::string("..");
 	}
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos == string::npos) {
+	if(extpos == std::string::npos) {
 		return pathstr;
 	} else if(pathstr[extpos] != ext_sep) {
 		return pathstr.substr(extpos + 1);
@@ -145,19 +141,19 @@ string path::basename() const {
 		return std::string();
 	}
 	size_t dirpos = pathstr.find_last_of(dir_sep, extpos - 1);
-	if(dirpos == string::npos) {
+	if(dirpos == std::string::npos) {
 		return pathstr.substr(0, extpos);
 	} else {
 		return pathstr.substr(dirpos + 1, extpos - dirpos - 1);
 	}
 }
 
-string path::ext() const {
+std::string path::ext() const {
 	if(!has_info()) {
 		return std::string();
 	}
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos == string::npos || pathstr[extpos] != ext_sep) {
+	if(extpos == std::string::npos || pathstr[extpos] != ext_sep) {
 		return std::string();
 	} else {
 		return pathstr.substr(extpos);
@@ -165,12 +161,15 @@ string path::ext() const {
 }
 
 path & path::set_ext(const std::string & ext) {
-	arx_assert_msg(ext.empty() || (ext[0] != dir_sep && ext.find_first_of(dir_or_ext_sep, 1) == std::string::npos), "bad file ext: \"%s\"", ext.c_str());
+	arx_assert_msg(ext.empty()
+	               || (ext[0] != dir_sep
+	                   && ext.find_first_of(dir_or_ext_sep, 1) == std::string::npos),
+	               "bad file ext: \"%s\"", ext.c_str());
 	if(!has_info() && !empty()) {
 		return *this;
 	}
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos == string::npos || pathstr[extpos] != ext_sep) {
+	if(extpos == std::string::npos || pathstr[extpos] != ext_sep) {
 		return (((ext.empty() || ext[0] != ext_sep) ? (pathstr += ext_sep) : pathstr).append(ext), *this);
 	} else {
 		if(ext.empty() || ext[0] != ext_sep) {
@@ -189,19 +188,21 @@ path & path::remove_ext() {
 		return *this;
 	}
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos != string::npos && pathstr[extpos] == ext_sep) {
+	if(extpos != std::string::npos && pathstr[extpos] == ext_sep) {
 		pathstr.resize(extpos);
 	}
 	return *this;
 }
 
 path & path::set_filename(const std::string & filename) {
-	arx_assert_msg(!filename.empty() && filename != "." && filename != ".." && filename.find(dir_sep) == std::string::npos, "bad filename: \"%s\"", filename.c_str());
+	arx_assert_msg(!filename.empty() && filename != "." && filename != ".."
+	               && filename.find(dir_sep) == std::string::npos,
+	               "bad filename: \"%s\"", filename.c_str());
 	if(!has_info()) {
 		return ((empty() ? pathstr = filename : (pathstr += dir_sep).append(filename)), *this);
 	}
 	size_t dirpos = pathstr.find_last_of(dir_sep);
-	if(dirpos == string::npos) {
+	if(dirpos == std::string::npos) {
 		return (*this = filename);
 	} else {
 		pathstr.resize(dirpos + 1 + filename.size());
@@ -212,7 +213,9 @@ path & path::set_filename(const std::string & filename) {
 
 path & path::set_basename(const std::string & basename) {
 	
-	arx_assert_msg(!basename.empty() && basename != "." && basename != ".." && basename.find(dir_sep) == std::string::npos, "bad basename: \"%s\"", basename.c_str());
+	arx_assert_msg(!basename.empty() && basename != "." && basename != ".."
+	               && basename.find(dir_sep) == std::string::npos,
+	               "bad basename: \"%s\"", basename.c_str());
 	
 	if(!has_info()) {
 		return ((empty() ? pathstr = basename : (pathstr += dir_sep).append(basename)), *this);
@@ -221,7 +224,7 @@ path & path::set_basename(const std::string & basename) {
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
 	
 	// handle paths without an extension.
-	if(extpos == string::npos) {
+	if(extpos == std::string::npos) {
 		return (*this = basename);
 	} else if(pathstr[extpos] != ext_sep) {
 		pathstr.resize(extpos + 1 + basename.size());
@@ -229,9 +232,9 @@ path & path::set_basename(const std::string & basename) {
 		return *this;
 	}
 	
-	size_t dirpos = (extpos == 0) ? string::npos : pathstr.find_last_of(dir_sep, extpos - 1);
+	size_t dirpos = (extpos == 0) ? std::string::npos : pathstr.find_last_of(dir_sep, extpos - 1);
 	
-	if(dirpos == string::npos) { // no parent path
+	if(dirpos == std::string::npos) { // no parent path
 		pathstr = basename + pathstr.substr(extpos);
 	} else {
 		pathstr = pathstr.substr(0, dirpos + 1) + basename + pathstr.substr(extpos);
@@ -242,14 +245,16 @@ path & path::set_basename(const std::string & basename) {
 
 path & path::append_basename(const std::string & basename_part) {
 	
-	arx_assert_msg(basename_part != "." && basename_part != ".." && basename_part.find(dir_sep) == std::string::npos, "bad basename: \"%s\"", basename_part.c_str());
+	arx_assert_msg(basename_part != "." && basename_part != ".."
+	               && basename_part.find(dir_sep) == std::string::npos,
+	               "bad basename: \"%s\"", basename_part.c_str());
 	
 	if(!has_info()) {
 		return ((empty() ? pathstr = basename_part : (pathstr += dir_sep).append(basename_part)), *this);
 	}
 	
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos == string::npos || pathstr[extpos] != ext_sep) {
+	if(extpos == std::string::npos || pathstr[extpos] != ext_sep) {
 		return (pathstr += basename_part, *this);
 	}
 	size_t len = pathstr.length();
@@ -261,7 +266,8 @@ path & path::append_basename(const std::string & basename_part) {
 
 path & path::append(const std::string & str) {
 	
-	arx_assert_msg(str != "." && str != ".." && str.find(dir_sep) == std::string::npos, "cannot append: \"%s\"", str.c_str());
+	arx_assert_msg(str != "." && str != ".." && str.find(dir_sep) == std::string::npos,
+	               "cannot append: \"%s\"", str.c_str());
 	
 	pathstr += str;
 	return *this;
@@ -269,14 +275,17 @@ path & path::append(const std::string & str) {
 
 bool path::has_ext(const std::string & str) const {
 	
-	arx_assert_msg(str.empty() || (str[0] != dir_sep && str.find_first_of(dir_or_ext_sep, 1) == std::string::npos), "bad file ext: \"%s\"", str.c_str());
+	arx_assert_msg(str.empty()
+	               || (str[0] != dir_sep
+	                   && str.find_first_of(dir_or_ext_sep, 1) == std::string::npos),
+	               "bad file ext: \"%s\"", str.c_str());
 	
 	if(!has_info()) {
 		return false;
 	}
 	
 	size_t extpos = pathstr.find_last_of(dir_or_ext_sep);
-	if(extpos == string::npos || pathstr[extpos] != ext_sep) {
+	if(extpos == std::string::npos || pathstr[extpos] != ext_sep) {
 		return false;
 	} else if(str.empty()) {
 		return true;
@@ -319,7 +328,7 @@ path path::load(const std::string & str) {
 				copy[ostart++] = '.', copy[ostart++] = '.';
 			} else {
 				size_t last = copy.find_last_of('/', ostart - 1);
-				if(last == string::npos) {
+				if(last == std::string::npos) {
 					if(ostart == 2 && copy[0] == '.' && copy[1] == '.') {
 						copy[ostart++] = '/', copy[ostart++] = '.', copy[ostart++] = '.';
 					} else {
@@ -349,4 +358,4 @@ path path::load(const std::string & str) {
 	return copy;
 }
 
-} // namespace fs
+} // namespace res

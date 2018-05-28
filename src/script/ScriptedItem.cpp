@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,12 +49,13 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "game/Item.h"
 #include "game/Player.h"
 #include "graphics/Math.h"
+#include "gui/Console.h"
+#include "gui/Credits.h"
+#include "gui/Menu.h"
 #include "scene/Interactive.h"
 #include "script/ScriptEvent.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-using std::max;
 
 namespace script {
 
@@ -68,10 +69,10 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		Entity * t = entities.getById(target, context.getEntity());
 		
-		float val = clamp(context.getFloat(), 0.f, 100.f);
+		float val = glm::clamp(context.getFloat(), 0.f, 100.f);
 		
 		if(t != NULL) {
 			ARX_DAMAGES_DurabilityRestore(t, val);
@@ -118,7 +119,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string stealvalue = context.getWord();
+		std::string stealvalue = context.getWord();
 		
 		DebugScript(' ' << stealvalue);
 		
@@ -126,7 +127,7 @@ public:
 		if(stealvalue == "off") {
 			io->_itemdata->stealvalue = -1;
 		} else {
-			io->_itemdata->stealvalue = clamp((int)context.getFloatVar(stealvalue), -1, 100);
+			io->_itemdata->stealvalue = glm::clamp((int)context.getFloatVar(stealvalue), -1, 100);
 			if(io->_itemdata->stealvalue == 100) {
 				io->_itemdata->stealvalue = -1;
 			}
@@ -145,14 +146,14 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string lightvalue = context.getWord();
+		std::string lightvalue = context.getWord();
 		
 		DebugScript(' ' << lightvalue);
 		
 		if(lightvalue == "off") {
 			context.getEntity()->_itemdata->LightValue = -1;
 		} else {
-			context.getEntity()->_itemdata->LightValue = clamp((int)context.getFloatVar(lightvalue), -1, 1);
+			context.getEntity()->_itemdata->LightValue = glm::clamp((int)context.getFloatVar(lightvalue), -1, 1);
 		}
 		
 		return Success;
@@ -192,7 +193,7 @@ public:
 			set = !(flg & flag('r'));
 		}
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		DebugScript(' ' << type << ' ' << set);
 		
@@ -224,8 +225,8 @@ public:
 			}
 		}
 		
-		string param2 = context.getWord();
-		string val = context.getWord();
+		std::string modifierName = context.getWord();
+		std::string val = context.getWord();
 		
 		EquipmentModifierFlags flag = 0;
 		if(!val.empty() && val[val.length() - 1] == '%') {
@@ -233,9 +234,9 @@ public:
 		}
 		float fval = context.getFloatVar(val);
 		
-		DebugScript(' ' << options << ' ' << param2 << ' ' << fval << ' ' << flag);
+		DebugScript(' ' << options << ' ' << modifierName << ' ' << fval << ' ' << flag);
 		
-		ARX_EQUIPMENT_SetEquip(context.getEntity(), special, param2, fval, flag);
+		ARX_EQUIPMENT_SetEquip(context.getEntity(), special, modifierName, fval, flag);
 		
 		return Success;
 	}
@@ -283,7 +284,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		short count = max((short)context.getFloat(), (short)1);
+		short count = std::max((short)context.getFloat(), (short)1);
 		
 		DebugScript(' ' << count);
 		
@@ -302,7 +303,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		short count = clamp((short)context.getFloat(), (short)1, context.getEntity()->_itemdata->maxcount);
+		short count = glm::clamp((short)context.getFloat(), (short)1, context.getEntity()->_itemdata->maxcount);
 		
 		DebugScript(' ' << count);
 		
@@ -321,7 +322,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		long price = max((long)context.getFloat(), 0l);
+		long price = std::max((long)context.getFloat(), 0l);
 		
 		DebugScript(' ' << price);
 		
@@ -340,7 +341,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		short size = (short)clamp((int)context.getFloat(), 1, 100);
+		short size = (short)glm::clamp((int)context.getFloat(), 1, 100);
 		
 		DebugScript(' ' << size);
 		
@@ -361,19 +362,21 @@ public:
 		
 		DebugScript("");
 		
-		Entity * io = context.getEntity();
+		Entity * entity = context.getEntity();
 		
-		if(io->ioflags & IO_ITEM) {
-			player.hunger += min(io->_itemdata->food_value * 4.f, 100.f);
+		if(entity->ioflags & IO_ITEM) {
+			player.hunger += entity->_itemdata->food_value * 4.f;
+			player.hunger = std::min(player.hunger, 100.f);
 		}
 		
-		if((io->ioflags & IO_ITEM) && io->_itemdata->count > 1) {
-			io->_itemdata->count--;
+		if(entity == entities.player()) {
+			// The player entity must not be destroyed!
+			g_console.close();
+			ARX_MENU_Launch(g_canResumeGame);
+			ARX_MENU_Clicked_CREDITS();
+			credits::setMessage("You have been eaten by a Grue!");
 		} else {
-			io->show = SHOW_FLAG_KILLED;
-			io->gameFlags &= ~GFLAG_ISINTREATZONE;
-			RemoveFromAllInventories(io);
-			ARX_DAMAGES_ForceDeath(io, EVENT_SENDER);
+			ARX_INTERACTIVE_DestroyIOdelayed(entity);
 		}
 		
 		return Success;
@@ -381,7 +384,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedItem() {
 	

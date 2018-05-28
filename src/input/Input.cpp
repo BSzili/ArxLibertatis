@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -48,25 +48,30 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <string>
 #include <map>
+#include <cmath>
+
+#include <boost/lexical_cast.hpp>
+#include <boost/static_assert.hpp>
 
 #include "core/Application.h"
 #include "core/Config.h"
 #include "core/GameTime.h"
 #include "graphics/Math.h"
+#include "gui/Menu.h"
 #include "input/InputBackend.h"
-#ifdef ARX_HAVE_DINPUT8
-#include "input/DInput8Backend.h"
-#endif
-#ifdef ARX_HAVE_SDL
-#include "input/SDLInputBackend.h"
-#endif
 #include "io/log/Logger.h"
 #include "window/RenderWindow.h"
 
 Input * GInput = NULL;
 
 // TODO-input: Clean me!
-extern long EERIEMouseButton;
+long EERIEMouseButton = 0;
+long LastMouseClick = 0;
+
+struct KeyDescription {
+	InputKeyId id;
+	const char * name;
+};
 
 // All standard keys
 // "+" should not appear in names as it is used as a separator
@@ -122,6 +127,15 @@ static const KeyDescription keysDescriptions[] = {
 	{ Keyboard::Key_F13, "F13" },
 	{ Keyboard::Key_F14, "F14" },
 	{ Keyboard::Key_F15, "F15" },
+	{ Keyboard::Key_F16, "F16" },
+	{ Keyboard::Key_F17, "F17" },
+	{ Keyboard::Key_F18, "F18" },
+	{ Keyboard::Key_F19, "F19" },
+	{ Keyboard::Key_F20, "F20" },
+	{ Keyboard::Key_F21, "F21" },
+	{ Keyboard::Key_F22, "F22" },
+	{ Keyboard::Key_F23, "F23" },
+	{ Keyboard::Key_F24, "F24" },
 	{ Keyboard::Key_UpArrow, "Up" },
 	{ Keyboard::Key_DownArrow, "Down" },
 	{ Keyboard::Key_LeftArrow, "Left" },
@@ -150,6 +164,49 @@ static const KeyDescription keysDescriptions[] = {
 	{ Keyboard::Key_NumMultiply, "Multiply" },
 	{ Keyboard::Key_NumDivide, "Numpad/" },
 	{ Keyboard::Key_NumPoint, "Numpad." },
+	{ Keyboard::Key_NumComma, "Numpad," },
+	{ Keyboard::Key_Num00, "Numpad00" },
+	{ Keyboard::Key_Num000, "Numpad000" },
+	{ Keyboard::Key_NumLeftParen, "Numpad(" },
+	{ Keyboard::Key_NumRightParen, "Numpad)" },
+	{ Keyboard::Key_NumLeftBrace, "Numpad{" },
+	{ Keyboard::Key_NumRightBrace, "Numpad}" },
+	{ Keyboard::Key_NumTab, "NumpadTab" },
+	{ Keyboard::Key_NumBackspace, "NumpadBackspace" },
+	{ Keyboard::Key_NumA, "NumpadA" },
+	{ Keyboard::Key_NumB, "NumpadB" },
+	{ Keyboard::Key_NumC, "NumpadC" },
+	{ Keyboard::Key_NumD, "NumpadD" },
+	{ Keyboard::Key_NumE, "NumpadE" },
+	{ Keyboard::Key_NumF, "NumpadF" },
+	{ Keyboard::Key_NumXor, "NumpadXor" },
+	{ Keyboard::Key_NumPower, "NumpadPower" },
+	{ Keyboard::Key_NumPercent, "Numpad%" },
+	{ Keyboard::Key_NumLess, "Numpad<" },
+	{ Keyboard::Key_NumGreater, "Numpad>" },
+	{ Keyboard::Key_NumAmpersand, "Numpad&" },
+	{ Keyboard::Key_NumDblAmpersand, "Numpad&&" },
+	{ Keyboard::Key_NumVerticalBar, "Numpad|" },
+	{ Keyboard::Key_NumDblVerticalBar, "Numpad||" },
+	{ Keyboard::Key_NumColon, "Numpad:" },
+	{ Keyboard::Key_NumHash, "Numpad#" },
+	{ Keyboard::Key_NumSpace, "NumpadSpace" },
+	{ Keyboard::Key_NumAt, "Numpad@" },
+	{ Keyboard::Key_NumExclam, "Numpad!" },
+	{ Keyboard::Key_NumMemStore, "NumpadMemStore" },
+	{ Keyboard::Key_NumMemRecall, "NumpadMemRecall" },
+	{ Keyboard::Key_NumMemClear, "NumpadMemClear" },
+	{ Keyboard::Key_NumMemAdd, "NumpadMemAdd" },
+	{ Keyboard::Key_NumMemSubtract, "NumpadMemSubtract" },
+	{ Keyboard::Key_NumMemMultiply, "NumpadMemMultiply" },
+	{ Keyboard::Key_NumMemDivide, "NumpadMemDivide" },
+	{ Keyboard::Key_NumPlusMinus, "NumpadPlusMinus" },
+	{ Keyboard::Key_NumClear, "NumpadClear" },
+	{ Keyboard::Key_NumClearEntry, "NumpadClearEntry" },
+	{ Keyboard::Key_NumBinary, "NumBinary" },
+	{ Keyboard::Key_NumOctal, "NumOctal" },
+	{ Keyboard::Key_NumDecimal, "NumDecimal" },
+	{ Keyboard::Key_NumHexadecimal, "NumHexadecimal" },
 	{ Keyboard::Key_LeftBracket, "[" },
 	{ Keyboard::Key_LeftCtrl, "LeftControl" },
 	{ Keyboard::Key_LeftAlt, "LeftAlt" },
@@ -178,6 +235,71 @@ static const KeyDescription keysDescriptions[] = {
 	{ Keyboard::Key_Apostrophe, "'" },
 	{ Keyboard::Key_Minus, "-" },
 	{ Keyboard::Key_Equals, "=" },
+	{ Keyboard::Key_Execute, "Execute" },
+	{ Keyboard::Key_Help, "Help" },
+	{ Keyboard::Key_Menu, "Menu" },
+	{ Keyboard::Key_Select, "Select" },
+	{ Keyboard::Key_Stop, "Stop" },
+	{ Keyboard::Key_Redo, "Redo" },
+	{ Keyboard::Key_Undo, "Undo" },
+	{ Keyboard::Key_Cut, "Cut" },
+	{ Keyboard::Key_Copy, "Copy" },
+	{ Keyboard::Key_Paste, "Paste" },
+	{ Keyboard::Key_Find, "Find" },
+	{ Keyboard::Key_Mute, "Mute" },
+	{ Keyboard::Key_VolumeUp, "VolumeUp" },
+	{ Keyboard::Key_VolumeDown, "VolumeDown" },
+	{ Keyboard::Key_International1, "International1" },
+	{ Keyboard::Key_International2, "International2" },
+	{ Keyboard::Key_International3, "International3" },
+	{ Keyboard::Key_International4, "International4" },
+	{ Keyboard::Key_International5, "International5" },
+	{ Keyboard::Key_International6, "International6" },
+	{ Keyboard::Key_International7, "International7" },
+	{ Keyboard::Key_International8, "International8" },
+	{ Keyboard::Key_International9, "International9" },
+	{ Keyboard::Key_Lang1, "Lang1" },
+	{ Keyboard::Key_Lang2, "Lang2" },
+	{ Keyboard::Key_Lang3, "Lang3" },
+	{ Keyboard::Key_Lang4, "Lang4" },
+	{ Keyboard::Key_Lang5, "Lang5" },
+	{ Keyboard::Key_Lang6, "Lang6" },
+	{ Keyboard::Key_Lang7, "Lang7" },
+	{ Keyboard::Key_Lang8, "Lang8" },
+	{ Keyboard::Key_Lang9, "Lang9" },
+	{ Keyboard::Key_AltErase, "AltErase" },
+	{ Keyboard::Key_SysReq, "SysReq" },
+	{ Keyboard::Key_Cancel, "Cancel" },
+	{ Keyboard::Key_Clear, "Clear" },
+	{ Keyboard::Key_Prior, "Prior" },
+	{ Keyboard::Key_Return2, "Return2" },
+	{ Keyboard::Key_Separator, "Separator" },
+	{ Keyboard::Key_Out, "Out" },
+	{ Keyboard::Key_Oper, "Oper" },
+	{ Keyboard::Key_ClearAgain, "ClearAgain" },
+	{ Keyboard::Key_CrSel, "CrSel" },
+	{ Keyboard::Key_ExSel, "ExSel" },
+	{ Keyboard::Key_ThousandsSeparator, "ThousandsSeparator" },
+	{ Keyboard::Key_DecimalSeparator, "DecimalSeparator" },
+	{ Keyboard::Key_CurrencyUnit, "CurrencyUnit" },
+	{ Keyboard::Key_CurrencySubUnit, "CurrencySubUnit" },
+	{ Keyboard::Key_AudioNext, "AudioNext" },
+	{ Keyboard::Key_AudioPrev, "AudioPrev" },
+	{ Keyboard::Key_AudioStop, "AudioStop" },
+	{ Keyboard::Key_AudioPlay, "AudioPlay" },
+	{ Keyboard::Key_AudioMute, "AudioMute" },
+	{ Keyboard::Key_Media, "Media" },
+	{ Keyboard::Key_WWW, "WWW" },
+	{ Keyboard::Key_Mail, "Mail" },
+	{ Keyboard::Key_Calculator, "Calculator" },
+	{ Keyboard::Key_Computer, "Computer" },
+	{ Keyboard::Key_ACSearch, "ACSearch" },
+	{ Keyboard::Key_ACHome, "ACHome" },
+	{ Keyboard::Key_ACBack, "ACBack" },
+	{ Keyboard::Key_ACForward, "ACForward" },
+	{ Keyboard::Key_ACStop, "ACStop" },
+	{ Keyboard::Key_ACRefresh, "ACRefresh" },
+	{ Keyboard::Key_ACBookmarks, "ACBookmarks" },
 };
 
 static const std::string PREFIX_KEY = "Key_";
@@ -185,14 +307,11 @@ static const std::string PREFIX_BUTTON = "Button";
 static const char SEPARATOR = '+';
 const std::string Input::KEY_NONE = "---";
 
-//-----------------------------------------------------------------------------
-
-bool ARX_INPUT_Init() {
+bool ARX_INPUT_Init(Window * window) {
 	GInput = new Input();
 	
-	bool ret = GInput->init();
-	if(!ret)
-	{
+	bool ret = GInput->init(window);
+	if(!ret) {
 		delete GInput;
 		GInput = NULL;
 	}
@@ -200,124 +319,111 @@ bool ARX_INPUT_Init() {
 	return ret;
 }
 
-//-----------------------------------------------------------------------------
-
 void ARX_INPUT_Release() {
 	delete GInput;
 	GInput = NULL;
 }
 
-//-----------------------------------------------------------------------------
-
-Input::Input() : backend(NULL) {
-	
+Input::Input()
+	: backend(NULL)
+	, m_useRawMouseInput(true)
+	, m_mouseMode(Mouse::Absolute)
+	, m_lastMousePosition(Vec2s_ZERO)
+	, mouseInWindow(false)
+	, m_mouseAcceleration(0)
+	, m_invertMouseY(false)
+{
 	setMouseSensitivity(2);
-	
 	reset();
 }
 
-//-----------------------------------------------------------------------------
-
-bool Input::init() {
-	
+bool Input::init(Window * window) {
 	arx_assert(backend == NULL);
 	
-	bool autoBackend = (config.input.backend == "auto");
-	
-	for(int i = 0; i < 2 && !backend; i++) {
-		bool first = (i == 0);
-		
-		bool matched = false;
-		
-		#ifdef ARX_HAVE_SDL
-		if(!backend && first == (autoBackend || config.input.backend == "SDL")) {
-			matched = true;
-			backend = new SDLInputBackend;
-			if(!backend->init()) {
-				delete backend, backend = NULL;
-			}
-		}
-		#endif
-		
-		#ifdef ARX_HAVE_DINPUT8
-		if(!backend && first == (autoBackend || config.input.backend == "DirectInput8")) {
-			matched = true;
-			backend = new DInput8Backend;
-			if(!backend->init()) {
-				delete backend, backend = NULL;
-			}
-		}
-		#endif
-		
-		if(first && !matched) {
-			LogError << "Unknown backend: " << config.input.backend;
-		}
+	backend = window->getInputBackend();
+	if(backend == NULL) {
+		return false;
 	}
 	
-	return (backend != NULL);
-}
-
-//-----------------------------------------------------------------------------
-
-Input::~Input()
-{
-	delete backend;
-}
-
-//-----------------------------------------------------------------------------
-
-void Input::reset()
-{
-	iMouseR = Vec2s::ZERO;
-
-	Vec2s wndSize((short)mainApp->GetWindow()->getSize().x, (short)mainApp->GetWindow()->getSize().y); 
-	Vec2s absPos = wndSize / 2;
-	setMousePosAbs(absPos);
+	int x, y;
+	backend->getAbsoluteMouseCoords(x, y);
+	m_lastMousePosition = Vec2s(x, y);
 	
+	return true;
+}
+
+void Input::reset() {
+	
+	m_mouseMovement = Vec2f_ZERO;
+
 	for(size_t i = 0; i < Mouse::ButtonCount; i++) {
-		iMouseTime[i] = 0;
+		iMouseTime[i][0] = 0;
+		iMouseTime[i][1] = 0;
 		iMouseTimeSet[i] = 0;
 		bMouseButton[i] = bOldMouseButton[i] = false;
 		iOldNumClick[i] = 0;
 	}
 
-	iKeyId=-1;
-
-	for(int i = 0; i < Keyboard::KeyCount; i++)
-	{
-		keysStates[i]=0;
+	iKeyId = -1;
+	for(int i = 0; i < Keyboard::KeyCount; i++) {
+		keysStates[i] = 0;
 	}
-
+	
 	EERIEMouseButton = 0;
-
 	iWheelDir = 0;
+	
 }
 
-void Input::acquireDevices()
-{
-	backend->acquireDevices();
+void Input::setMouseMode(Mouse::Mode mode) {
+	
+	if(m_mouseMode == mode) {
+		return;
+	}
+	
+	m_mouseMode = mode;
+	
+	if(backend && m_useRawMouseInput) {
+		if(!backend->setMouseMode(mode)) {
+			m_useRawMouseInput = false;
+		}
+	}
+	
+	if(m_mouseMode == Mouse::Absolute) {
+		centerMouse();
+	}
+	
 }
 
-void Input::unacquireDevices()
-{
-	backend->unacquireDevices();
+void Input::setRawMouseInput(bool enabled) {
+	
+	if(m_useRawMouseInput == enabled) {
+		return;
+	}
+	
+	m_useRawMouseInput = enabled;
+	
+	if(backend && m_mouseMode == Mouse::Relative) {
+		if(!backend->setMouseMode(enabled ? Mouse::Relative : Mouse::Absolute)) {
+			m_useRawMouseInput = false;
+		}
+	}
+	
 }
 
-//-----------------------------------------------------------------------------
-void Input::setMousePosAbs(const Vec2s& mousePos) {
+void Input::centerMouse() {
+	setMousePosAbs(Vec2s(mainApp->getWindow()->getSize() / s32(2)));
+}
+
+void Input::setMousePosAbs(const Vec2s & mousePos) {
 	
 	if(backend) {
 		backend->setAbsoluteMouseCoords(mousePos.x, mousePos.y);
 	}
 	
-	iMouseA = mousePos;
+	m_lastMousePosition = iMouseA = mousePos;
 }
 
-//-----------------------------------------------------------------------------
-
-void Input::update()
-{
-	int iDTime;
+void Input::update(float time) {
 
 	backend->update();
 
@@ -325,12 +431,9 @@ void Input::update()
 	iKeyId = -1;
 	int modifier = 0;
 
-	for(int i = 0; i < Keyboard::KeyCount; i++)
-	{
-		if(isKeyPressed(i))
-		{
-			switch(i)
-			{
+	for(int i = 0; i < Keyboard::KeyCount; i++) {
+		if(isKeyPressed(i)) {
+			switch(i) {
 			case Keyboard::Key_LeftShift:
 			case Keyboard::Key_RightShift:
 			case Keyboard::Key_LeftCtrl:
@@ -341,149 +444,117 @@ void Input::update()
 				break;
 			}
 
-			if(keysStates[i]<2)
-			{
+			if(keysStates[i] < 2) {
 				keysStates[i]++;
 			}
 
-			if(!keyJustPressed)
-			{
-				if(keysStates[i] == 1)
-				{
+			if(!keyJustPressed) {
+				if(keysStates[i] == 1) {
 					iKeyId = i;
 					keyJustPressed = true;
-				}
-				else
-				{
+				} else {
 					iKeyId = i;
 				}
 			}
-		}
-		else
-		{
-			if(keysStates[i]>0)
-			{
+		} else {
+			if(keysStates[i] > 0) {
 				keysStates[i]--;
 			}
 		}
 	}
 
-	if(modifier != 0 && iKeyId != modifier)
-	{
+	if(modifier != 0 && iKeyId != modifier) {
 		iKeyId |= (modifier << 16);
 	}
 
-	if(iKeyId >= 0)    //keys priority
-	{
-		switch(iKeyId)
-		{
-		case Keyboard::Key_LeftShift:
-		case Keyboard::Key_RightShift:
-		case Keyboard::Key_LeftCtrl:
-		case Keyboard::Key_RightCtrl:
-		case Keyboard::Key_LeftAlt:
-		case Keyboard::Key_RightAlt:
-			{
-				bool bFound=false;
-
-				for(int i = 0; i < Keyboard::KeyCount; i++)
-				{
-					if(bFound)
-					{
+	if(iKeyId >= 0) {   //keys priority
+		switch(iKeyId) {
+			case Keyboard::Key_LeftShift:
+			case Keyboard::Key_RightShift:
+			case Keyboard::Key_LeftCtrl:
+			case Keyboard::Key_RightCtrl:
+			case Keyboard::Key_LeftAlt:
+			case Keyboard::Key_RightAlt: {
+				
+				bool bFound = false;
+				
+				for(int i = 0; i < Keyboard::KeyCount; i++) {
+					
+					if(bFound) {
 						break;
 					}
-
-					switch(i & 0xFFFF)
-					{
-					case Keyboard::Key_LeftShift:
-					case Keyboard::Key_RightShift:
-					case Keyboard::Key_LeftCtrl:
-					case Keyboard::Key_RightCtrl:
-					case Keyboard::Key_LeftAlt:
-					case Keyboard::Key_RightAlt:
-						continue;
-					default:
-						{
-							if(keysStates[i])
-							{
-								bFound=true;
-								iKeyId&=~0xFFFF;
-								iKeyId|=i;
+					
+					switch(i & 0xFFFF) {
+						case Keyboard::Key_LeftShift:
+						case Keyboard::Key_RightShift:
+						case Keyboard::Key_LeftCtrl:
+						case Keyboard::Key_RightCtrl:
+						case Keyboard::Key_LeftAlt:
+						case Keyboard::Key_RightAlt:
+							continue;
+						default: {
+							if(keysStates[i]) {
+								bFound = true;
+								iKeyId &= ~0xFFFF;
+								iKeyId |= i;
 							}
+							break;
 						}
-						break;
 					}
+					
 				}
+				
 			}
 		}
 	}
-
-	const int iArxTime = checked_range_cast<int>(arxtime.get_updated(false));
-
-	for(int buttonId = Mouse::ButtonBase; buttonId < Mouse::ButtonMax; buttonId++)
-	{
+	
+	const PlatformInstant now = g_platformTime.frameStart();
+	
+	for(int buttonId = Mouse::ButtonBase; buttonId < Mouse::ButtonMax; buttonId++) {
 		int i = buttonId - Mouse::ButtonBase;
-
+		
 		int iNumClick;
 		int iNumUnClick;
 		backend->getMouseButtonClickCount(buttonId, iNumClick, iNumUnClick);
-
-		iOldNumClick[i]+=iNumClick+iNumUnClick;
-
-		if(    (!bMouseButton[i])&&(iOldNumClick[i]==iNumUnClick) )
-		{
-			iOldNumClick[i]=0;
+		
+		iOldNumClick[i] += iNumClick + iNumUnClick;
+		
+		if(!bMouseButton[i] && iOldNumClick[i] == iNumUnClick) {
+			iOldNumClick[i] = 0;
 		}
-
-		bOldMouseButton[i]=bMouseButton[i];
-
-		if(bMouseButton[i])
-		{
-			if(iOldNumClick[i])
-			{
-				bMouseButton[i]=false;
+		
+		bOldMouseButton[i] = bMouseButton[i];
+		
+		if(bMouseButton[i]) {
+			if(iOldNumClick[i]) {
+				bMouseButton[i] = false;
+			}
+		} else {
+			if(iOldNumClick[i]) {
+				bMouseButton[i] = true;
 			}
 		}
-		else
-		{
-			if(iOldNumClick[i])
-			{
-				bMouseButton[i]=true;
-			}
-		}
-
-		if(iOldNumClick[i]) 
+		
+		if(iOldNumClick[i]) {
 			iOldNumClick[i]--;
-
-		backend->isMouseButtonPressed(buttonId,iDTime);
-
-		if(iDTime)
-		{
-			iMouseTime[i]=iDTime;
-			iMouseTimeSet[i]=2;
 		}
-		else
-		{
-			if( (iMouseTimeSet[i]>0)&&
-					((arxtime.get_updated( false )-iMouseTime[i])>300))
-			{
-				iMouseTime[i]=0;
-				iMouseTimeSet[i]=0;
-			}
-
-			if(getMouseButtonNowPressed(buttonId))
-			{
-				switch(iMouseTimeSet[i])
-				{
-				case 0:
-					iMouseTime[i] = iArxTime;
-					iMouseTimeSet[i]++;
-					break;
-				case 1:
-					iMouseTime[i] = iArxTime - iMouseTime[i];
-					iMouseTimeSet[i]++;
-					break;
-				}
+		
+		if(iMouseTimeSet[i] > 1 || (iMouseTimeSet[i] == 1 && now - iMouseTime[i][0] > PlatformDurationMs(300))) {
+			iMouseTime[i][0] = 0;
+			iMouseTime[i][1] = 0;
+			iMouseTimeSet[i] = 0;
+		}
+		
+		if(getMouseButtonNowPressed(buttonId)) {
+			switch(iMouseTimeSet[i]) {
+			case 0:
+				iMouseTime[i][0] = now;
+				iMouseTimeSet[i]++;
+				break;
+			case 1:
+				iMouseTime[i][1] = now;
+				iMouseTimeSet[i]++;
+				break;
 			}
 		}
 	}
@@ -491,31 +562,70 @@ void Input::update()
 	// Get the new coordinates
 	int absX, absY;
 	mouseInWindow = backend->getAbsoluteMouseCoords(absX, absY);
+	Vec2s newMousePosition(absX, absY);
 	
-	Vec2i wndSize = mainApp->GetWindow()->getSize();
+	Vec2i wndSize = mainApp->getWindow()->getSize();
 	if(absX >= 0 && absX < wndSize.x && absY >= 0 && absY < wndSize.y) {
 		
 		// Use the absolute mouse position reported by the backend, as is
-		iMouseA = Vec2s((short)absX, (short)absY);
-		
-		int relX, relY;
-		backend->getRelativeMouseCoords(relX, relY, iWheelDir);
-		
-		// Use the sensitivity config value to adjust relative mouse mouvements
-		float fSensMax = 1.f / 6.f;
-		float fSensMin = 2.f;
-		float fSens = ( ( fSensMax - fSensMin ) * ( (float)iSensibility ) / 10.f ) + fSensMin;
-		fSens = pow( .7f, fSens ) * 2.f;
-		iMouseR.x = relX * fSens;
-		iMouseR.y = relY * fSens;
+		if(m_mouseMode == Mouse::Absolute) {
+			iMouseA = newMousePosition;
+		} else {
+			iMouseA = wndSize / s32(2);
+		}
 		
 	} else {
 		mouseInWindow = false;
 	}
+	
+	int relX, relY;
+	backend->getRelativeMouseCoords(relX, relY, iWheelDir);
+	
+	if(m_mouseMode == Mouse::Relative) {
+		
+		if(m_useRawMouseInput) {
+			m_mouseMovement = Vec2f(relX * 2, relY * 2);
+		} else {
+			m_mouseMovement = Vec2f(newMousePosition - m_lastMousePosition);
+			if(newMousePosition != m_lastMousePosition) {
+				centerMouse();
+			} else {
+				m_lastMousePosition = newMousePosition;
+			}
+		}
+		
+		// Use the sensitivity config value to adjust relative mouse mouvements
+		m_mouseMovement *= m_mouseSensitivity;
+		
+		if(m_mouseAcceleration > 0 && time > 0.0f) {
+			Vec2f speed = m_mouseMovement / (time * 0.14f);
+			Vec2f sign(speed.x < 0 ? -1.f : 1.f, speed.y < 0 ? -1.f : 1.f);
+			float exponent = 1.f + m_mouseAcceleration * 0.05f;
+			speed.x = (std::pow(speed.x * sign.x + 1.f, exponent) - 1.f) * sign.x;
+			speed.y = (std::pow(speed.y * sign.y + 1.f, exponent) - 1.f) * sign.y;
+			m_mouseMovement = speed * (time * 0.14f);
+		}
+		
+		if(m_invertMouseY) {
+			m_mouseMovement.y *= -1.f;
+		}
+		
+		if(!mouseInWindow) {
+			LogWarning << "Cursor escaped the window while in relative input mode";
+			centerMouse();
+		}
+		
+	} else {
+		m_mouseMovement = Vec2f_ZERO;
+		if(!m_useRawMouseInput) {
+			m_lastMousePosition = newMousePosition;
+		}
+	}
+	
+	
 }
 
-//-----------------------------------------------------------------------------
-std::map<std::string, InputKeyId> keyNames;
+static std::map<std::string, InputKeyId> keyNames;
 
 std::string Input::getKeyName(InputKeyId key, bool localizedName) {
 	
@@ -532,20 +642,21 @@ std::string Input::getKeyName(InputKeyId key, bool localizedName) {
 		key &= INPUT_MASK;
 	}
 	
-	if(key >= (InputKeyId)Mouse::ButtonBase && key < (InputKeyId)Mouse::ButtonMax) {
+	if(key >= InputKeyId(Mouse::ButtonBase) && key < InputKeyId(Mouse::ButtonMax)) {
 		
 		std::ostringstream oss;
-		oss << PREFIX_BUTTON << (int)(key - Mouse::ButtonBase + 1);
+		oss << PREFIX_BUTTON << int(key - Mouse::ButtonBase + 1);
 		name = oss.str();
 	
-	} else if(key == (InputKeyId)Mouse::Wheel_Up) {
+	} else if(key == InputKeyId(Mouse::Wheel_Up)) {
 		name = "WheelUp";
 
-	} else if(key == (InputKeyId)Mouse::Wheel_Down) {
+	} else if(key == InputKeyId(Mouse::Wheel_Down)) {
 		name = "WheelDown";
 
 	} else {
-		arx_assert(key >= 0 && key < (int)ARRAY_SIZE(keysDescriptions));
+		BOOST_STATIC_ASSERT(ARRAY_SIZE(keysDescriptions) == Keyboard::KeyMax);
+		arx_assert(key >= 0 && key < int(ARRAY_SIZE(keysDescriptions)));
 		const KeyDescription & entity = keysDescriptions[key];
 		
 		arx_assert(entity.id == key);
@@ -554,7 +665,7 @@ std::string Input::getKeyName(InputKeyId key, bool localizedName) {
 	
 	if(name.empty()) {
 		std::ostringstream oss;
-		oss << PREFIX_KEY << (int)key;
+		oss << PREFIX_KEY << int(key);
 		name = oss.str();
 	}
 	
@@ -564,8 +675,6 @@ std::string Input::getKeyName(InputKeyId key, bool localizedName) {
 		return name;
 	}
 }
-
-//-----------------------------------------------------------------------------
 
 InputKeyId Input::getKeyId(const std::string & name) {
 	
@@ -578,25 +687,23 @@ InputKeyId Input::getKeyId(const std::string & name) {
 	if(sep != std::string::npos) {
 		InputKeyId modifier = getKeyId(name.substr(0, sep));
 		InputKeyId key = getKeyId(name.substr(sep + 1));
-		return (modifier << 16 | key);
+		return (modifier < 0) ? key : (modifier << 16 | key);
 	}
 	
 	if(!name.compare(0, PREFIX_KEY.length(), PREFIX_KEY)) {
-		std::istringstream iss(name.substr(PREFIX_KEY.length()));
-		int key;
-		iss >> key;
-		if(!iss.bad()) {
+		try {
+			int key = boost::lexical_cast<int>(name.substr(PREFIX_KEY.length()));
 			return key;
-		}
+		} catch(const boost::bad_lexical_cast &) { }
 	}
 	
 	if(!name.compare(0, PREFIX_BUTTON.length(), PREFIX_BUTTON)) {
-		std::istringstream iss(name.substr(PREFIX_BUTTON.length()));
-		int key;
-		iss >> key;
-		if(!iss.bad() && key >= 0 && key < Mouse::ButtonCount) {
-			return Mouse::ButtonBase + key - 1;
-		}
+		try {
+			int key = boost::lexical_cast<int>(name.substr(PREFIX_BUTTON.length()));
+			if(key >= 0 && key < Mouse::ButtonCount) {
+				return Mouse::ButtonBase + key - 1;
+			}
+		} catch(const boost::bad_lexical_cast &) { }
 	}
 	
 	if(keyNames.empty()) {
@@ -604,8 +711,8 @@ InputKeyId Input::getKeyId(const std::string & name) {
 		for(size_t i = 0; i < ARRAY_SIZE(keysDescriptions); i++) {
 			keyNames[keysDescriptions[i].name] = keysDescriptions[i].id;
 		}
-		keyNames["WheelUp"] = (InputKeyId)Mouse::Wheel_Up;
-		keyNames["WheelDown"] = (InputKeyId)Mouse::Wheel_Down;
+		keyNames["WheelUp"] = InputKeyId(Mouse::Wheel_Up);
+		keyNames["WheelDown"] = InputKeyId(Mouse::Wheel_Down);
 	}
 	
 	std::map<std::string, InputKeyId>::const_iterator it = keyNames.find(name);
@@ -616,13 +723,20 @@ InputKeyId Input::getKeyId(const std::string & name) {
 	return -1;
 }
 
-//-----------------------------------------------------------------------------
-
-void Input::setMouseSensitivity(int _iSensibility) {
-	iSensibility = _iSensibility;
+void Input::setMouseSensitivity(int sensitivity) {
+	const float maxExponent = 1.f / 6.f;
+	const float minExponent = 2.f;
+	float exponent = (maxExponent - minExponent) * float(sensitivity) * 0.1f + minExponent;
+	m_mouseSensitivity = std::pow(0.7f, exponent) * (float(sensitivity) + 1.f) * 0.04f;
 }
 
-//-----------------------------------------------------------------------------
+void Input::setMouseAcceleration(int acceleration) {
+	m_mouseAcceleration = acceleration;
+}
+
+void Input::setInvertMouseY(bool invert) {
+	m_invertMouseY = invert;
+}
 
 bool Input::isKeyPressed(int keyId) const {
 	arx_assert(keyId >= Keyboard::KeyBase && keyId < Keyboard::KeyMax);
@@ -630,15 +744,11 @@ bool Input::isKeyPressed(int keyId) const {
 	return backend->isKeyboardKeyPressed(keyId);
 }
 
-//-----------------------------------------------------------------------------
-
 bool Input::isKeyPressedNowPressed(int keyId) const {
 	arx_assert(keyId >= Keyboard::KeyBase && keyId < Keyboard::KeyMax);
 
 	return backend->isKeyboardKeyPressed(keyId) && (keysStates[keyId] == 1);
 }
-
-//-----------------------------------------------------------------------------
 
 bool Input::isKeyPressedNowUnPressed(int keyId) const {
 	arx_assert(keyId >= Keyboard::KeyBase && keyId < Keyboard::KeyMax);
@@ -646,13 +756,159 @@ bool Input::isKeyPressedNowUnPressed(int keyId) const {
 	return !backend->isKeyboardKeyPressed(keyId) && (keysStates[keyId] == 1);
 }
 
-//-----------------------------------------------------------------------------
+static const char arxKeys[][2] = {
+	
+	{ '0', ')' }, // Key_0,
+	{ '1', '!' }, // Key_1,
+	{ '2', '@' }, // Key_2,
+	{ '3', '#' }, // Key_3,
+	{ '4', '$' }, // Key_4,
+	{ '5', '%' }, // Key_5,
+	{ '6', '^' }, // Key_6,
+	{ '7', '&' }, // Key_7,
+	{ '8', '*' }, // Key_8,
+	{ '9', '(' }, // Key_9,
+	
+	{ 'a', 'A' }, // Key_A,
+	{ 'b', 'B' }, // Key_B,
+	{ 'c', 'C' }, // Key_C,
+	{ 'd', 'D' }, // Key_D,
+	{ 'e', 'E' }, // Key_E,
+	{ 'f', 'F' }, // Key_F,
+	{ 'g', 'G' }, // Key_G,
+	{ 'h', 'H' }, // Key_H,
+	{ 'i', 'I' }, // Key_I,
+	{ 'j', 'J' }, // Key_J,
+	{ 'k', 'K' }, // Key_K,
+	{ 'l', 'L' }, // Key_L,
+	{ 'm', 'M' }, // Key_M,
+	{ 'n', 'N' }, // Key_N,
+	{ 'o', 'O' }, // Key_O,
+	{ 'p', 'P' }, // Key_P,
+	{ 'q', 'Q' }, // Key_Q,
+	{ 'r', 'R' }, // Key_R,
+	{ 's', 'S' }, // Key_S,
+	{ 't', 'T' }, // Key_T,
+	{ 'u', 'U' }, // Key_U,
+	{ 'v', 'V' }, // Key_V,
+	{ 'w', 'W' }, // Key_W,
+	{ 'x', 'X' }, // Key_X,
+	{ 'y', 'Y' }, // Key_Y,
+	{ 'z', 'Z' }, // Key_Z,
+	
+	{ 0, 0 }, // Key_F1,
+	{ 0, 0 }, // Key_F2,
+	{ 0, 0 }, // Key_F3,
+	{ 0, 0 }, // Key_F4,
+	{ 0, 0 }, // Key_F5,
+	{ 0, 0 }, // Key_F6,
+	{ 0, 0 }, // Key_F7,
+	{ 0, 0 }, // Key_F8,
+	{ 0, 0 }, // Key_F9,
+	{ 0, 0 }, // Key_F10,
+	{ 0, 0 }, // Key_F11,
+	{ 0, 0 }, // Key_F12,
+	{ 0, 0 }, // Key_F13,
+	{ 0, 0 }, // Key_F14,
+	{ 0, 0 }, // Key_F15,
+	
+	{ 0, 0 }, // Key_UpArrow,
+	{ 0, 0 }, // Key_DownArrow,
+	{ 0, 0 }, // Key_LeftArrow,
+	{ 0, 0 }, // Key_RightArrow,
+	
+	{ 0, 0 }, // Key_Home,
+	{ 0, 0 }, // Key_End,
+	{ 0, 0 }, // Key_PageUp,
+	{ 0, 0 }, // Key_PageDown,
+	{ 0, 0 }, // Key_Insert,
+	{ 0, 0 }, // Key_Delete,
+	
+	{ 0, 0 }, // Key_Escape,
+	
+	{ 0, 0 }, // Key_NumLock,
+	{ '0', '0' }, // Key_0,
+	{ '1', '1' }, // Key_1,
+	{ '2', '2' }, // Key_2,
+	{ '3', '3' }, // Key_3,
+	{ '4', '4' }, // Key_4,
+	{ '5', '5' }, // Key_5,
+	{ '6', '6' }, // Key_6,
+	{ '7', '7' }, // Key_7,
+	{ '8', '8' }, // Key_8,
+	{ '9', '9' }, // Key_9,
+	{ '\n', '\n' }, // Key_NumPadEnter,
+	{ '-', '-' }, // Key_NumSubtract,
+	{ '+', '+' }, // Key_NumAdd,
+	{ '*', '*' }, // Key_NumMultiply,
+	{ '/', '/' }, // Key_NumDivide,
+	{ '.', '.' }, // Key_NumPoint,
+	
+	{ '[', '{' }, // Key_LeftBracket,
+	{ 0, 0 }, // Key_LeftCtrl,
+	{ 0, 0 }, // Key_LeftAlt,
+	{ 0, 0 }, // Key_LeftShift,
+	{ 0, 0 }, // Key_LeftWin,
+	
+	{ ']', '}' }, // Key_RightBracket,
+	{ 0, 0 }, // Key_RightCtrl,
+	{ 0, 0 }, // Key_RightAlt,
+	{ 0, 0 }, // Key_RightShift,
+	{ 0, 0 }, // Key_RightWin,
+	
+	{ 0, 0 }, // Key_PrintScreen,
+	{ 0, 0 }, // Key_ScrollLock,
+	{ 0, 0 }, // Key_Pause,
+	
+	{ ' ', ' ' }, // Key_Spacebar,
+	{ 0, 0 }, // Key_Backspace,
+	{ '\n', '\n' }, // Key_Enter,
+	{ '\t', '\t' }, // Key_Tab,
 
-bool Input::getKeyAsText(int keyId, char& result) const {
-	return backend->getKeyAsText(keyId, result);
+	{ 0, 0 }, // Key_Apps,
+	{ 0, 0 }, // Key_CapsLock,
+
+	{ '/', '?' }, // Key_Slash,
+	{ '\\', '|' }, // Key_Backslash,
+	{ ',', '<' }, // Key_Comma,
+	{ ';', ':' }, // Key_Semicolon,
+	{ '.', '>' }, // Key_Period,
+	{ '`', '~' }, // Key_Grave,
+	{ '\'', '"' }, // Key_Apostrophe,
+	{ '-', '_' }, // Key_Minus,
+	{ '=', '+' }, // Key_Equals,
+	
+};
+
+bool Input::getKeyAsText(int keyId, char & result) const {
+	
+	// TODO we should use SDL_StartTextInput + SDL_SetTextInputRect to allow unicode input
+	
+	keyId -= Keyboard::KeyBase;
+	
+	if(keyId < 0 || size_t(keyId) >= ARRAY_SIZE(arxKeys)) {
+		return false;
+	}
+	
+	bool shift = isKeyPressed(Keyboard::Key_LeftShift)
+	             || isKeyPressed(Keyboard::Key_RightShift);
+	
+	char c = arxKeys[keyId][shift ? 1 : 0];
+	if(c) {
+		result = c;
+		return true;
+	}
+	
+	return false;
 }
 
-//-----------------------------------------------------------------------------
+void Input::startTextInput(const Rect & box, TextInputHandler * handler) {
+	backend->startTextInput(box, handler);
+}
+
+void Input::stopTextInput() {
+	backend->stopTextInput();
+}
 
 bool Input::getMouseButton(int buttonId) const {
 	arx_assert(buttonId >= Mouse::ButtonBase && buttonId < Mouse::ButtonMax);
@@ -661,16 +917,12 @@ bool Input::getMouseButton(int buttonId) const {
 	return bMouseButton[buttonIdx] && !bOldMouseButton[buttonIdx];
 }
 
-//-----------------------------------------------------------------------------
-
 bool Input::getMouseButtonRepeat(int buttonId) const {
 	arx_assert(buttonId >= Mouse::ButtonBase && buttonId < Mouse::ButtonMax);
 
 	int buttonIdx = buttonId - Mouse::ButtonBase;
 	return bMouseButton[buttonIdx];
 }
-
-//-----------------------------------------------------------------------------
 
 bool Input::getMouseButtonNowPressed(int buttonId) const {
 	arx_assert(buttonId >= Mouse::ButtonBase && buttonId < Mouse::ButtonMax);
@@ -679,8 +931,6 @@ bool Input::getMouseButtonNowPressed(int buttonId) const {
 	return bMouseButton[buttonIdx] && !bOldMouseButton[buttonIdx];
 }
 
-//-----------------------------------------------------------------------------
-
 bool Input::getMouseButtonNowUnPressed(int buttonId) const {
 	arx_assert(buttonId >= Mouse::ButtonBase && buttonId < Mouse::ButtonMax);
 
@@ -688,16 +938,15 @@ bool Input::getMouseButtonNowUnPressed(int buttonId) const {
 	return !bMouseButton[buttonIdx] && bOldMouseButton[buttonIdx];
 }
 
-//-----------------------------------------------------------------------------
-
-bool Input::getMouseButtonDoubleClick(int buttonId, int timeMs) const {
+bool Input::getMouseButtonDoubleClick(int buttonId) const {
 	arx_assert(buttonId >= Mouse::ButtonBase && buttonId < Mouse::ButtonMax);
-
+	
+	const PlatformDuration interval = PlatformDurationMs(300);
+	
 	int buttonIdx = buttonId - Mouse::ButtonBase;
-	return (iMouseTimeSet[buttonIdx] == 2) && (iMouseTime[buttonIdx] < timeMs);
+	return (iMouseTimeSet[buttonIdx] == 2 && iMouseTime[buttonIdx][1] - iMouseTime[buttonIdx][0] < interval);
 }
 
-//-----------------------------------------------------------------------------
 int Input::getMouseButtonClicked() const {
 
 	//MouseButton
@@ -708,14 +957,10 @@ int Input::getMouseButtonClicked() const {
 	}
 
 	//Wheel UP/DOWN
-	if(iWheelDir < 0)
-	{
+	if(iWheelDir < 0) {
 		return Mouse::Wheel_Down;
-	}
-	else
-	{
-		if(iWheelDir > 0)
-		{
+	} else {
+		if(iWheelDir > 0) {
 			return Mouse::Wheel_Up;
 		}
 	}
@@ -723,9 +968,7 @@ int Input::getMouseButtonClicked() const {
 	return 0;
 }
 
-//-----------------------------------------------------------------------------
-
-bool Input::actionNowPressed(int actionId) const {
+bool Input::actionNowPressed(ControlAction actionId) const {
 	
 	for(size_t j = 0; j < ARRAY_SIZE(config.actions[actionId].key); j++) {
 		
@@ -735,7 +978,7 @@ bool Input::actionNowPressed(int actionId) const {
 		}
 		
 		if(key & Mouse::ButtonBase) {
-			if(getMouseButtonNowPressed(key)) {
+			if(ARXmenu.mode() != Mode_MainMenu && getMouseButtonNowPressed(key)) {
 				return true;
 			}
 			continue;
@@ -749,240 +992,29 @@ bool Input::actionNowPressed(int actionId) const {
 		}
 		
 		bool bCombine = true;
-		if(config.actions[actionId].key[j] & INPUT_COMBINATION_MASK) {
-			if(!isKeyPressed((config.actions[actionId].key[j] >> 16) & INPUT_KEYBOARD_MASK)) {
+		if(key & INPUT_COMBINATION_MASK) {
+			if(!isKeyPressed((key >> 16) & INPUT_KEYBOARD_MASK)) {
 				bCombine = false;
 			}
 		}
 		
-		if(isKeyPressedNowPressed(config.actions[actionId].key[j] & INPUT_KEYBOARD_MASK)) {
-			return true && bCombine;
+		if(isKeyPressedNowPressed(key & INPUT_KEYBOARD_MASK)) {
+			return bCombine;
 		}
+		
 	}
 	
 	return false;
 }
 
-//-----------------------------------------------------------------------------
 static unsigned int uiOneHandedMagicMode = 0;
 static unsigned int uiOneHandedStealth = 0;
 
-bool Input::actionPressed(int actionId) const
-{
-	switch (actionId)
-	{
-		case CONTROLS_CUST_MOUSELOOK:
-		case CONTROLS_CUST_ACTION:
-			break;
-		default:
-		{
-			if (config.misc.forceToggle)
-			{
-				for (int j = 0; j < 2; j++)
-				{
-					if (config.actions[actionId].key[j] != -1)
-					{
-						if (config.actions[actionId].key[j] & Mouse::ButtonBase)
-						{
-							if (getMouseButtonRepeat(config.actions[actionId].key[j]))
-								return true;
-						}
-						else if (config.actions[actionId].key[j] & Mouse::WheelBase)
-						{
-							if (config.actions[actionId].key[j] == Mouse::Wheel_Down)
-							{
-								if (getMouseWheelDir() < 0) return true;
-							}
-							else
-							{
-								if (getMouseWheelDir() > 0) return true;
-							}
-						}
-						else
-						{
-							bool bCombine = true;
-
-							if (config.actions[actionId].key[j] & INPUT_COMBINATION_MASK)
-							{
-								if (!isKeyPressed((config.actions[actionId].key[j] >> 16) & 0xFFFF))
-									bCombine = false;
-							}
-
-							if (isKeyPressed(config.actions[actionId].key[j] & 0xFFFF))
-							{
-								bool bQuit = false;
-
-								switch (actionId)
-								{
-									case CONTROLS_CUST_MAGICMODE:
-									{
-										if (bCombine)
-										{
-											if (!uiOneHandedMagicMode)
-											{
-												uiOneHandedMagicMode = 1;
-											}
-											else
-											{
-												if (uiOneHandedMagicMode == 2)
-												{
-													uiOneHandedMagicMode = 3;
-												}
-											}
-
-											bQuit = true;
-										}
-									}
-									break;
-									case CONTROLS_CUST_STEALTHMODE:
-									{
-										if (bCombine)
-										{
-											if (!uiOneHandedStealth)
-											{
-												uiOneHandedStealth = 1;
-											}
-											else
-											{
-												if (uiOneHandedStealth == 2)
-												{
-													uiOneHandedStealth = 3;
-												}
-											}
-
-											bQuit = true;
-										}
-									}
-									break;
-									default:
-									{
-										return true & bCombine;
-									}
-									break;
-								}
-
-								if (bQuit)
-								{
-									break;
-								}
-							}
-							else
-							{
-								switch (actionId)
-								{
-									case CONTROLS_CUST_MAGICMODE:
-									{
-										if ((!j) &&
-											    (isKeyPressed(config.actions[actionId].key[1] & 0xFFFF)))
-										{
-											continue;
-										}
-
-										if (uiOneHandedMagicMode == 1)
-										{
-											uiOneHandedMagicMode = 2;
-										}
-										else
-										{
-											if (uiOneHandedMagicMode == 3)
-											{
-												uiOneHandedMagicMode = 0;
-											}
-										}
-									}
-									break;
-									case CONTROLS_CUST_STEALTHMODE:
-									{
-										if ((!j) &&
-											    (isKeyPressed(config.actions[actionId].key[1] & 0xFFFF)))
-										{
-											continue;
-										}
-
-										if (uiOneHandedStealth == 1)
-										{
-											uiOneHandedStealth = 2;
-										}
-										else
-										{
-											if (uiOneHandedStealth == 3)
-											{
-												uiOneHandedStealth = 0;
-											}
-										}
-									}
-									break;
-								}
-							}
-						}
-					}
-				}
-
-				switch (actionId)
-				{
-					case CONTROLS_CUST_MAGICMODE:
-
-						if ((uiOneHandedMagicMode == 1) || (uiOneHandedMagicMode == 2))
-						{
-							return true;
-						}
-
-						break;
-					case CONTROLS_CUST_STEALTHMODE:
-
-						if ((uiOneHandedStealth == 1) || (uiOneHandedStealth == 2))
-						{
-							return true;
-						}
-
-						break;
-				}
-			}
-			else
-			{
-				for (int j = 0; j < 2; j++)
-				{
-					if (config.actions[actionId].key[j] != -1)
-					{
-						if (config.actions[actionId].key[j] & Mouse::ButtonBase)
-						{
-							if (getMouseButtonRepeat(config.actions[actionId].key[j]))
-								return true;
-						}
-						else if (config.actions[actionId].key[j] & Mouse::WheelBase)
-						{
-							if (config.actions[actionId].key[j] == Mouse::Wheel_Down)
-							{
-								if (getMouseWheelDir() < 0) return true;
-							}
-							else
-							{
-								if (getMouseWheelDir() > 0) return true;
-							}
-						}
-						else
-						{
-							bool bCombine = true;
-
-							if (config.actions[actionId].key[j] & INPUT_COMBINATION_MASK)
-							{
-								if (!isKeyPressed((config.actions[actionId].key[j] >> 16) & 0xFFFF))
-									bCombine = false;
-							}
-
-							if (isKeyPressed(config.actions[actionId].key[j] & 0xFFFF))
-								return true & bCombine;
-						}
-					}
-				}
-			}
-		}
+bool Input::actionPressed(ControlAction actionId) const {
+	
+	if(actionId == CONTROLS_CUST_USE || actionId == CONTROLS_CUST_ACTION) {
+		return false;
 	}
-
-	return false;
-}
-
-bool Input::actionNowReleased(int actionId) const {
 	
 	for(size_t j = 0; j < ARRAY_SIZE(config.actions[actionId].key); j++) {
 		
@@ -992,7 +1024,102 @@ bool Input::actionNowReleased(int actionId) const {
 		}
 		
 		if(key & Mouse::ButtonBase) {
-			if(getMouseButtonNowUnPressed(key)) {
+			if(ARXmenu.mode() != Mode_MainMenu && getMouseButtonRepeat(key)) {
+				return true;
+			}
+			continue;
+		}
+		
+		if(key & Mouse::WheelBase) {
+			if((key == Mouse::Wheel_Down) ? (getMouseWheelDir() < 0) : (getMouseWheelDir() > 0)) {
+				return true;
+			}
+			continue;
+		}
+		
+		bool bCombine = true;
+		if(key & INPUT_COMBINATION_MASK) {
+			if(!isKeyPressed((key >> 16) & INPUT_KEYBOARD_MASK)) {
+				bCombine = false;
+			}
+		}
+		
+		if(isKeyPressed(key & INPUT_KEYBOARD_MASK)) {
+			
+			if(config.misc.forceToggle && actionId == CONTROLS_CUST_MAGICMODE) {
+				if(bCombine) {
+					if(uiOneHandedMagicMode == 0) {
+						uiOneHandedMagicMode = 1;
+					} else if(uiOneHandedMagicMode == 2) {
+						uiOneHandedMagicMode = 3;
+					}
+					break;
+				}
+			} else if(config.misc.forceToggle && actionId == CONTROLS_CUST_STEALTHMODE) {
+				if(bCombine) {
+					if(uiOneHandedStealth == 0) {
+						uiOneHandedStealth = 1;
+					} else if(uiOneHandedStealth == 2) {
+						uiOneHandedStealth = 3;
+					}
+					break;
+				}
+			} else {
+				return bCombine;
+			}
+			
+		} else if(config.misc.forceToggle) {
+			if(actionId == CONTROLS_CUST_MAGICMODE) {
+				if(!j && isKeyPressed(config.actions[actionId].key[1] & INPUT_KEYBOARD_MASK)) {
+					continue;
+				}
+				if(uiOneHandedMagicMode == 1) {
+					uiOneHandedMagicMode = 2;
+				} else if(uiOneHandedMagicMode == 3) {
+					uiOneHandedMagicMode = 0;
+				}
+			} else if(actionId == CONTROLS_CUST_STEALTHMODE) {
+				if(!j && isKeyPressed(config.actions[actionId].key[1] & INPUT_KEYBOARD_MASK)) {
+					continue;
+				}
+				if(uiOneHandedStealth == 1) {
+					uiOneHandedStealth = 2;
+				} else if(uiOneHandedStealth == 3) {
+					uiOneHandedStealth = 0;
+				}
+			}
+		}
+		
+	}
+	
+	if(config.misc.forceToggle) {
+		
+		if(actionId == CONTROLS_CUST_MAGICMODE) {
+			if(uiOneHandedMagicMode == 1 || uiOneHandedMagicMode == 2) {
+				return true;
+			}
+		} else if(actionId == CONTROLS_CUST_STEALTHMODE) {
+			if(uiOneHandedStealth == 1 || uiOneHandedStealth == 2) {
+				return true;
+			}
+		}
+		
+	}
+	
+	return false;
+}
+
+bool Input::actionNowReleased(ControlAction actionId) const {
+	
+	for(size_t j = 0; j < ARRAY_SIZE(config.actions[actionId].key); j++) {
+		
+		InputKeyId key = config.actions[actionId].key[j];
+		if(key == -1) {
+			continue;
+		}
+		
+		if(key & Mouse::ButtonBase) {
+			if(ARXmenu.mode() != Mode_MainMenu && getMouseButtonNowUnPressed(key)) {
 				return true;
 			}
 			continue;
@@ -1003,15 +1130,16 @@ bool Input::actionNowReleased(int actionId) const {
 		}
 		
 		bool bCombine = true;
-		if(config.actions[actionId].key[j] & INPUT_COMBINATION_MASK) {
-			if(!isKeyPressed((config.actions[actionId].key[j] >> 16) & INPUT_KEYBOARD_MASK)) {
+		if(key & INPUT_COMBINATION_MASK) {
+			if(!isKeyPressed((key >> 16) & INPUT_KEYBOARD_MASK)) {
 				bCombine = false;
 			}
 		}
 		
-		if(isKeyPressedNowUnPressed(config.actions[actionId].key[j] & INPUT_KEYBOARD_MASK)) {
-			return true && bCombine;
+		if(isKeyPressedNowUnPressed(key & INPUT_KEYBOARD_MASK)) {
+			return bCombine;
 		}
+		
 	}
 	
 	return false;

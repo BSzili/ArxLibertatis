@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,20 +25,66 @@
 
 #include <string>
 
+#include "platform/Platform.h"
+
 namespace platform {
 
-//! @return the name and version of the runtime host operating system
+/*!
+ * \brief Get the name and version of the runtime host operating system
+ *
+ * On POSIX systems this matches the sysname and release members of the uname output.
+ *
+ * \return the os name or an empty string if it could not be determined.
+ */
 std::string getOSName();
 
-//! @return a string identifying the runtime host operating system's architecture
+/*!
+ * \brief Get the processor architecture of the runtime host
+ *
+ * This may be different from the process architecture on multilib systems.
+ *
+ * On Windows this is either x86_64 or x86.
+ * On POSIX systems this matches the machine member of the uname output.
+ *
+ * \return the CPU architecture or an empty string if it could not be determined.
+ */
 std::string getOSArchitecture();
 
 /*!
- * Get the distribution name and version of the runtime host operating system.
+ * \brief Get the distribution name and version of the runtime host operating system
  *
- * @return the distribution name and version or an empty string if not applicable.
+ * \return the distribution name and version or an empty string if not applicable.
  */
 std::string getOSDistribution();
+
+/*!
+ * \brief Get the name and version of the system C library
+ */
+std::string getCLibraryVersion();
+
+/*!
+ * \brief Get the name and version of the system threading
+ */
+std::string getThreadLibraryVersion();
+
+/*!
+ * \brief Get the branding name of the CPU in the system
+ *
+ * \return the cpu branding name or an empty string if it could not be determined.
+ */
+std::string getCPUName();
+
+struct MemoryInfo {
+	u64 total;
+	u64 available;
+};
+
+/*!
+ * \brief Get the total and available physical memory size
+ *
+ * \return the total and avaialbe memory size or 0 if it could not be determined.
+ */
+MemoryInfo getMemoryInfo();
 
 } // namespace platform
 

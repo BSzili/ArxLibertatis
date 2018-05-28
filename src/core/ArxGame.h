@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,76 +44,93 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_CORE_ARXGAME_H
 #define ARX_CORE_ARXGAME_H
 
-#include <string>
-
 #include "core/Application.h"
+#include "core/SaveGame.h"
+
+#include "graphics/Renderer.h"
+
 #include "window/Window.h"
-#include "window/RenderWindow.h"
 
-class Font;
-
-class ArxGame : public Application, public Window::Listener, public RenderWindow::RendererListener {
+class ArxGame : public Application, public Window::Listener, public Renderer::Listener {
 	
 protected:
 	
-	virtual bool Initialize();
-	virtual bool InitWindow();
-	virtual bool InitInput();
-	virtual bool InitSound();
-	bool InitGameData();
-	bool AddPaks();
+	virtual bool initialize();
+	bool initConfig();
+	bool initWindow();
+	bool initInput();
+	bool initSound();
+	bool initGameData();
+	bool initGame();
+	bool addPaks();
 	
-	void Render();
-	void FrameMove();
-	void ManageKeyMouse();
-	bool ManageEditorControls();
-	void ManagePlayerControls();
-	void DrawAllInterface();
-	void DrawAllInterfaceFinish();
-	void GoFor2DFX();
-	bool BeforeRun();
+	virtual void shutdown();
+	void shutdownGame();
 	
-	void Render3DEnvironment();
+	void doFrame();
+	void render();
+
+	void manageKeyMouse();
+	void manageEntityDescription();
+	void manageEditorControls();
+	void managePlayerControls();
+	void updateAllInterface();
 	
 public:
 	
 	ArxGame();
 	virtual ~ArxGame();
 	
-	bool Create();
-	virtual void Run();
-
-	bool InitDeviceObjects();
-	bool FinalCleanup();
-	virtual void Cleanup3DEnvironment();
-	
-	/*!
-	 * Writes text to the window
-	 * @param x The x coordinate for the text
-	 * @param y The y coordinate for the text
-	 * @param str The string of text to be written
-	 */
-	virtual void OutputText(int x, int y, const std::string & str);
-	virtual void OutputTextGrid(float x, float y, const std::string &text, const Color &color);
+	virtual void run();
 	
 private:
+	void updateTime();
+	void updateInput();
+	
+	// Camera stuff
+	void updateFirstPersonCamera();
+	void speechControlledCinematic();
+	void handlePlayerDeath();
+	void updateActiveCamera();
+	
+	void updateLevel();
+	void renderLevel();
+	
 	
 	virtual void onWindowGotFocus(const Window & window);
 	virtual void onWindowLostFocus(const Window & window);
 	virtual void onResizeWindow(const Window & window);
-	virtual void onPaintWindow(const Window & window);
 	virtual void onDestroyWindow(const Window & window);
 	virtual void onToggleFullscreen(const Window & window);
+	virtual void onDroppedFile(const Window & window, const fs::path & path);
 	
-	bool wasResized;
+	bool m_wasResized;
 	
-	void onRendererInit(RenderWindow &);
-	void onRendererShutdown(RenderWindow &);
+	void onRendererInit(Renderer & renderer);
+	void onRendererShutdown(Renderer & renderer);
 	
 	bool initWindow(RenderWindow * window);
 	
-	void setFullscreen(bool fullscreen);
+	void setWindowSize(bool fullscreen);
+	
+	bool m_gameInitialized;
 };
+
+enum InfoPanels {
+	InfoPanelNone,
+	InfoPanelFramerate,
+	InfoPanelFramerateGraph,
+	InfoPanelDebug,
+	InfoPanelDebugToggles,
+	InfoPanelGuiDebug,
+	InfoPanelEnumSize
+};
+
+extern InfoPanels g_debugInfo;
+
+extern TextureContainer * enviro;
+
+extern SavegameHandle LOADQUEST_SLOT;
 
 #endif // ARX_CORE_ARXGAME_H
 

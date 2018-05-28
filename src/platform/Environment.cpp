@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -21,28 +21,35 @@
 
 #include <sstream>
 #include <algorithm>
-#include <vector>
 
-#include <stdlib.h> // needed for setenv, realpath and more
+#include <stdlib.h> // needed for realpath and more
 
 #include <boost/scoped_array.hpp>
 
 #include "Configure.h"
 
-#ifdef ARX_HAVE_WINAPI
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
 #include <windows.h>
 #include <shlobj.h>
+#include <wchar.h>
+#include <shellapi.h>
+#include <objbase.h>
 #endif
 
-#ifdef ARX_HAVE_WORDEXP_H
+#if ARX_HAVE_WORDEXP
 #include <wordexp.h>
 #endif
 
-#ifdef ARX_HAVE_READLINK
+#if ARX_HAVE_READLINK
 #include <unistd.h>
 #endif
 
-#if ARX_PLATFORM == ARX_PLATFORM_MACOSX
+#if ARX_HAVE_FCNTL
+#include <fcntl.h>
+#include <errno.h>
+#endif
+
+#if ARX_PLATFORM == ARX_PLATFORM_MACOS
 #include <mach-o/dyld.h>
 #include <sys/param.h>
 #endif
@@ -51,18 +58,31 @@
 #include <proto/dos.h>
 #endif
 
-#ifdef ARX_HAVE_SYSCTL
+#if ARX_HAVE_SYSCTL
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #endif
 
-#include "platform/Platform.h"
+#include <boost/tokenizer.hpp>
+#include <boost/foreach.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/range/size.hpp>
+
+#include "io/fs/PathConstants.h"
+#include "io/fs/FilePath.h"
+#include "io/fs/Filesystem.h"
+
+#include "platform/Lock.h"
+#include "platform/WindowsUtils.h"
+
 #include "util/String.h"
 
 
+namespace platform {
+
 std::string expandEnvironmentVariables(const std::string & in) {
 	
-#if defined(ARX_HAVE_WORDEXP_H)
+	#if ARX_HAVE_WORDEXP
 	
 	wordexp_t p;
 	
@@ -72,74 +92,74 @@ std::string expandEnvironmentVariables(const std::string & in) {
 	
 	std::ostringstream oss;
 	for(size_t i = 0; i < p.we_wordc; i++) {
-		
 		oss << p.we_wordv[i];
-		
-		if(i != (p.we_wordc-1))
+		if(i != p.we_wordc - 1) {
 			oss << " ";
+		}
 	}
 	
 	wordfree(&p);
 	
 	return oss.str();
 	
-#elif defined(ARX_HAVE_WINAPI)
+	#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 	
-	size_t length = std::max<size_t>(in.length() * 2, 1024);
-	boost::scoped_array<char> buffer(new char[length]);
+	platform::WideString win(in);
 	
-	DWORD ret = ExpandEnvironmentStringsA(in.c_str(), buffer.get(), length);
+	platform::WideString out;
+	out.allocate(out.capacity());
 	
-	if(ret > length) {
-		length = ret;
-		buffer.reset(new char[length]);
-		ret = ExpandEnvironmentStringsA(in.c_str(), buffer.get(), length);
+	DWORD length = ExpandEnvironmentStringsW(win, out.data(), out.size());
+	if(length > out.size()) {
+		out.allocate(length);
+		length = ExpandEnvironmentStringsW(win, out.data(), out.size());
 	}
 	
-	if(ret == 0 || ret > length) {
+	if(length == 0 || length > out.size()) {
 		return in;
 	}
 	
-	return std::string(buffer.get());
+	out.resize(length - 1);
 	
-#else
-# warning "Environment variable expansion not supported on this system."
+	return out.toUTF8();
+	
+	#else
+	# warning "Environment variable expansion not supported on this system."
 	return in;
-#endif
+	#endif
 }
 
-#ifdef ARX_HAVE_WINAPI
-static bool getRegistryValue(HKEY hkey, const std::string & name, std::string & result) {
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+static bool getRegistryValue(HKEY hkey, const std::string & name, std::string & result,
+                             REGSAM flags = 0) {
 	
-	boost::scoped_array<char> buffer(NULL);
-
-	DWORD type = 0;
-	DWORD length = 0;
 	HKEY handle = 0;
-
-	long ret = 0;
-
-	ret = RegOpenKeyEx(hkey, "Software\\ArxLibertatis\\", 0, KEY_QUERY_VALUE, &handle);
-
-	if (ret == ERROR_SUCCESS)
-	{
-		// find size of value
-		ret = RegQueryValueEx(handle, name.c_str(), NULL, NULL, NULL, &length);
-
-		if (ret == ERROR_SUCCESS && length > 0)
-		{
-			// allocate buffer and read in value
-			buffer.reset(new char[length + 1]);
-			ret = RegQueryValueEx(handle, name.c_str(), NULL, &type, LPBYTE(buffer.get()), &length);
-			// ensure null termination
-			buffer.get()[length] = 0;
-		}
-
-		RegCloseKey(handle);
+	long ret = RegOpenKeyEx(hkey, L"Software\\ArxLibertatis\\", 0,
+	                        KEY_QUERY_VALUE | flags, &handle);
+	if(ret != ERROR_SUCCESS) {
+		return false;
 	}
-
-	if(ret == ERROR_SUCCESS) {
-		result = buffer.get();
+	
+	platform::WideString wname(name);
+	
+	platform::WideString buffer;
+	buffer.allocate(buffer.capacity());
+	
+	// find size of value
+	DWORD type = 0;
+	DWORD length = buffer.size() * sizeof(WCHAR);
+	ret = RegQueryValueExW(handle, wname, NULL, &type, LPBYTE(buffer.data()), &length);
+	if(ret == ERROR_MORE_DATA && length > 0) {
+		buffer.resize(length / sizeof(WCHAR) + 1);
+		ret = RegQueryValueExW(handle, wname, NULL, &type, LPBYTE(buffer.data()), &length);
+	}
+	buffer.resize(length / sizeof(WCHAR));
+	
+	RegCloseKey(handle);
+	
+	if(ret == ERROR_SUCCESS && type == REG_SZ) {
+		buffer.compact();
+		result = buffer.toUTF8();
 		return true;
 	} else {
 		return false;
@@ -149,13 +169,25 @@ static bool getRegistryValue(HKEY hkey, const std::string & name, std::string & 
 
 bool getSystemConfiguration(const std::string & name, std::string & result) {
 	
-#ifdef ARX_HAVE_WINAPI
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	
+	#if defined(_WIN64)
+	REGSAM foreign_registry = KEY_WOW64_32KEY;
+	#else
+	REGSAM foreign_registry = KEY_WOW64_64KEY;
+	#endif
 	
 	if(getRegistryValue(HKEY_CURRENT_USER, name, result)) {
 		return true;
 	}
+	if(getRegistryValue(HKEY_CURRENT_USER, name, result, foreign_registry)) {
+		return true;
+	}
 	
 	if(getRegistryValue(HKEY_LOCAL_MACHINE, name, result)) {
+		return true;
+	}
+	if(getRegistryValue(HKEY_LOCAL_MACHINE, name, result, foreign_registry)) {
 		return true;
 	}
 	
@@ -166,85 +198,82 @@ bool getSystemConfiguration(const std::string & name, std::string & result) {
 	return false;
 }
 
-#if ARX_PLATFORM == ARX_PLATFORM_MACOSX
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
 
-void defineSystemDirectories(const char * argv0) {
-	ARX_UNUSED(argv0);
-}
-
-#elif defined(ARX_HAVE_WINAPI)
-
-std::string ws2s(const std::basic_string<WCHAR> & s) {
-	size_t slength = (int)s.length() + 1;
-	size_t len = WideCharToMultiByte(CP_ACP, 0, s.c_str(), slength, 0, 0, 0, 0); 
-	std::string r(len, '\0');
-	WideCharToMultiByte(CP_ACP, 0, s.c_str(), slength, &r[0], len, 0, 0); 
-	return r;
-}
-
-// Those two values are from ShlObj.h, but requires _WIN32_WINNT >= _WIN32_WINNT_VISTA
-static const int kfFlagCreate  = 0x00008000; // KF_FLAG_CREATE
-static const int kfFlagNoAlias = 0x00001000; // KF_FLAG_NO_ALIAS
-
-// Obtain the right savegame paths for the platform
-// XP is "%USERPROFILE%\My Documents\My Games"
-// Vista and up : "%USERPROFILE%\Saved Games"
-void defineSystemDirectories(const char * argv0) {
+std::vector<fs::path> getSystemPaths(SystemPathId id) {
 	
-	ARX_UNUSED(argv0);
+	std::vector<fs::path> result;
 	
-	std::string strPath;
-	DWORD winver = GetVersion();
+	if(id != UserDirPrefixes) {
+		return result;
+	}
 	
 	// Vista and up
-	if((DWORD)(LOBYTE(LOWORD(winver))) >= 6) {
+	{
 		// Don't hardlink with SHGetKnownFolderPath to allow the game to start on XP too!
-		typedef HRESULT (WINAPI * PSHGetKnownFolderPath)(const GUID &rfid, DWORD dwFlags,
-		                                                 HANDLE hToken, PWSTR* ppszPath); 
+		typedef HRESULT (WINAPI * PSHGetKnownFolderPath)(const GUID & rfid, DWORD dwFlags,
+		                                                 HANDLE hToken, PWSTR * ppszPath);
 		
-		CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+		const int kfFlagCreate  = 0x00008000; // KF_FLAG_CREATE
+		const int kfFlagNoAlias = 0x00001000; // KF_FLAG_NO_ALIAS
+		const GUID FOLDERID_SavedGames = {
+			0x4C5C32FF, 0xBB9D, 0x43b0, { 0xB5, 0xB4, 0x2D, 0x72, 0xE5, 0x4E, 0xAA, 0xA4 }
+		};
 		
-		PSHGetKnownFolderPath GetKnownFolderPath = (PSHGetKnownFolderPath)GetProcAddress(GetModuleHandleA("shell32.dll"), "SHGetKnownFolderPath");
-		const GUID FOLDERID_SavedGames = {0x4C5C32FF, 0xBB9D, 0x43b0, {0xB5, 0xB4, 0x2D, 0x72, 0xE5, 0x4E, 0xAA, 0xA4}};
+		CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 		
-		LPWSTR wszPath = NULL;
-		HRESULT hr = GetKnownFolderPath(FOLDERID_SavedGames, kfFlagCreate | kfFlagNoAlias, NULL, &wszPath);
-		
-		if(SUCCEEDED(hr)) {
-			strPath = ws2s(wszPath);
+		HMODULE dll = GetModuleHandleW(L"shell32.dll");
+		if(dll) {
+			
+			FARPROC proc = GetProcAddress(dll, "SHGetKnownFolderPath");
+			if(proc) {
+				PSHGetKnownFolderPath GetKnownFolderPath = (PSHGetKnownFolderPath)proc;
+				
+				LPWSTR savedgames = NULL;
+				HRESULT hr = GetKnownFolderPath(FOLDERID_SavedGames, kfFlagCreate | kfFlagNoAlias,
+				                                NULL, &savedgames);
+				if(SUCCEEDED(hr)) {
+					result.push_back(platform::WideString::toUTF8(savedgames));
+				}
+				CoTaskMemFree(savedgames);
+				
+			}
+			
 		}
 		
-		CoTaskMemFree(wszPath);
 		CoUninitialize();
-	} else if((DWORD)(LOBYTE(LOWORD(winver))) == 5) { // XP
-		CHAR szPath[MAX_PATH];
-		HRESULT hr = SHGetFolderPathA(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL,
-		                              SHGFP_TYPE_CURRENT, szPath);
 		
-		if(SUCCEEDED(hr)) {
-			strPath = szPath; 
-			strPath += "\\My Games";
-		}
-	} else {
-		arx_assert_msg(false, "Unsupported windows version (below WinXP)");
 	}
 	
-	if(!strPath.empty()) {
-		SetEnvironmentVariable("FOLDERID_SavedGames", strPath.c_str());
+	// XP
+	{
+		WCHAR mydocuments[MAX_PATH];
+		HRESULT hr = SHGetFolderPathW(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL,
+		                              SHGFP_TYPE_CURRENT, mydocuments);
+		if(SUCCEEDED(hr)) {
+			result.push_back(fs::path(platform::WideString::toUTF8(mydocuments)) / "My Games");
+		}
 	}
+	
+	return result;
 }
 
 #else
 
-static const char * executablePath = NULL;
-
-void defineSystemDirectories(const char * argv0) {
-	executablePath = argv0;
+std::vector<fs::path> getSystemPaths(SystemPathId id) {
+	ARX_UNUSED(id);
+	return std::vector<fs::path>();
 }
 
 #endif
 
-#if defined(ARX_HAVE_READLINK) && ARX_PLATFORM != ARX_PLATFORM_MACOSX
+static const char * executablePath = NULL;
+
+void initializeEnvironment(const char * argv0) {
+	executablePath = argv0;
+}
+
+#if ARX_HAVE_READLINK && ARX_PLATFORM != ARX_PLATFORM_MACOS
 static bool try_readlink(std::vector<char> & buffer, const char * path) {
 	
 	int ret = readlink(path, &buffer.front(), buffer.size());
@@ -262,9 +291,9 @@ static bool try_readlink(std::vector<char> & buffer, const char * path) {
 }
 #endif
 
-std::string getExecutablePath() {
+fs::path getExecutablePath() {
 	
-#if ARX_PLATFORM == ARX_PLATFORM_MACOSX
+#if ARX_PLATFORM == ARX_PLATFORM_MACOS
 	
 	uint32_t bufsize = 0;
 	
@@ -280,42 +309,31 @@ std::string getExecutablePath() {
 		}
 	}
 	
-#elif defined(ARX_HAVE_WINAPI)
+#elif ARX_PLATFORM == ARX_PLATFORM_WIN32
 	
-	std::vector<char> buffer;
-	buffer.resize(MAX_PATH);
-	if(GetModuleFileNameA(NULL, &*buffer.begin(), buffer.size()) > 0) {
-		return std::string(buffer.begin(), buffer.end());
+	platform::WideString buffer;
+	buffer.allocate(buffer.capacity());
+	
+	while(true) {
+		DWORD size = GetModuleFileNameW(NULL, buffer.data(), buffer.size());
+		if(size < buffer.size()) {
+			buffer.resize(size);
+			return buffer.toUTF8();
+		}
+		buffer.allocate(buffer.size() * 2);
 	}
-	
+
 #elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
 
 	char buffer[1024];
 	if (NameFromLock(GetProgramDir(), (STRPTR)buffer, sizeof(buffer)) && AddPart((STRPTR)buffer, (STRPTR)"BSzili", sizeof(buffer))) {
 		return std::string(buffer);
 	}
-	
+
 #else
 	
-	// Try to get the path from OS-specific procfs entries
-	#ifdef ARX_HAVE_READLINK
-	std::vector<char> buffer(1024);
-	// Linux
-	if(try_readlink(buffer, "/proc/self/exe")) {
-		return std::string(buffer.begin(), buffer.end());
-	}
-	// BSD
-	if(try_readlink(buffer, "/proc/curproc/file")) {
-		return std::string(buffer.begin(), buffer.end());
-	}
-	// Solaris
-	if(try_readlink(buffer, "/proc/self/path/a.out")) {
-		return std::string(buffer.begin(), buffer.end());
-	}
-	#endif
-	
 	// FreeBSD
-	#if defined(ARX_HAVE_SYSCTL) && defined(CTL_KERN) && defined(KERN_PROC) \
+	#if ARX_HAVE_SYSCTL && defined(CTL_KERN) && defined(KERN_PROC) \
 	    && defined(KERN_PROC_PATHNAME) && ARX_PLATFORM == ARX_PLATFORM_BSD \
 	    && defined(PATH_MAX)
 	int mib[4];
@@ -332,12 +350,35 @@ std::string getExecutablePath() {
 	#endif
 	
 	// Solaris
-	#ifdef ARX_HAVE_GETEXECNAME
+	#if ARX_HAVE_GETEXECNAME
 	const char * execname = getexecname();
 	if(execname != NULL) {
 		return execname;
 	}
 	#endif
+	
+	// Try to get the path from OS-specific procfs entries
+	#if ARX_HAVE_READLINK
+	std::vector<char> buffer(1024);
+	// Linux
+	if(try_readlink(buffer, "/proc/self/exe")) {
+		return fs::path(&*buffer.begin(), &*buffer.end());
+	}
+	// FreeBSD, DragonFly BSD
+	if(try_readlink(buffer, "/proc/curproc/file")) {
+		return fs::path(&*buffer.begin(), &*buffer.end());
+	}
+	// NetBSD
+	if(try_readlink(buffer, "/proc/curproc/exe")) {
+		return fs::path(&*buffer.begin(), &*buffer.end());
+	}
+	// Solaris
+	if(try_readlink(buffer, "/proc/self/path/a.out")) {
+		return fs::path(&*buffer.begin(), &*buffer.end());
+	}
+	#endif
+	
+#endif
 	
 	// Fall back to argv[0] if possible
 	if(executablePath != NULL) {
@@ -347,9 +388,171 @@ std::string getExecutablePath() {
 		}
 	}
 	
-#endif
-	
 	// Give up - we couldn't determine the exe path.
-	return std::string();
+	return fs::path();
 }
 
+std::string getCommandName() {
+	
+	// Prefer the name passed on the command-line to the actual executable name
+	fs::path path = executablePath ? fs::path(executablePath) : getExecutablePath();
+	
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	if(path.ext() == ".exe") {
+		return path.basename();
+	}
+	#endif
+	
+	return path.filename();
+}
+
+fs::path getHelperExecutable(const std::string & name) {
+	
+	fs::path exe = getExecutablePath();
+	if(!exe.empty()) {
+		if(exe.is_relative()) {
+			exe = fs::current_path() / exe;
+		}
+		exe = exe.parent();
+		fs::path helper = exe / name;
+		if(fs::is_regular_file(helper)) {
+			return helper;
+		}
+		#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+		helper.append(".exe");
+		if(fs::is_regular_file(helper)) {
+			return helper;
+		}
+		#endif
+	}
+	
+	if(fs::libexec_dir) {
+		std::string decoded = platform::expandEnvironmentVariables(fs::libexec_dir);
+		typedef boost::tokenizer< boost::char_separator<char> >  tokenizer;
+		boost::char_separator<char> sep(platform::env_list_seperators);
+		tokenizer tokens(decoded, sep);
+		BOOST_FOREACH(fs::path libexec_dir, tokens) {
+			fs::path helper = libexec_dir / name;
+			if(helper.is_relative()) {
+				helper = exe / helper;
+			}
+			if(fs::is_regular_file(helper)) {
+				return helper;
+			}
+			#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+			helper.append(".exe");
+			if(fs::is_regular_file(helper)) {
+				return helper;
+			}
+			#endif
+		}
+	}
+	
+	return fs::path(name);
+}
+
+bool isFileDescriptorDisabled(int fd) {
+	
+	ARX_UNUSED(fd);
+	
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	
+	DWORD names[] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+	if(fd < 0 || fd >= int(boost::size(names))) {
+		return false;
+	}
+	
+	HANDLE h = GetStdHandle(names[fd]);
+	if(h == INVALID_HANDLE_VALUE || h == NULL) {
+		return true; // Not a valid handle
+	}
+	
+	// Redirected to NUL
+	BY_HANDLE_FILE_INFORMATION fi;
+	return (!GetFileInformationByHandle(h, &fi) && GetLastError() == ERROR_INVALID_FUNCTION);
+	
+	#else
+	
+	#if ARX_HAVE_FCNTL && defined(F_GETFD)
+	if(fcntl(fd, F_GETFD) == -1 && errno == EBADF) {
+		return false; // Not a valid file descriptor
+	}
+	#endif
+	
+	#if defined(MAXPATHLEN)
+	char path[MAXPATHLEN];
+	#else
+	char path[64];
+	#endif
+	
+	bool valid = false;
+	#if ARX_HAVE_FCNTL && defined(F_GETPATH) && defined(MAXPATHLEN)
+	// macOS
+	valid = (fcntl(fd, F_GETPATH, path) != -1 && path[9] == '\0');
+	#elif ARX_HAVE_READLINK
+	// Linux
+	const char * names[] = { "/proc/self/fd/0", "/proc/self/fd/1", "/proc/self/fd/2" };
+	if(fd >= 0 && fd < int(boost::size(names))) {
+		valid = (readlink(names[fd], path, boost::size(path)) == 9);
+	}
+	#endif
+	
+	// Redirected to /dev/null
+	return (valid && !memcmp(path, "/dev/null", 9));
+	
+	#endif
+	
+}
+
+static Lock g_environmentLock;
+
+bool hasEnvironmentVariable(const char * name) {
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	return GetEnvironmentVariable(platform::WideString(name), NULL, 0) != 0;
+	#else
+	return std::getenv(name) != NULL;
+	#endif
+}
+
+void setEnvironmentVariable(const char * name, const char * value) {
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	SetEnvironmentVariableW(platform::WideString(name), platform::WideString(value));
+	#elif ARX_HAVE_SETENV
+	setenv(name, value, 1);
+	#endif
+}
+
+void unsetEnvironmentVariable(const char * name) {
+	#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+	SetEnvironmentVariableW(platform::WideString(name), NULL);
+	#elif ARX_HAVE_UNSETENV
+	unsetenv(name);
+	#endif
+}
+
+void EnvironmentLock::lock() {
+	g_environmentLock.lock();
+	for(size_t i = 0; i < m_count; i++) {
+		if(m_overrides[i].name) {
+			if(hasEnvironmentVariable(m_overrides[i].name)) {
+				// Don't override variables already set by the user
+				m_overrides[i].name = NULL;
+			} else if(m_overrides[i].value) {
+				setEnvironmentVariable(m_overrides[i].name, m_overrides[i].value);
+			} else {
+				unsetEnvironmentVariable(m_overrides[i].name);
+			}
+		}
+	}
+}
+
+void EnvironmentLock::unlock() {
+	for(size_t i = 0; i < m_count; i++) {
+		if(m_overrides[i].name) {
+			unsetEnvironmentVariable(m_overrides[i].name);
+		}
+	}
+	g_environmentLock.unlock();
+}
+
+} // namespace platform

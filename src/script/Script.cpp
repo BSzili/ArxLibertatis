@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,8 +51,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <sstream>
 #include <cstdio>
 #include <algorithm>
+#include <limits>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/foreach.hpp>
 
 #include "ai/Paths.h"
 
@@ -77,33 +79,169 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "io/resource/PakReader.h"
 #include "io/log/Logger.h"
 
+#include "platform/profiler/Profiler.h"
+
 #include "scene/Scene.h"
 #include "scene/Interactive.h"
 
 #include "script/ScriptEvent.h"
+#include "script/ScriptUtils.h"
 
-using std::sprintf;
-using std::min;
-using std::max;
-using std::transform;
-using std::string;
-
-#define MAX_SSEPARAMS 5
 
 extern long lChangeWeapon;
 extern Entity * pIOChangeWeapon;
 
 Entity * LASTSPAWNED = NULL;
-Entity * EVENT_SENDER = NULL;
-SCRIPT_VAR * svar = NULL;
+SCRIPT_VARIABLES svar;
 
-static char SSEPARAMS[MAX_SSEPARAMS][64];
 long FORBID_SCRIPT_IO_CREATION = 0;
-long NB_GLOBALS = 0;
 SCR_TIMER * scr_timer = NULL;
 long ActiveTimers = 0;
 
-long FindScriptPos(const EERIE_SCRIPT * es, const string & str) {
+bool isLocalVariable(const std::string & name) {
+	
+	arx_assert(!name.empty());
+	
+	switch(name[0]) {
+		case '\xA3': return true;
+		case '\xA7': return true;
+		case '@':    return true;
+		default:     return false;
+	}
+	
+}
+
+std::ostream & operator<<(std::ostream & os, const SCRIPT_VAR & var) {
+	
+	arx_assert(!var.name.empty());
+	
+	os << var.name << " = ";
+	
+	switch(var.name[0]) {
+		
+		case '$':
+		case '\xA3': {
+			os << '\"' << var.text << '\"';
+			break;
+		}
+		
+		case '#':
+		case '\xA7': {
+			os << var.ival;
+			break;
+		}
+		
+		case '&':
+		case '@': {
+			os << var.fval;
+			break;
+		}
+		
+		default: {
+			os << "(unknown variable type)" << var;
+			break;
+		}
+		
+	}
+	
+	return os;
+}
+
+ScriptEventName ScriptEventName::parse(const std::string & name) {
+	
+	for(size_t i = 1; i < SM_MAXCMD; i++) {
+		const std::string & event = AS_EVENT[i].name;
+		if(event.length() > 3 && event.compare(3, event.length() - 3, name) == 0) {
+			return ScriptEventName(ScriptMessage(i));
+		}
+	}
+	
+	return ScriptEventName(name);
+}
+
+std::string ScriptEventName::toString() const {
+	
+	if(!getName().empty()) {
+		arx_assert(getId() == SM_NULL);
+		return getName();
+	}
+	
+	arx_assert(getId() < SM_MAXCMD && AS_EVENT[getId()].name.length() > 3);
+	return AS_EVENT[getId()].name.substr(3);
+}
+
+DisabledEvents ScriptEventName::toDisabledEventsMask() const {
+	
+	switch(getId()) {
+		case SM_COLLIDE_NPC: return DISABLE_COLLIDE_NPC;
+		case SM_CHAT: return DISABLE_CHAT;
+		case SM_HIT: return DISABLE_HIT;
+		case SM_INVENTORY2_OPEN: return DISABLE_INVENTORY2_OPEN;
+		case SM_HEAR: return DISABLE_HEAR;
+		case SM_UNDETECTPLAYER: return DISABLE_DETECT;
+		case SM_DETECTPLAYER: return DISABLE_DETECT;
+		case SM_AGGRESSION: return DISABLE_AGGRESSION;
+		case SM_MAIN: return DISABLE_MAIN;
+		case SM_CURSORMODE: return DISABLE_CURSORMODE;
+		case SM_EXPLORATIONMODE: return DISABLE_EXPLORATIONMODE;
+		default: return 0;
+	}
+	
+}
+
+std::ostream & operator<<(std::ostream & os, const ScriptEventName & event) {
+	
+	if(event == SM_EXECUTELINE) {
+		return os << "executeline";
+	} else if(event == SM_DUMMY)  {
+		return os << "dummy event";
+	} else if(!event.getName().empty()) {
+		return os << "on " << event.getName() << " event";
+	} else {
+		arx_assert(event.getId() < SM_MAXCMD && AS_EVENT[event.getId()].name.length() > 3);
+		return os << AS_EVENT[event.getId()].name << " event";
+	}
+	
+}
+
+ScriptParameters ScriptParameters::parse(const std::string & str) {
+	
+	ScriptParameters result;
+	
+	if(str.empty()) {
+		return result;
+	}
+	
+	for(size_t start = 0; start < str.length(); ) {
+		
+		size_t end = str.find(' ', start);
+		if(end == std::string::npos) {
+			end = str.length();
+		}
+		
+		result.push_back(str.substr(start, end - start));
+		
+		start = end + 1;
+	}
+	
+	return result;
+}
+
+std::ostream & operator<<(std::ostream & os, const ScriptParameters & parameters) {
+	
+	os << '"';
+	if(!parameters.empty()) {
+		os << parameters[0];
+		for(size_t i = 1; i < parameters.size(); i++) {
+			os << ' ' << parameters[i];
+		}
+	}
+	os << '"';
+	
+	return os;
+}
+
+long FindScriptPos(const EERIE_SCRIPT * es, const std::string & str) {
 	
 	// TODO(script-parser) remove, respect quoted strings
 	
@@ -125,7 +263,7 @@ long FindScriptPos(const EERIE_SCRIPT * es, const string & str) {
 		// Check if the line is commented out!
 		for(const char * search = dat; search[0] != '/' || search[1] != '/'; search--) {
 			if(*search == '\n' || search == es->data) {
-				return dat - es->data;
+				return dat - es->data + long(str.length());
 			}
 		}
 		
@@ -134,13 +272,16 @@ long FindScriptPos(const EERIE_SCRIPT * es, const string & str) {
 	return -1;
 }
 
-ScriptResult SendMsgToAllIO(ScriptMessage msg, const string & params) {
+ScriptResult SendMsgToAllIO(Entity * sender, const ScriptEventName & event,
+                            const ScriptParameters & parameters) {
 	
 	ScriptResult ret = ACCEPT;
 	
 	for(size_t i = 0; i < entities.size(); i++) {
-		if(entities[i]) {
-			if(SendIOScriptEvent(entities[i], msg, params) == REFUSE) {
+		const EntityHandle handle = EntityHandle(i);
+		Entity * e = entities[handle];
+		if(e) {
+			if(SendIOScriptEvent(sender, e, event, parameters) == REFUSE) {
 				ret = REFUSE;
 			}
 		}
@@ -149,113 +290,83 @@ ScriptResult SendMsgToAllIO(ScriptMessage msg, const string & params) {
 	return ret;
 }
 
-void ARX_SCRIPT_SetMainEvent(Entity * io, const string & newevent) {
+//*************************************************************************************
+//*************************************************************************************
+void ARX_SCRIPT_ResetObject(Entity * io, bool init) {
 	
-	if(!io) {
+	if(!io)
 		return;
-	}
 	
-	if(newevent == "main") {
-		io->mainevent.clear();
-	} else {
-		io->mainevent = newevent;
-	}
-}
-
-//*************************************************************************************
-//*************************************************************************************
-void ARX_SCRIPT_ResetObject(Entity * io, long flags)
-{
+	io->m_disabledEvents = 0;
+	
 	// Now go for Script INIT/RESET depending on Mode
-	if(io) {
-		
-		long num = io->index();
-		
-		if (entities[num] && entities[num]->script.data)
-		{
-			entities[num]->script.allowevents = 0;
-
-			if (flags)	ScriptEvent::send(&entities[num]->script, SM_INIT, "", entities[num], "");
-
-
-			if (entities[num])
-				ARX_SCRIPT_SetMainEvent(entities[num], "main");
-		}
-
-		// Do the same for Local Script
-		if (entities[num] && entities[num]->over_script.data)
-		{
-			entities[num]->over_script.allowevents = 0;
-
-			if (flags)	ScriptEvent::send(&entities[num]->over_script, SM_INIT, "", entities[num], "");
-
-
-		}
-
-		// Sends InitEnd Event
-		if (flags)
-		{
-			if (entities[num] && entities[num]->script.data)
-				ScriptEvent::send(&entities[num]->script, SM_INITEND, "", entities[num], "");
-
-			if (entities[num] && entities[num]->over_script.data)
-				ScriptEvent::send(&entities[num]->over_script, SM_INITEND, "", entities[num], "");
-		}
-
-		if (entities[num])
-			entities[num]->gameFlags &= ~GFLAG_NEEDINIT;
+	EntityHandle num = io->index();
+	
+	if(entities[num] && entities[num]->script.data) {
+		if(init)
+			ScriptEvent::send(&entities[num]->script, NULL, entities[num], SM_INIT);
+		if(entities[num])
+			entities[num]->mainevent = SM_MAIN;
 	}
+	
+	// Do the same for Local Script
+	if(entities[num] && entities[num]->over_script.data) {
+		if(init)
+			ScriptEvent::send(&entities[num]->over_script, NULL, entities[num], SM_INIT);
+	}
+	
+	// Sends InitEnd Event
+	if(init) {
+		if(entities[num] && entities[num]->script.data)
+			ScriptEvent::send(&entities[num]->script, NULL, entities[num], SM_INITEND);
+		if(entities[num] && entities[num]->over_script.data)
+			ScriptEvent::send(&entities[num]->over_script, NULL, entities[num], SM_INITEND);
+	}
+	
+	if(entities[num])
+		entities[num]->gameFlags &= ~GFLAG_NEEDINIT;
+	
 }
 
-void ARX_SCRIPT_Reset(Entity * io, long flags) {
+void ARX_SCRIPT_Reset(Entity * io, bool init) {
 	
-	//Release Script Local Variables
-	if(io->script.lvar) {
-		for(long n = 0; n < io->script.nblvar; n++) {
-			free(io->script.lvar[n].text), io->script.lvar[n].text = NULL;
-		}
-		io->script.nblvar = 0;
-		free(io->script.lvar), io->script.lvar = NULL;
-	}
-	
-	//Release Script Over-Script Local Variables
-	if(io->over_script.lvar) {
-		for(long n = 0; n < io->over_script.nblvar; n++) {
-			free(io->over_script.lvar[n].text), io->over_script.lvar[n].text = NULL;
-		}
-		io->over_script.nblvar = 0;
-		free(io->over_script.lvar), io->over_script.lvar = NULL;
-	}
+	// Release Script Over-Script Local Variables
+	io->m_variables.clear();
 	
 	if(!io->scriptload) {
-		ARX_SCRIPT_ResetObject(io, flags);
+		ARX_SCRIPT_ResetObject(io, init);
 	}
+	
 }
 
-void ARX_SCRIPT_ResetAll(long flags) {
+void ARX_SCRIPT_ResetAll(bool init) {
 	for(size_t i = 0; i < entities.size(); i++) {
-		if(entities[i] && !entities[i]->scriptload) {
-			ARX_SCRIPT_Reset(entities[i], flags);
+		const EntityHandle handle = EntityHandle(i);
+		Entity * e = entities[handle];
+		
+		if(e && !e->scriptload) {
+			ARX_SCRIPT_Reset(e, init);
 		}
 	}
 }
 
 void ARX_SCRIPT_AllowInterScriptExec() {
 	
+	ARX_PROFILE_FUNC();
+	
+	// FIXME static local variable
 	static long ppos = 0;
 	
-	if(EDITMODE || arxtime.is_paused()) {
+	if(g_gameTime.isPaused()) {
 		return;
 	}
 	
-	EVENT_SENDER = NULL;
-	
-	long heartbeat_count = min(long(entities.size()), 10l);
+	long heartbeat_count = std::min(long(entities.size()), 10l);
 	
 	for(long n = 0; n < heartbeat_count; n++) {
 		
-		long i = ppos++;
-		if(i >= long(entities.size())){
+		EntityHandle i = EntityHandle(ppos++);
+		if(i.handleData() >= long(entities.size())){
 			ppos = 0;
 			return;
 		}
@@ -264,21 +375,16 @@ void ARX_SCRIPT_AllowInterScriptExec() {
 			continue;
 		}
 		
-		if(!entities[i]->mainevent.empty()) {
-			
-			// Copy the even name to a local variable as it may change during execution
-			// and cause unexpected behavior in SendIOScriptEvent
-			std::string event = entities[i]->mainevent;
-			
-			SendIOScriptEvent(entities[i], SM_NULL, std::string(), event);
-			
-		} else {
-			SendIOScriptEvent(entities[i], SM_MAIN);
-		}
+		// Copy the even name to a local variable as it may change during execution
+		// and cause unexpected behavior in SendIOScriptEvent
+		ScriptEventName event = entities[i]->mainevent;
+		SendIOScriptEvent(NULL, entities[i], event);
+		
 	}
+	
 }
 
-void ARX_SCRIPT_ReleaseLabels(EERIE_SCRIPT * es) {
+static void ARX_SCRIPT_ReleaseLabels(EERIE_SCRIPT * es) {
 	
 	if(!es || !es->labels) {
 		return;
@@ -287,7 +393,9 @@ void ARX_SCRIPT_ReleaseLabels(EERIE_SCRIPT * es) {
 	for(long i = 0; i < es->nb_labels; i++) {
 		free(es->labels[i].string);
 	}
-	free(es->labels), es->labels = NULL, es->nb_labels = 0;
+	free(es->labels);
+	es->labels = NULL;
+	es->nb_labels = 0;
 }
 
 void ReleaseScript(EERIE_SCRIPT * es) {
@@ -296,24 +404,17 @@ void ReleaseScript(EERIE_SCRIPT * es) {
 		return;
 	}
 	
-	if(es->lvar) {
-		for(long i = 0; i < es->nblvar; i++) {
-			free(es->lvar[i].text);
-		}
-		free(es->lvar), es->lvar = NULL;
-	}
-	
-	free(es->data), es->data = NULL;
+	free(es->data);
+	es->data = NULL;
 	
 	ARX_SCRIPT_ReleaseLabels(es);
-	memset(es->shortcut, 0, sizeof(long) * MAX_SHORTCUT);
+	memset(es->shortcut, 0, sizeof(long) * SM_MAXCMD);
 }
 
-ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & name,
-                       std::string& txtcontent, float * fcontent,long * lcontent) {
+ValueType getSystemVar(const script::Context & context, const std::string & name,
+                       std::string & txtcontent, float * fcontent, long * lcontent) {
 	
-	arx_assert_msg(!name.empty() && name[0] == '^', "bad system variable: \"%s\"",
-	               name.c_str());
+	arx_assert_msg(!name.empty() && name[0] == '^', "bad system variable: \"%s\"", name.c_str());
 	
 	char c = (name.length() < 2) ? '\0' : name[1];
 	switch(c) {
@@ -321,24 +422,24 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case '$': {
 			
 			if(name == "^$param1") {
-				txtcontent = SSEPARAMS[0];
+				txtcontent = context.getParameter(0);
 				return TYPE_TEXT;
 			}
 			
 			if(name == "^$param2") {
-				txtcontent = SSEPARAMS[1];
+				txtcontent = context.getParameter(1);
 				return TYPE_TEXT;
 			}
 			
 			if(name == "^$param3") {
-				txtcontent = SSEPARAMS[2];
+				txtcontent = context.getParameter(2);
 				return TYPE_TEXT;
 			}
 			
 			if(name == "^$objontop") {
 				txtcontent = "none";
-				if(entity) {
-					MakeTopObjString(entity, txtcontent);
+				if(context.getEntity()) {
+					MakeTopObjString(context.getEntity(), txtcontent);
 				}
 				return TYPE_TEXT;
 			}
@@ -349,23 +450,23 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case '&': {
 			
 			if(name == "^&param1") {
-				*fcontent = (float)atof(SSEPARAMS[0]);
+				*fcontent = float(atof(context.getParameter(0).c_str()));
 				return TYPE_FLOAT;
 			}
 			
 			if(name == "^&param2") {
-				*fcontent = (float)atof(SSEPARAMS[1]);
+				*fcontent = float(atof(context.getParameter(1).c_str()));
 				return TYPE_FLOAT;
 			}
 			
 			if(name == "^&param3") {
-				*fcontent = (float)atof(SSEPARAMS[2]);
+				*fcontent = float(atof(context.getParameter(2).c_str()));
 				return TYPE_FLOAT;
 			}
 			
 			if(name == "^&playerdist") {
-				if(entity) {
-					*fcontent = fdist(player.pos, entity->pos);
+				if(context.getEntity()) {
+					*fcontent = fdist(player.pos, context.getEntity()->pos);
 					return TYPE_FLOAT;
 				}
 			}
@@ -376,59 +477,59 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case '#': {
 			
 			if(name == "^#playerdist") {
-				if(entity) {
-					*lcontent = (long)fdist(player.pos, entity->pos);
+				if(context.getEntity()) {
+					*lcontent = (long)fdist(player.pos, context.getEntity()->pos);
 					return TYPE_LONG;
 				}
 			}
 			
 			if(name == "^#param1") {
-				*lcontent = atol(SSEPARAMS[0]);
+				*lcontent = atol(context.getParameter(0).c_str());
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#param2") {
-				*lcontent = atol(SSEPARAMS[1]);
+				*lcontent = atol(context.getParameter(1).c_str());
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#param3") {
-				*lcontent = atol(SSEPARAMS[2]);
+				*lcontent = atol(context.getParameter(2).c_str());
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#timer1") {
-				if(!entity || entity->script.timers[0] == 0) {
+				if(!context.getEntity() || context.getEntity()->m_scriptTimers[0] == 0) {
 					*lcontent = 0;
 				} else {
-					*lcontent = long((unsigned long)(arxtime) - es->timers[0]);
+					*lcontent = toMsi(g_gameTime.now() - context.getEntity()->m_scriptTimers[0]);
 				}
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#timer2") {
-				if(!entity || entity->script.timers[1] == 0) {
+				if(!context.getEntity() || context.getEntity()->m_scriptTimers[1] == 0) {
 					*lcontent = 0;
 				} else {
-					*lcontent = long((unsigned long)(arxtime) - es->timers[1]);
+					*lcontent = toMsi(g_gameTime.now() - context.getEntity()->m_scriptTimers[1]);
 				}
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#timer3") {
-				if(!entity || entity->script.timers[2] == 0) {
+				if(!context.getEntity() || context.getEntity()->m_scriptTimers[2] == 0) {
 					*lcontent = 0;
 				} else {
-					*lcontent = long((unsigned long)(arxtime) - es->timers[2]);
+					*lcontent = toMsi(g_gameTime.now() - context.getEntity()->m_scriptTimers[2]);
 				}
 				return TYPE_LONG;
 			}
 			
 			if(name == "^#timer4") {
-				if(!entity || entity->script.timers[3] == 0) {
+				if(!context.getEntity() || context.getEntity()->m_scriptTimers[3] == 0) {
 					*lcontent = 0;
 				} else {
-					*lcontent = long((unsigned long)(arxtime) - es->timers[3]);
+					*lcontent = toMsi(g_gameTime.now() - context.getEntity()->m_scriptTimers[3]);
 				}
 				return TYPE_LONG;
 			}
@@ -444,22 +545,22 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(name == "^gamedays") {
-				*lcontent = static_cast<long>(float(arxtime) / 864000000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) / 86400000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^gamehours") {
-				*lcontent = static_cast<long>(float(arxtime) / 3600000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) / 3600000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^gameminutes") {
-				*lcontent = static_cast<long>(float(arxtime) / 60000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) / 60000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^gameseconds") {
-				*lcontent = static_cast<long>(float(arxtime) / 1000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) / 1000);
 				return TYPE_LONG;
 			}
 			
@@ -469,8 +570,8 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'a': {
 			
 			if(boost::starts_with(name, "^amount")) {
-				if(entity && (entity->ioflags & IO_ITEM)) {
-					*fcontent = entity->_itemdata->count;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_ITEM)) {
+					*fcontent = context.getEntity()->_itemdata->count;
 				} else {
 					*fcontent = 0;
 				}
@@ -478,45 +579,45 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(name == "^arxdays") {
-				*lcontent = static_cast<long>(float(arxtime) / 7200000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 * 2 / 86400000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxhours") {
-				*lcontent = static_cast<long>(float(arxtime) / 600000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 3600000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxminutes") {
-				*lcontent = static_cast<long>(float(arxtime) / 10000);
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 60000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxseconds") {
-				*lcontent = static_cast<long>(float(arxtime) / 1000) * 6;
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 1000);
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxtime_hours") {
-				*lcontent = static_cast<long>(float(arxtime) / 600000);
-				while(*lcontent > 12) {
-					*lcontent -= 12;
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 3600000) % 12;
+				if(*lcontent == 0) {
+					*lcontent = 12;
 				}
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxtime_minutes") {
-				*lcontent = static_cast<long>(float(arxtime) / 10000);
-				while(*lcontent > 60) {
-					*lcontent -= 60;
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 60000) % 60;
+				if(*lcontent == 0) {
+					*lcontent = 60;
 				}
 				return TYPE_LONG;
 			}
 			
 			if(name == "^arxtime_seconds") {
-				*lcontent = static_cast<long>(float(arxtime) * 6 / 1000);
-				while(*lcontent > 60) {
-					*lcontent -= 60;
+				*lcontent = static_cast<long>(toMsi(g_gameTime.now()) * 6 / 1000) % 60;
+				if(*lcontent == 0) {
+					*lcontent = 60;
 				}
 				return TYPE_LONG;
 			}
@@ -527,38 +628,37 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'r': {
 			
 			if(boost::starts_with(name, "^realdist_")) {
-				if(entity) {
+				if(context.getEntity()) {
 					const char * obj = name.c_str() + 10;
 					
 					if(!strcmp(obj, "player")) {
-						if(entity->room_flags & 1) {
-							UpdateIORoom(entity);
+						if(context.getEntity()->requestRoomUpdate) {
+							UpdateIORoom(context.getEntity());
 						}
-						long Player_Room = ARX_PORTALS_GetRoomNumForPosition(&player.pos, 1);
-						*fcontent = SP_GetRoomDist(&entity->pos, &player.pos, entity->room, Player_Room);
+						long Player_Room = ARX_PORTALS_GetRoomNumForPosition(player.pos, 1);
+						*fcontent = SP_GetRoomDist(context.getEntity()->pos, player.pos, context.getEntity()->room, Player_Room);
 						return TYPE_FLOAT;
 					}
 					
-					long t = entities.getById(obj);
+					EntityHandle t = entities.getById(obj);
 					if(ValidIONum(t)) {
-						if((entity->show == SHOW_FLAG_IN_SCENE
-						    || entity->show == SHOW_FLAG_IN_INVENTORY)
+						if((context.getEntity()->show == SHOW_FLAG_IN_SCENE
+						    || context.getEntity()->show == SHOW_FLAG_IN_INVENTORY)
 						   && (entities[t]->show == SHOW_FLAG_IN_SCENE
 						       || entities[t]->show == SHOW_FLAG_IN_INVENTORY)) {
 							
-							Vec3f pos, pos2;
-							GetItemWorldPosition(entity, &pos);
-							GetItemWorldPosition(entities[t], &pos2);
+							Vec3f pos  = GetItemWorldPosition(context.getEntity());
+							Vec3f pos2 = GetItemWorldPosition(entities[t]);
 							
-							if(entity->room_flags & 1) {
-								UpdateIORoom(entity);
+							if(context.getEntity()->requestRoomUpdate) {
+								UpdateIORoom(context.getEntity());
 							}
 							
-							if(entities[t]->room_flags & 1) {
+							if(entities[t]->requestRoomUpdate) {
 								UpdateIORoom(entities[t]);
 							}
 							
-							*fcontent = SP_GetRoomDist(&pos, &pos2, entity->room, entities[t]->room);
+							*fcontent = SP_GetRoomDist(pos, pos2, context.getEntity()->room, entities[t]->room);
 							
 						} else {
 							// Out of this world item
@@ -573,9 +673,9 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^repairprice_")) {
-				long t = entities.getById(name.substr(13));
+				EntityHandle t = entities.getById(name.substr(13));
 				if(ValidIONum(t)) {
-					*fcontent = ARX_DAMAGES_ComputeRepairPrice(entities[t], entity);
+					*fcontent = ARX_DAMAGES_ComputeRepairPrice(entities[t], context.getEntity());
 				} else {
 					*fcontent = 0;
 				}
@@ -588,7 +688,7 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 				// if inclusive, use proper integer random, otherwise fix rnd()?
 				if(max[0]) {
 					float t = (float)atof(max);
-					*fcontent = t * rnd();
+					*fcontent = Random::getf(0.f, t);
 					return TYPE_FLOAT;
 				}
 				*fcontent = 0;
@@ -596,7 +696,7 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^rune_")) {
-				string temp = name.substr(6);
+				std::string temp = name.substr(6);
 				*lcontent = 0;
 				if(temp == "aam") {
 					*lcontent = player.rune_flags & FLAG_AAM;
@@ -651,8 +751,8 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 				const char * zone = name.c_str() + 8;
 				ARX_PATH * ap = ARX_PATH_GetAddressByName(zone);
 				*lcontent = 0;
-				if(entity && ap) {
-					if(ARX_PATH_IsPosInZone(ap, entity->pos.x, entity->pos.y, entity->pos.z)) {
+				if(context.getEntity() && ap) {
+					if(ARX_PATH_IsPosInZone(ap, context.getEntity()->pos)) {
 						*lcontent = 1;
 					}
 				}
@@ -660,17 +760,18 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^ininitpos")) {
-				Vec3f pos;
 				*lcontent = 0;
-				if(entity && GetItemWorldPosition(entity, &pos) && pos == entity->initpos) {
-					*lcontent = 1;
+				if(context.getEntity()) {
+					Vec3f pos = GetItemWorldPosition(context.getEntity());
+					if(pos == context.getEntity()->initpos)
+						*lcontent = 1;
 				}
 				return TYPE_LONG;
 			}
 			
 			if(boost::starts_with(name, "^inplayerinventory")) {
 				*lcontent = 0;
-				if(entity && (entity->ioflags & IO_ITEM) && IsInPlayerInventory(entity)) {
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_ITEM) && IsInPlayerInventory(context.getEntity())) {
 					*lcontent = 1;
 				}
 				return TYPE_LONG;
@@ -683,47 +784,47 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			
 			if(boost::starts_with(name, "^behavior")) {
 				txtcontent = "";
-				if(entity && (entity->ioflags & IO_NPC)) {
-					if(entity->_npcdata->behavior & BEHAVIOUR_LOOK_AROUND) {
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_LOOK_AROUND) {
 						txtcontent += "l";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_SNEAK) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_SNEAK) {
 						txtcontent += "s";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_DISTANT) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_DISTANT) {
 						txtcontent += "d";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_MAGIC) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_MAGIC) {
 						txtcontent += "m";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_FIGHT) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_FIGHT) {
 						txtcontent += "f";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_GO_HOME) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_GO_HOME) {
 						txtcontent += "h";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_FRIENDLY) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_FRIENDLY) {
 						txtcontent += "r";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_MOVE_TO) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_MOVE_TO) {
 						txtcontent += "t";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_FLEE) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_FLEE) {
 						txtcontent += "e";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_LOOK_FOR) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_LOOK_FOR) {
 						txtcontent += "o";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_HIDE) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_HIDE) {
 						txtcontent += "i";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_WANDER_AROUND) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_WANDER_AROUND) {
 						txtcontent += "w";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_GUARD) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_GUARD) {
 						txtcontent += "u";
 					}
-					if(entity->_npcdata->behavior & BEHAVIOUR_STARE_AT) {
+					if(context.getEntity()->_npcdata->behavior & BEHAVIOUR_STARE_AT) {
 						txtcontent += "a";
 					}
 				}
@@ -736,25 +837,25 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 's': {
 			
 			if(boost::starts_with(name, "^sender")) {
-				if(!EVENT_SENDER) {
+				if(!context.getSender()) {
 					txtcontent = "none";
-				} else if(EVENT_SENDER == entities.player()) {
+				} else if(context.getSender() == entities.player()) {
 					txtcontent = "player";
 				} else {
-					txtcontent = EVENT_SENDER->long_name();
+					txtcontent = context.getSender()->idString();
 				}
 				return TYPE_TEXT;
 			}
 			
 			if(boost::starts_with(name, "^scale")) {
-				*fcontent = (entity) ? entity->scale * 100.f : 0.f;
+				*fcontent = (context.getEntity()) ? context.getEntity()->scale * 100.f : 0.f;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^speaking")) {
-				if(entity) {
+				if(context.getEntity()) {
 					for(size_t i = 0; i < MAX_ASPEECH; i++) {
-						if(aspeech[i].exist && entity == aspeech[i].io) {
+						if(aspeech[i].exist && context.getEntity() == aspeech[i].io) {
 							*lcontent = 1;
 							return TYPE_LONG;
 						}
@@ -770,50 +871,46 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'm': {
 			
 			if(boost::starts_with(name, "^me")) {
-				if(!entity) {
+				if(!context.getEntity()) {
 					txtcontent = "none";
-				} else if(entity == entities.player()) {
+				} else if(context.getEntity() == entities.player()) {
 					txtcontent = "player";
 				} else {
-					txtcontent = entity->long_name();
+					txtcontent = context.getEntity()->idString();
 				}
 				return TYPE_TEXT;
 			}
 			
 			if(boost::starts_with(name, "^maxlife")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_NPC)) {
-					*fcontent = entity->_npcdata->maxlife;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					*fcontent = context.getEntity()->_npcdata->lifePool.max;
 				}
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^mana")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_NPC)) {
-					*fcontent = entity->_npcdata->mana;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					*fcontent = context.getEntity()->_npcdata->manaPool.current;
 				}
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^maxmana")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_NPC)) {
-					*fcontent = entity->_npcdata->maxmana;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					*fcontent = context.getEntity()->_npcdata->manaPool.max;
 				}
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^myspell_")) {
-				Spell id = GetSpellId(name.substr(9));
+				SpellType id = GetSpellId(name.substr(9));
 				if(id != SPELL_NONE) {
-					for(size_t i = 0; i < MAX_SPELLS; i++) {
-						if(spells[i].exist && spells[i].type == id && spells[i].caster >= 0
-						   && spells[i].caster < long(entities.size())
-							 && entity == entities[spells[i].caster]) {
-							*lcontent = 1;
-							return TYPE_LONG;
-						}
+					if(spells.ExistAnyInstanceForThisCaster(id, context.getEntity()->index())) {
+						*lcontent = 1;
+						return TYPE_LONG;
 					}
 				}
 				*lcontent = 0;
@@ -821,7 +918,7 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^maxdurability")) {
-				*fcontent = (entity) ? entity->max_durability : 0.f;
+				*fcontent = (context.getEntity()) ? context.getEntity()->max_durability : 0.f;
 				return TYPE_FLOAT;
 			}
 			
@@ -832,14 +929,14 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			
 			if(boost::starts_with(name, "^life")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_NPC)) {
-					*fcontent = entity->_npcdata->life;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					*fcontent = context.getEntity()->_npcdata->lifePool.current;
 				}
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^last_spawned")) {
-				txtcontent = (LASTSPAWNED) ? LASTSPAWNED->long_name() : "none";
+				txtcontent = (LASTSPAWNED) ? LASTSPAWNED->idString() : "none";
 				return TYPE_TEXT;
 			}
 			
@@ -849,23 +946,22 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'd': {
 			
 			if(boost::starts_with(name, "^dist_")) {
-				if(entity) {
+				if(context.getEntity()) {
 					const char * obj = name.c_str() + 6;
 					
 					if(!strcmp(obj, "player")) {
-						*fcontent = fdist(player.pos, entity->pos);
+						*fcontent = fdist(player.pos, context.getEntity()->pos);
 						return TYPE_FLOAT;
 					}
 					
-					long t = entities.getById(obj);
+					EntityHandle t = entities.getById(obj);
 					if(ValidIONum(t)) {
-						if((entity->show == SHOW_FLAG_IN_SCENE
-						    || entity->show == SHOW_FLAG_IN_INVENTORY)
+						if((context.getEntity()->show == SHOW_FLAG_IN_SCENE
+						    || context.getEntity()->show == SHOW_FLAG_IN_INVENTORY)
 						   && (entities[t]->show == SHOW_FLAG_IN_SCENE
 						       || entities[t]->show == SHOW_FLAG_IN_INVENTORY)) {
-							Vec3f pos, pos2;
-							GetItemWorldPosition(entity, &pos);
-							GetItemWorldPosition(entities[t], &pos2);
+							Vec3f pos  = GetItemWorldPosition(context.getEntity());
+							Vec3f pos2 = GetItemWorldPosition(entities[t]);
 							*fcontent = fdist(pos, pos2);
 							return TYPE_FLOAT;
 						}
@@ -877,12 +973,12 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^demo")) {
-				*lcontent = (resources->getReleaseType() & PakReader::Demo) ? 1 : 0;
+				*lcontent = (g_resources->getReleaseType() & PakReader::Demo) ? 1 : 0;
 				return TYPE_LONG;
 			}
 			
 			if(boost::starts_with(name, "^durability")) {
-				*fcontent = (entity) ? entity->durability : 0.f;
+				*fcontent = (context.getEntity()) ? context.getEntity()->durability : 0.f;
 				return TYPE_FLOAT;
 			}
 			
@@ -893,8 +989,8 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			
 			if(boost::starts_with(name, "^price")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_ITEM)) {
-					*fcontent = static_cast<float>(entity->_itemdata->price);
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_ITEM)) {
+					*fcontent = static_cast<float>(context.getEntity()->_itemdata->price);
 				}
 				return TYPE_FLOAT;
 			}
@@ -911,26 +1007,26 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			
 			if(boost::starts_with(name, "^poisoned")) {
 				*fcontent = 0;
-				if(entity && (entity->ioflags & IO_NPC)) {
-					*fcontent = entity->_npcdata->poisonned;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_NPC)) {
+					*fcontent = context.getEntity()->_npcdata->poisonned;
 				}
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^poisonous")) {
-				*fcontent = (entity) ? entity->poisonous : 0.f;
+				*fcontent = (context.getEntity()) ? context.getEntity()->poisonous : 0.f;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^possess_")) {
-				long t = entities.getById(name.substr(9));
+				EntityHandle t = entities.getById(name.substr(9));
 				if(ValidIONum(t)) {
 					if(IsInPlayerInventory(entities[t])) {
 						*lcontent = 1;
 						return TYPE_LONG;
 					}
-					for(long i = 0; i < MAX_EQUIPED; i++) {
-						if(player.equiped[i] == t) {
+					for(size_t i = 0; i < MAX_EQUIPED; i++) {
+						if(ValidIONum(player.equiped[i]) && player.equiped[i] == t) {
 							*lcontent = 2;
 							return TYPE_LONG;
 						}
@@ -951,67 +1047,67 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^player_attribute_strength")) {
-				*fcontent = player.Full_Attribute_Strength;
+				*fcontent = player.m_attributeFull.strength;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_attribute_dexterity")) {
-				*fcontent = player.Full_Attribute_Dexterity;
+				*fcontent = player.m_attributeFull.dexterity;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_attribute_constitution")) {
-				*fcontent = player.Full_Attribute_Constitution;
+				*fcontent = player.m_attributeFull.constitution;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_attribute_mind")) {
-				*fcontent = player.Full_Attribute_Mind;
+				*fcontent = player.m_attributeFull.mind;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_stealth")) {
-				*fcontent = player.Full_Skill_Stealth;
+				*fcontent = player.m_skillFull.stealth;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_mecanism")) {
-				*fcontent = player.Full_Skill_Mecanism;
+				*fcontent = player.m_skillFull.mecanism;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_intuition")) {
-				*fcontent = player.Full_Skill_Intuition;
+				*fcontent = player.m_skillFull.intuition;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_etheral_link")) {
-				*fcontent = player.Full_Skill_Etheral_Link;
+				*fcontent = player.m_skillFull.etheralLink;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_object_knowledge")) {
-				*fcontent = player.Full_Skill_Object_Knowledge;
+				*fcontent = player.m_skillFull.objectKnowledge;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_casting")) {
-				*fcontent = player.Full_Skill_Casting;
+				*fcontent = player.m_skillFull.casting;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_projectile")) {
-				*fcontent = player.Full_Skill_Projectile;
+				*fcontent = player.m_skillFull.projectile;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_close_combat")) {
-				*fcontent = player.Full_Skill_Close_Combat;
+				*fcontent = player.m_skillFull.closeCombat;
 				return TYPE_FLOAT;
 			}
 			
 			if(boost::starts_with(name, "^player_skill_defense")) {
-				*fcontent = player.Full_Skill_Defense;
+				*fcontent = player.m_skillFull.defense;
 				return TYPE_FLOAT;
 			}
 			
@@ -1027,13 +1123,16 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			
 			if(boost::starts_with(name, "^playercasting")) {
 				for(size_t i = 0; i < MAX_SPELLS; i++) {
-					if(spells[i].exist && spells[i].caster == 0) {
-						if(spells[i].type == SPELL_LIFE_DRAIN
-						   || spells[i].type == SPELL_HARM
-						   || spells[i].type == SPELL_FIRE_FIELD
-						   || spells[i].type == SPELL_ICE_FIELD
-						   || spells[i].type == SPELL_LIGHTNING_STRIKE
-						   || spells[i].type == SPELL_MASS_LIGHTNING_STRIKE) {
+					const SpellBase * spell = spells[SpellHandle(i)];
+					
+					if(spell && spell->m_caster == EntityHandle_Player) {
+						if(   spell->m_type == SPELL_LIFE_DRAIN
+						   || spell->m_type == SPELL_HARM
+						   || spell->m_type == SPELL_FIRE_FIELD
+						   || spell->m_type == SPELL_ICE_FIELD
+						   || spell->m_type == SPELL_LIGHTNING_STRIKE
+						   || spell->m_type == SPELL_MASS_LIGHTNING_STRIKE
+						) {
 							*lcontent = 1;
 							return TYPE_LONG;
 						}
@@ -1044,15 +1143,13 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 			}
 			
 			if(boost::starts_with(name, "^playerspell_")) {
-				string temp = name.substr(13);
+				std::string temp = name.substr(13);
 				
-				Spell id = GetSpellId(temp);
+				SpellType id = GetSpellId(temp);
 				if(id != SPELL_NONE) {
-					for(size_t i = 0; i < MAX_SPELLS; i++) {
-						if(spells[i].exist && spells[i].type == id && spells[i].caster == 0) {
-							*lcontent = 1;
-							return TYPE_LONG;
-						}
+					if(spells.ExistAnyInstanceForThisCaster(id, EntityHandle_Player)) {
+						*lcontent = 1;
+						return TYPE_LONG;
 					}
 				}
 				
@@ -1071,13 +1168,13 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'n': {
 			
 			if(boost::starts_with(name, "^npcinsight")) {
-				Entity * ioo = ARX_NPC_GetFirstNPCInSight(entity);
+				Entity * ioo = ARX_NPC_GetFirstNPCInSight(context.getEntity());
 				if(!ioo) {
 					txtcontent = "none";
 				} else if(ioo == entities.player()) {
 					txtcontent = "player";
 				} else {
-					txtcontent = ioo->long_name();
+					txtcontent = ioo->idString();
 				}
 				return TYPE_TEXT;
 			}
@@ -1088,14 +1185,14 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 't': {
 			
 			if(boost::starts_with(name, "^target")) {
-				if(!entity) {
+				if(!context.getEntity()) {
 					txtcontent = "none";
-				} else if(entity->targetinfo == 0) {
+				} else if(context.getEntity()->targetinfo == EntityHandle_Player) {
 					txtcontent = "player";
-				} else if(!ValidIONum(entity->targetinfo)) {
+				} else if(!ValidIONum(context.getEntity()->targetinfo)) {
 					txtcontent = "none";
 				} else {
-					txtcontent = entities[entity->targetinfo]->long_name();
+					txtcontent = entities[context.getEntity()->targetinfo]->idString();
 				}
 				return TYPE_TEXT;
 			}
@@ -1106,8 +1203,8 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 		case 'f': {
 			
 			if(boost::starts_with(name, "^focal")) {
-				if(entity && (entity->ioflags & IO_CAMERA)) {
-					*fcontent = entity->_camdata->cam.focal;
+				if(context.getEntity() && (context.getEntity()->ioflags & IO_CAMERA)) {
+					*fcontent = context.getEntity()->_camdata->cam.focal;
 					return TYPE_FLOAT;
 				}
 			}
@@ -1127,14 +1224,7 @@ ValueType getSystemVar(const EERIE_SCRIPT * es, Entity * entity, const string & 
 }
 
 void ARX_SCRIPT_Free_All_Global_Variables() {
-	
-	if(svar) {
-		for(long i = 0; i < NB_GLOBALS; i++) {
-			free(svar[i].text);
-		}
-		free(svar), svar = NULL, NB_GLOBALS = 0;
-	}
-	
+	svar.clear();
 }
 
 void CloneLocalVars(Entity * ioo, Entity * io) {
@@ -1143,580 +1233,256 @@ void CloneLocalVars(Entity * ioo, Entity * io) {
 		return;
 	}
 	
-	if(ioo->script.lvar) {
-		for(long n = 0; n < ioo->script.nblvar; n++) {
-			free(ioo->script.lvar[n].text);
-		}
-		free(ioo->script.lvar), ioo->script.lvar = NULL, ioo->script.nblvar = 0;
-	}
-	
-	if (io->script.lvar)
-	{
-		ioo->script.nblvar = io->script.nblvar;
-		ioo->script.lvar = (SCRIPT_VAR *)malloc(sizeof(SCRIPT_VAR) * io->script.nblvar);
-
-		for (long n = 0; n < io->script.nblvar; n++)
-		{
-			memcpy(&ioo->script.lvar[n], &io->script.lvar[n], sizeof(SCRIPT_VAR));
-
-			if (io->script.lvar[n].text)
-			{
-				ioo->script.lvar[n].text = (char *)malloc(strlen(io->script.lvar[n].text) + 1);
-				strcpy(ioo->script.lvar[n].text, io->script.lvar[n].text);
-			}
-		}
-	}
+	ioo->m_variables = io->m_variables;
 }
 
-SCRIPT_VAR * GetFreeVarSlot(SCRIPT_VAR*& _svff, long& _nb)
-{
-
-	SCRIPT_VAR * svf = _svff;
-	_svff = (SCRIPT_VAR *) realloc(svf, sizeof(SCRIPT_VAR) * ((_nb) + 1));
-	svf = _svff;
-	memset(&svf[_nb], 0, sizeof(SCRIPT_VAR));
-	_nb++;
-	return &svf[_nb-1];
+static SCRIPT_VAR * GetFreeVarSlot(SCRIPT_VARIABLES & _svff) {
+	_svff.resize(_svff.size() + 1);
+	SCRIPT_VAR * v = &_svff.back();
+	return v;
 }
 
-SCRIPT_VAR * GetVarAddress(SCRIPT_VAR svf[], size_t nb, const string & name) {
+static SCRIPT_VAR * GetVarAddress(SCRIPT_VARIABLES & svf, const std::string & name) {
 	
-	for(size_t i = 0; i < nb; i++) {
-		if(svf[i].type != TYPE_UNKNOWN) {
-			if(name == svf[i].name) {
-				return &svf[i];
-			}
+	for(SCRIPT_VARIABLES::iterator it = svf.begin(); it != svf.end(); ++it) {
+		if(name == it->name) {
+			return &(*it);
 		}
 	}
-
+	
 	return NULL;
 }
 
-long GETVarValueLong(SCRIPT_VAR svf[], size_t nb, const string & name) {
+const SCRIPT_VAR * GetVarAddress(const SCRIPT_VARIABLES & svf, const std::string & name) {
 	
-	const SCRIPT_VAR * tsv = GetVarAddress(svf, nb, name);
+	for(SCRIPT_VARIABLES::const_iterator it = svf.begin(); it != svf.end(); ++it) {
+		if(name == it->name) {
+			return &(*it);
+		}
+	}
+	
+	return NULL;
+}
+
+long GETVarValueLong(const SCRIPT_VARIABLES & svf, const std::string & name) {
+	
+	const SCRIPT_VAR * tsv = GetVarAddress(svf, name);
 
 	if (tsv == NULL) return 0;
 
 	return tsv->ival;
 }
 
-float GETVarValueFloat(SCRIPT_VAR svf[], size_t nb, const string & name) {
+float GETVarValueFloat(const SCRIPT_VARIABLES & svf, const std::string & name) {
 	
-	const SCRIPT_VAR * tsv = GetVarAddress(svf, nb, name);
+	const SCRIPT_VAR * tsv = GetVarAddress(svf, name);
 
 	if (tsv == NULL) return 0;
 
 	return tsv->fval;
 }
 
-std::string GETVarValueText(SCRIPT_VAR svf[], size_t nb, const string & name) {
+std::string GETVarValueText(const SCRIPT_VARIABLES & svf, const std::string & name) {
 	
-	const SCRIPT_VAR* tsv = GetVarAddress(svf, nb, name);
-
+	const SCRIPT_VAR * tsv = GetVarAddress(svf, name);
+	
 	if (!tsv) return "";
 
 	return tsv->text;
 }
 
-string GetVarValueInterpretedAsText(const string & temp1, const EERIE_SCRIPT * esss, Entity * io) {
+SCRIPT_VAR * SETVarValueLong(SCRIPT_VARIABLES & svf, const std::string & name, long val) {
 	
-	char var_text[256];
-	float t1;
-
-	if(!temp1.empty())
-	{
-		if (temp1[0] == '^')
-		{
-			long lv;
-			float fv;
-			std::string tv;
-
-			switch (getSystemVar(esss,io,temp1,tv,&fv,&lv))//Arx: xrichter (2010-08-04) - fix a crash when $OBJONTOP return to many object name inside tv
-			{
-				case TYPE_TEXT:
-					return tv;
-					break;
-				case TYPE_LONG:
-					sprintf(var_text, "%ld", lv);
-					return var_text;
-					break;
-				default:
-					sprintf(var_text, "%f", fv);
-					return var_text;
-					break;
-			}
-
-		}
-		else if (temp1[0] == '#')
-		{
-			long l1 = GETVarValueLong(svar, NB_GLOBALS, temp1);
-			sprintf(var_text, "%ld", l1);
-			return var_text;
-		}
-		else if (temp1[0] == '\xA7')
-		{
-			long l1 = GETVarValueLong(esss->lvar, esss->nblvar, temp1);
-			sprintf(var_text, "%ld", l1);
-			return var_text;
-		}
-		else if (temp1[0] == '&') t1 = GETVarValueFloat(svar, NB_GLOBALS, temp1);
-		else if (temp1[0] == '@') t1 = GETVarValueFloat(esss->lvar, esss->nblvar, temp1);
-		else if (temp1[0] == '$')
-		{
-			SCRIPT_VAR * var = GetVarAddress(svar, NB_GLOBALS, temp1);
-
-			if (!var) return "void";
-			else return var->text;
-		}
-		else if (temp1[0] == '\xA3')
-		{
-			SCRIPT_VAR * var = GetVarAddress(esss->lvar, esss->nblvar, temp1);
-
-			if (!var) return "void";
-			else return var->text;
-		}
-		else
-		{
-			return temp1;
-		}
-	}
-	else
-	{
-		return "";
-	}
-
-	sprintf(var_text, "%f", t1);
-	return var_text;
-}
-
-float GetVarValueInterpretedAsFloat(const string & temp1, const EERIE_SCRIPT * esss, Entity * io) {
+	SCRIPT_VAR * tsv = GetVarAddress(svf, name);
 	
-	if(temp1[0] == '^') {
-		long lv;
-		float fv;
-		std::string tv; 
-		switch (getSystemVar(esss,io,temp1,tv,&fv,&lv)) {
-			case TYPE_TEXT:
-				return (float)atof(tv.c_str());
-			case TYPE_LONG:
-				return (float)lv;
-				// TODO unreachable code (should it be case TYPE_FLOAT: ?)
-				//return (fv);
-			default:
-				break;
-		}
-	} else if(temp1[0] == '#') {
-		return (float)GETVarValueLong(svar, NB_GLOBALS, temp1);
-	} else if(temp1[0] == '\xA7') {
-		return (float)GETVarValueLong(esss->lvar, esss->nblvar, temp1);
-	} else if(temp1[0] == '&') {
-		return GETVarValueFloat(svar, NB_GLOBALS, temp1);
-	} else if(temp1[0] == '@') {
-		return GETVarValueFloat(esss->lvar, esss->nblvar, temp1);
-	}
-	
-	return (float)atof(temp1.c_str());
-}
-
-SCRIPT_VAR* SETVarValueLong(SCRIPT_VAR*& svf, long& nb, const std::string& name, long val)
-{
-	SCRIPT_VAR* tsv = GetVarAddress(svf, nb, name);
-
 	if (!tsv)
 	{
-		tsv = GetFreeVarSlot(svf, nb);
+		tsv = GetFreeVarSlot(svf);
 
 		if (!tsv)
 			return NULL;
 
-		strcpy(tsv->name, name.c_str());
+		tsv->name = name;
 	}
 
 	tsv->ival = val;
 	return tsv;
 }
 
-SCRIPT_VAR* SETVarValueFloat(SCRIPT_VAR*& svf, long& nb, const std::string& name, float val)
-{
-	SCRIPT_VAR* tsv = GetVarAddress(svf, nb, name);
-
+SCRIPT_VAR * SETVarValueFloat(SCRIPT_VARIABLES & svf, const std::string & name, float val) {
+	
+	SCRIPT_VAR * tsv = GetVarAddress(svf, name);
+	
 	if (!tsv)
 	{
-		tsv = GetFreeVarSlot(svf, nb);
+		tsv = GetFreeVarSlot(svf);
 
 		if (!tsv)
 			return NULL;
 
-		strcpy(tsv->name, name.c_str());
+		tsv->name = name;
 	}
 
 	tsv->fval = val;
 	return tsv;
 }
 
-SCRIPT_VAR* SETVarValueText(SCRIPT_VAR*& svf, long& nb, const std::string& name, const std::string& val)
-{
-	SCRIPT_VAR* tsv = GetVarAddress(svf, nb, name);
-
-	if (!tsv)
-	{
-		tsv = GetFreeVarSlot(svf, nb);
-
-		if (!tsv)
+SCRIPT_VAR * SETVarValueText(SCRIPT_VARIABLES & svf, const std::string & name, const std::string & val) {
+	
+	SCRIPT_VAR * tsv = GetVarAddress(svf, name);
+	if(!tsv) {
+		tsv = GetFreeVarSlot(svf);
+		if(!tsv) {
 			return NULL;
-
-		strcpy(tsv->name, name.c_str());
+		}
+		tsv->name = name;
 	}
 	
-	
-	tsv->ival = val.length() + 1;
-	
-	free(tsv->text);
-	tsv->text = (tsv->ival) ? strdup(val.c_str()) : NULL;
+	tsv->text = val;
 	
 	return tsv;
 }
 
-
-
-
-
-void MakeGlobalText(std::string & tx)
-{
-	char texx[256];
-
-	for(long i = 0; i < NB_GLOBALS; i++) {
-		switch(svar[i].type) {
-			case TYPE_G_TEXT:
-				tx += svar[i].name;
-				tx += " = ";
-				tx += svar[i].text;
-				tx += "\r\n";
-				break;
-			case TYPE_G_LONG:
-				tx += svar[i].name;
-				tx += " = ";
-				sprintf(texx, "%ld", svar[i].ival);
-				tx += texx;
-				tx += "\r\n";
-				break;
-			case TYPE_G_FLOAT:
-				tx += svar[i].name;
-				tx += " = ";
-				sprintf(texx, "%f", svar[i].fval);
-				tx += texx;
-				tx += "\r\n";
-				break;
-			case TYPE_UNKNOWN:
-			case TYPE_L_TEXT:
-			case TYPE_L_LONG:
-			case TYPE_L_FLOAT:
-				break;
-		}
-	}
-}
-
-void MakeLocalText(EERIE_SCRIPT * es, std::string& tx)
-{
-	char texx[256];
-
-	if (es->master != NULL) es = es->master;
-
-	if (es->lvar == NULL) return;
-
-	for (long i = 0; i < es->nblvar; i++)
-	{
-		switch (es->lvar[i].type)
-		{
-			case TYPE_L_TEXT:
-				tx += es->lvar[i].name;
-				tx += " = ";
-				tx += es->lvar[i].text;
-				tx += "\r\n";
-				break;
-			case TYPE_L_LONG:
-				tx += es->lvar[i].name;
-				tx += " = ";
-				sprintf(texx, "%ld", es->lvar[i].ival);
-				tx += texx;
-				tx += "\r\n";
-				break;
-			case TYPE_L_FLOAT:
-				tx += es->lvar[i].name;
-				tx += " = ";
-				sprintf(texx, "%f", es->lvar[i].fval);
-				tx += texx;
-				tx += "\r\n";
-				break;
-			case TYPE_UNKNOWN:
-			case TYPE_G_TEXT:
-			case TYPE_G_LONG:
-			case TYPE_G_FLOAT:
-				break;
-		}
-	}
-}
-
-//*************************************************************************************
-// ScriptEvent::send																	//
-// Sends a event to a script.														//
-// returns ACCEPT to accept default EVENT processing								//
-// returns REFUSE to refuse default EVENT processing								//
-//*************************************************************************************
-void MakeSSEPARAMS(const char * params)
-{
+struct QueuedEvent {
 	
-	for (long i = 0; i < MAX_SSEPARAMS; i++)
-	{
-		SSEPARAMS[i][0] = 0;
-	}
-
-	if(params == NULL) {
-		return;
-	}
-
-	long pos = 0;
-
-	while(*params != '\0' && pos < MAX_SSEPARAMS) {
-		
-		size_t tokensize = 0;
-		while(params[tokensize] != ' ' && params[tokensize] != '\0') {
-			tokensize++;
-		}
-		
-		arx_assert(tokensize < 64 - 1);
-		memcpy(SSEPARAMS[pos], params, tokensize);
-		SSEPARAMS[pos][tokensize] = 0;
-		
-		params += tokensize;
-		
-		if(*params != '\0') {
-			params++;
-		}
-		
-		pos++;
-	}
-}
-
-#define MAX_EVENT_STACK 800
-struct STACKED_EVENT {
+	bool exists;
 	Entity * sender;
-	long              exist;
-	Entity * io;
-	ScriptMessage     msg;
-	std::string       params;
-	std::string       eventname;
+	Entity * entity;
+	ScriptEventName event;
+	ScriptParameters parameters;
+	
+	void clear() {
+		exists = false;
+		sender = NULL;
+		entity = NULL;
+		event = ScriptEventName();
+		parameters.clear();
+	}
+	
 };
 
-STACKED_EVENT eventstack[MAX_EVENT_STACK];
+// TODO use a queue
+static QueuedEvent g_eventQueue[800];
 
-void ARX_SCRIPT_EventStackInit()
-{
-	ARX_SCRIPT_EventStackClear( false ); // Clear everything in the stack
-}
-void ARX_SCRIPT_EventStackClear( bool check_exist )
-{
-	LogDebug("Event Stack Clear");
-	for (long i = 0; i < MAX_EVENT_STACK; i++)
-	{
-		if ( check_exist ) // If we're not blatantly clearing everything
-			if ( !eventstack[i].exist ) // If the Stacked_Event is not being used
-				continue; // Continue on to the next one
-
-			// Otherwise, clear all the fields in this stacked_event
-			eventstack[i].sender = NULL;
-			eventstack[i].exist = 0;
-			eventstack[i].io = NULL;
-			eventstack[i].msg = SM_NULL;
-			eventstack[i].params.clear();
-			eventstack[i].eventname.clear();
-	}
+void ARX_SCRIPT_EventStackInit() {
+	ARX_SCRIPT_EventStackClear(false); // Clear everything in the stack
 }
 
-long STACK_FLOW = 8;
-
-void ARX_SCRIPT_EventStackClearForIo(Entity * io)
-{
-	for (long i = 0; i < MAX_EVENT_STACK; i++)
-	{
-		if (eventstack[i].exist)
-		{
-			if (eventstack[i].io == io)
-			{
-				eventstack[i].sender = NULL;
-				eventstack[i].exist = 0;
-				eventstack[i].io = NULL;
-				eventstack[i].msg = SM_NULL;
-				eventstack[i].params.clear();
-				eventstack[i].eventname.clear();
-			}
+void ARX_SCRIPT_EventStackClear(bool check_exist) {
+	LogDebug("clearing event queue");
+	BOOST_FOREACH(QueuedEvent & event, g_eventQueue) {
+		if(!check_exist || event.exists) {
+			event.clear();
 		}
 	}
 }
 
-void ARX_SCRIPT_EventStackExecute()
-{
-	long count = 0;
-
-	for (long i = 0; i < MAX_EVENT_STACK; i++)
-	{
-		if (eventstack[i].exist)
-		{
-			if (!ValidIOAddress(eventstack[i].io))
-				goto kill;
-
-			if (ValidIOAddress(eventstack[i].sender))
-				EVENT_SENDER = eventstack[i].sender;
-			else
-				EVENT_SENDER = NULL;
-
-			SendIOScriptEvent(eventstack[i].io, eventstack[i].msg, eventstack[i].params, eventstack[i].eventname);
-		kill:
-			;
-
-			eventstack[i].sender = NULL;
-			eventstack[i].exist = 0;
-			eventstack[i].io = NULL;
-			eventstack[i].msg = SM_NULL;
-			eventstack[i].params.clear();
-			eventstack[i].eventname.clear();
-			count++;
-
-			if (count >= STACK_FLOW) return;
+void ARX_SCRIPT_EventStackClearForIo(Entity * io) {
+	BOOST_FOREACH(QueuedEvent & event, g_eventQueue) {
+		if(event.exists && event.entity == io) {
+			LogDebug("clearing queued " << event.event << " for " << io->idString());
+			event.clear();
 		}
 	}
 }
 
-void ARX_SCRIPT_EventStackExecuteAll()
-{
-	STACK_FLOW = 9999999;
-	ARX_SCRIPT_EventStackExecute();
-	STACK_FLOW = 20;
+void ARX_SCRIPT_EventStackExecute(size_t limit) {
+	
+	ARX_PROFILE_FUNC();
+	
+	size_t count = 0;
+	
+	BOOST_FOREACH(QueuedEvent & event, g_eventQueue) {
+		
+		if(!event.exists) {
+			continue;
+		}
+		
+		if(ValidIOAddress(event.entity)) {
+			Entity * sender = ValidIOAddress(event.sender) ? event.sender : NULL;
+			LogDebug("running queued " << event.event << " for " << event.entity->idString());
+			SendIOScriptEvent(sender, event.entity, event.event, event.parameters);
+		} else {
+			LogDebug("could not run queued " << event.event
+			         << " params=\"" << event.parameters << "\" - entity vanished");
+		}
+		event.clear();
+		
+		// Abort if the event limit was reached
+		if(++count >= limit) {
+			return;
+		}
+		
+	}
+	
 }
 
-void Stack_SendIOScriptEvent(Entity * io, ScriptMessage msg, const std::string& params, const std::string& eventname)
-{
-	for (long i = 0; i < MAX_EVENT_STACK; i++)
-	{
-		if (!eventstack[i].exist)
-		{
-			eventstack[i].sender = EVENT_SENDER;
-			eventstack[i].io = io;
-			eventstack[i].msg = msg;
-			eventstack[i].exist = 1;
-			eventstack[i].params = params;
-			eventstack[i].eventname = eventname;
+void ARX_SCRIPT_EventStackExecuteAll() {
+	ARX_SCRIPT_EventStackExecute(std::numeric_limits<size_t>::max());
+}
 
+void Stack_SendIOScriptEvent(Entity * sender, Entity * entity, const ScriptEventName & event,
+                             const ScriptParameters & parameters) {
+	BOOST_FOREACH(QueuedEvent & entry, g_eventQueue) {
+		if(!entry.exists) {
+			entry.sender = sender;
+			entry.entity = entity;
+			entry.event = event;
+			entry.parameters = parameters;
+			entry.exists = true;
 			return;
 		}
 	}
 }
 
-ScriptResult SendIOScriptEventReverse(Entity * io, ScriptMessage msg, const std::string& params, const std::string& eventname)
-{
-	// checks invalid IO
-	if (!io) return REFUSE;
-
-	long num = io->index();
+ScriptResult SendIOScriptEvent(Entity * sender, Entity * entity, const ScriptEventName & event,
+                               const ScriptParameters & parameters) {
 	
-	// if this IO only has a Local script, send event to it
-	if (entities[num] && !entities[num]->over_script.data)
-	{
-		return ScriptEvent::send(&entities[num]->script, msg, params, entities[num], eventname);
-	}
+	ARX_PROFILE_FUNC();
 	
-	// If this IO has a Global script send to Local (if exists)
-	// then to local if no overriden by Local
-	if (entities[num] && (ScriptEvent::send(&entities[num]->script, msg, params, entities[num], eventname) != REFUSE))
-	{
-	
-		if (entities[num])
-			return (ScriptEvent::send(&entities[num]->over_script, msg, params, entities[num], eventname));
-		else
-			return REFUSE;
-	}
-
-	// Refused further processing.
-	return REFUSE;
-}
-
-ScriptResult SendIOScriptEvent(Entity * io, ScriptMessage msg, const std::string& params, const std::string& eventname)
-{
-	
-	if(!io) {
+	if(!entity) {
 		return REFUSE;
 	}
 	
-	long num = io->index();
+	EntityHandle num = entity->index();
+	if(!entities[num]) {
+		return REFUSE;
+	}
 	
-	Entity * oes = EVENT_SENDER;
-
-	if ((msg == SM_INIT) || (msg == SM_INITEND))
-	{
-		if (entities[num])
-		{
-			SendIOScriptEventReverse(entities[num], msg, params, eventname);
-			EVENT_SENDER = oes;
+	// Send the event to the instance script first
+	if(entities[num]->over_script.data) {
+		ScriptResult ret = ScriptEvent::send(&entities[num]->over_script, sender, entities[num], event, parameters);
+		if(ret == REFUSE || ret == DESTRUCTIVE || !entities[num]) {
+			return !entities[num] ? REFUSE : ret;
 		}
 	}
-
-	// if this IO only has a Local script, send event to it
-	if (entities[num] && !entities[num]->over_script.data)
-	{
-		ScriptResult ret = ScriptEvent::send(&entities[num]->script, msg, params, entities[num], eventname);
-		EVENT_SENDER = oes;
-		return ret;
-	}
-
-	// If this IO has a Global script send to Local (if exists)
-	// then to Global if no overriden by Local
-	if (entities[num] && ScriptEvent::send(&entities[num]->over_script, msg, params, entities[num], eventname) != REFUSE) {
-		EVENT_SENDER = oes;
-
-		if (entities[num])
-		{
-			ScriptResult ret = ScriptEvent::send(&entities[num]->script, msg, params, entities[num], eventname);
-			EVENT_SENDER = oes;
-			return ret;
-		}
-		else
-			return REFUSE;
-	}
-
-	// Refused further processing.
-	return REFUSE;
+	
+	// If the instance script did not refuse the event also send it to the class script
+	return ScriptEvent::send(&entities[num]->script, sender, entities[num], event, parameters);
 }
 
 ScriptResult SendInitScriptEvent(Entity * io) {
 	
 	if (!io) return REFUSE;
 
-	Entity * oes = EVENT_SENDER;
-	EVENT_SENDER = NULL;
-	long num = io->index();
-
-	if (entities[num] && entities[num]->script.data)
-	{
-		ScriptEvent::send(&entities[num]->script, SM_INIT, "", entities[num], "");
+	EntityHandle num = io->index();
+	
+	if(entities[num] && entities[num]->script.data) {
+		ScriptEvent::send(&entities[num]->script, NULL, entities[num], SM_INIT);
 	}
-
-	if (entities[num] && entities[num]->over_script.data)
-	{
-		ScriptEvent::send(&entities[num]->over_script, SM_INIT, "", entities[num], "");
+	
+	if(entities[num] && entities[num]->over_script.data) {
+		ScriptEvent::send(&entities[num]->over_script, NULL, entities[num], SM_INIT);
 	}
-
-	if (entities[num] && entities[num]->script.data)
-	{
-		ScriptEvent::send(&entities[num]->script, SM_INITEND, "", entities[num], "");
+	
+	if(entities[num] && entities[num]->script.data) {
+		ScriptEvent::send(&entities[num]->script, NULL, entities[num], SM_INITEND);
 	}
-
-	if (entities[num] && entities[num]->over_script.data)
-	{
-		ScriptEvent::send(&entities[num]->over_script, SM_INITEND, "", entities[num], "");
+	
+	if(entities[num] && entities[num]->over_script.data) {
+		ScriptEvent::send(&entities[num]->over_script, NULL, entities[num], SM_INITEND);
 	}
-
-	EVENT_SENDER = oes;
+	
 	return ACCEPT;
 }
 
@@ -1734,7 +1500,7 @@ static bool ARX_SCRIPT_Timer_Exist(const std::string & texx) {
 	return false;
 }
 
-string ARX_SCRIPT_Timer_GetDefaultName() {
+std::string ARX_SCRIPT_Timer_GetDefaultName() {
 	
 	for(size_t i = 1; ; i++) {
 		
@@ -1773,13 +1539,14 @@ long ARX_SCRIPT_CountTimers() {
 //*************************************************************************************
 void ARX_SCRIPT_Timer_ClearByNum(long timer_idx) {
 	if(scr_timer[timer_idx].exist) {
+		LogDebug("clearing timer " << scr_timer[timer_idx].name);
 		scr_timer[timer_idx].name.clear();
 		ActiveTimers--;
 		scr_timer[timer_idx].exist = 0;
 	}
 }
 
-void ARX_SCRIPT_Timer_Clear_By_Name_And_IO(const string & timername, Entity * io) {
+void ARX_SCRIPT_Timer_Clear_By_Name_And_IO(const std::string & timername, Entity * io) {
 	for(long i = 0; i < MAX_TIMER_SCRIPT; i++) {
 		if(scr_timer[i].exist && scr_timer[i].io == io && scr_timer[i].name == timername) {
 			ARX_SCRIPT_Timer_ClearByNum(i);
@@ -1794,18 +1561,6 @@ void ARX_SCRIPT_Timer_Clear_All_Locals_For_IO(Entity * io)
 		if (scr_timer[i].exist)
 		{
 			if ((scr_timer[i].io == io) && (scr_timer[i].es == &io->over_script))
-				ARX_SCRIPT_Timer_ClearByNum(i);
-		}
-	}
-}
-
-void ARX_SCRIPT_Timer_Clear_By_IO(Entity * io)
-{
-	for (long i = 0; i < MAX_TIMER_SCRIPT; i++)
-	{
-		if (scr_timer[i].exist)
-		{
-			if (scr_timer[i].io == io)
 				ARX_SCRIPT_Timer_ClearByNum(i);
 		}
 	}
@@ -1835,13 +1590,10 @@ void ARX_SCRIPT_Timer_ClearAll()
 	ActiveTimers = 0;
 }
 
-void ARX_SCRIPT_Timer_Clear_For_IO(Entity * io)
-{
-	for (long i = 0; i < MAX_TIMER_SCRIPT; i++)
-	{
-		if (scr_timer[i].exist)
-		{
-			if (scr_timer[i].io == io) ARX_SCRIPT_Timer_ClearByNum(i);
+void ARX_SCRIPT_Timer_Clear_For_IO(Entity * io) {
+	for(long i = 0; i < MAX_TIMER_SCRIPT; i++) {
+		if(scr_timer[i].exist && scr_timer[i].io == io) {
+			ARX_SCRIPT_Timer_ClearByNum(i);
 		}
 	}
 }
@@ -1859,52 +1611,46 @@ long ARX_SCRIPT_GetSystemIOScript(Entity * io, const std::string & name) {
 	return -1;
 }
 
-long Manage_Specific_RAT_Timer(SCR_TIMER * st)
-{
+static bool Manage_Specific_RAT_Timer(SCR_TIMER * st) {
+	
 	Entity * io = st->io;
 	GetTargetPos(io);
 	Vec3f target = io->target - io->pos;
-	fnormalize(target);
-	Vec3f targ;
-	Vector_RotateY(&targ, &target, rnd() * 60.f - 30.f);
+	target = glm::normalize(target);
+	Vec3f targ = VRotateY(target, Random::getf(-30.f, 30.f));
 	target = io->target + targ * 100.f;
-
-	if (ARX_INTERACTIVE_ConvertToValidPosForIO(io, &target))
-	{
-		ARX_INTERACTIVE_Teleport(io, &target);
-		Vec3f pos;
-		pos.x = io->pos.x;
-		pos.y = io->pos.y + io->physics.cyl.height * ( 1.0f / 2 );
-		pos.z = io->pos.z;
-		ARX_PARTICLES_Add_Smoke(&pos, 3, 20);
+	
+	if(ARX_INTERACTIVE_ConvertToValidPosForIO(io, &target)) {
+		ARX_INTERACTIVE_Teleport(io, target);
+		Vec3f pos = io->pos;
+		pos.y += io->physics.cyl.height * ( 1.0f / 2 );
+		
+		ARX_PARTICLES_Add_Smoke(pos, 3, 20);
 		AddRandomSmoke(io, 20);
-		MakeCoolFx(&io->pos);
+		MakeCoolFx(io->pos);
 		io->show = SHOW_FLAG_IN_SCENE;
-
-		for (long kl = 0; kl < 10; kl++)
-		{
+		
+		for(long kl = 0; kl < 10; kl++) {
 			FaceTarget2(io);
 		}
-
+		
 		io->gameFlags &= ~GFLAG_INVISIBILITY;
-		st->times = 1;
+		st->count = 1;
+	} else {
+		st->count++;
+		st->interval = GameDurationMsf(toMsf(st->interval) * 0.5f);
+		if(st->interval < GameDurationMs(100))
+			st->interval = GameDurationMs(100);
+		
+		return true;
 	}
-	else
-	{
-		st->times++;
-
-		st->msecs = static_cast<long>(st->msecs * ( 1.0f / 2 ));
-
-
-		if (st->msecs < 100) st->msecs = 100;
-
-		return 1;
-	}
-
-	return 0;
+	
+	return false;
 }
 
 void ARX_SCRIPT_Timer_Check() {
+	
+	ARX_PROFILE_FUNC();
 	
 	if(!ActiveTimers) {
 		return;
@@ -1917,8 +1663,9 @@ void ARX_SCRIPT_Timer_Check() {
 			continue;
 		}
 		
-		unsigned long now = static_cast<unsigned long>(arxtime);
-		unsigned long fire_time = st->tim + st->msecs;
+		GameInstant now = g_gameTime.now();
+		GameInstant fire_time = st->start + st->interval;
+		arx_assert(st->start <= now);
 		if(fire_time > now) {
 			// Timer not ready to fire yet
 			continue;
@@ -1926,14 +1673,16 @@ void ARX_SCRIPT_Timer_Check() {
 		
 		// Skip heartbeat timer events for far away objects
 		if((st->flags & 1) && !(st->io->gameFlags & GFLAG_ISINTREATZONE)) {
-			long increment = (now - st->tim) / st->msecs;
-			st->tim += st->msecs * increment;
-			arx_assert_msg(st->tim <= now && st->tim + st->msecs > now,
-			               "start=%lu wait=%ld now=%lu", st->tim, st->msecs, now);
+			long increment = toMsi(now - st->start) / toMsi(st->interval);
+			st->start += GameDurationMs(toMsi(st->interval) * increment);
+			// TODO print full 64-bit time
+			arx_assert_msg(st->start <= now && st->start + st->interval > now,
+			               "start=%ld wait=%ld now=%ld",
+			               long(toMsi(st->start)), long(toMsi(st->interval)), long(toMsi(now)));
 			continue;
 		}
 		
-		EERIE_SCRIPT * es = st->es;
+		const EERIE_SCRIPT * es = st->es;
 		Entity * io = st->io;
 		long pos = st->pos;
 		
@@ -1943,17 +1692,24 @@ void ARX_SCRIPT_Timer_Check() {
 			}
 		}
 		
-		if(st->times == 1) {
+		#ifdef ARX_DEBUG
+		std::string name = st->name;
+		#endif
+		
+		if(st->count == 1) {
 			ARX_SCRIPT_Timer_ClearByNum(i);
 		} else {
-			if(st->times != 0) {
-				st->times--;
+			if(st->count != 0) {
+				st->count--;
 			}
-			st->tim += st->msecs;
+			st->start += st->interval;
 		}
 		
 		if(es && ValidIOAddress(io)) {
-			ScriptEvent::send(es, SM_EXECUTELINE, "", io, "", pos);
+			LogDebug("running timer \"" << name << "\" for entity " << io->idString());
+			ScriptEvent::resume(es, io, pos);
+		} else {
+			LogDebug("could not run timer \"" << name << "\" - entity vanished");
 		}
 		
 	}
@@ -1964,9 +1720,12 @@ void ARX_SCRIPT_Init_Event_Stats() {
 	ScriptEvent::totalCount = 0;
 	
 	for(size_t i = 0; i < entities.size(); i++) {
-		if(entities[i]) {
-			entities[i]->stat_count = 0;
-			entities[i]->stat_sent = 0;
+		const EntityHandle handle = EntityHandle(i);
+		Entity * e = entities[handle];
+		
+		if(e) {
+			e->stat_count = 0;
+			e->stat_sent = 0;
 		}
 	}
 }
@@ -1974,165 +1733,107 @@ void ARX_SCRIPT_Init_Event_Stats() {
 Entity * ARX_SCRIPT_Get_IO_Max_Events() {
 	
 	long max = -1;
-	long ionum = -1;
+	Entity * result = NULL;
+	
 	for(size_t i = 0; i < entities.size(); i++) {
-		if(entities[i] && entities[i]->stat_count > max) {
-			ionum = i;
-			max = entities[i]->stat_count;
+		const EntityHandle handle = EntityHandle(i);
+		Entity * e = entities[handle];
+		
+		if(e && e->stat_count > max) {
+			result = e;
+			max = e->stat_count;
 		}
 	}
 	
-	if(max <= 0) {
-		return NULL;
-	}
-	
-	if(ionum > -1) {
-		return entities[ionum];
-	}
-	
-	return NULL;
+	return result;
 }
 
 Entity * ARX_SCRIPT_Get_IO_Max_Events_Sent() {
 	
 	long max = -1;
-	long ionum = -1;
+	Entity * result = NULL;
+	
 	for(size_t i = 0; i < entities.size(); i++) {
-		if(entities[i] && entities[i]->stat_sent > max) {
-			ionum = i;
-			max = entities[i]->stat_sent;
+		const EntityHandle handle = EntityHandle(i);
+		Entity * e = entities[handle];
+		
+		if(e && e->stat_sent > max) {
+			result = e;
+			max = e->stat_sent;
 		}
 	}
 	
-	if(max <= 0) {
-		return NULL;
-	}
-	
-	if(ionum > -1) {
-		return entities[ionum];
-	}
-	
-	return NULL;
+	return result;
 }
 
-void ManageCasseDArme(Entity * io)
-{
-	if((io->type_flags & OBJECT_TYPE_DAGGER) ||
-			(io->type_flags & OBJECT_TYPE_1H) ||
-			(io->type_flags & OBJECT_TYPE_2H) ||
-			(io->type_flags & OBJECT_TYPE_BOW)) {
+void ManageCasseDArme(Entity * io) {
+	
+	if(!(io->type_flags & (OBJECT_TYPE_DAGGER | OBJECT_TYPE_1H | OBJECT_TYPE_2H | OBJECT_TYPE_BOW)))
+		return;
+	
+	arx_assert(player.m_bags >= 0);
+	arx_assert(player.m_bags <= 3);
+	
+	Entity * pObjMin = NULL;
+	Entity * pObjMax = NULL;
+	Entity * pObjFIX = NULL;
+	
+	for(size_t bag = 0; bag < size_t(player.m_bags); bag++)
+	for(size_t y = 0; y < INVENTORY_Y; y++)
+	for(size_t x = 0; x < INVENTORY_X; x++) {
+		Entity * bagEntity = g_inventory[bag][x][y].io;
 		
-		if(player.bag) {
-			Entity * pObjMin = NULL;
-			Entity * pObjMax = NULL;
-			Entity * pObjFIX = NULL;
-			bool bStop = false;
+		if(bagEntity && bagEntity != io
+		   && (bagEntity->type_flags & (OBJECT_TYPE_DAGGER | OBJECT_TYPE_1H | OBJECT_TYPE_2H | OBJECT_TYPE_BOW))
+		) {
 			
-			for (int iNbBag = 0; iNbBag < player.bag; iNbBag++) {
-				for (size_t j = 0; j < INVENTORY_Y; j++) {
-					for (size_t i = 0; i < INVENTORY_X; i++) {
-						
-						if ((inventory[iNbBag][i][j].io) &&
-								(inventory[iNbBag][i][j].io != io) &&
-								((inventory[iNbBag][i][j].io->type_flags & OBJECT_TYPE_DAGGER) ||
-								 (inventory[iNbBag][i][j].io->type_flags & OBJECT_TYPE_1H) ||
-								 (inventory[iNbBag][i][j].io->type_flags & OBJECT_TYPE_2H) ||
-								 (inventory[iNbBag][i][j].io->type_flags & OBJECT_TYPE_BOW)))
-						{
-
-							if ((io->ioflags & IO_ITEM) &&
-									(inventory[iNbBag][i][j].io->ioflags & IO_ITEM) &&
-									(inventory[iNbBag][i][j].io->_itemdata->equipitem))
-							{
-								if (inventory[iNbBag][i][j].io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value == io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value)
-								{
-									pIOChangeWeapon = inventory[iNbBag][i][j].io;
-									lChangeWeapon = 2;
-									bStop = true;
-								}
-								else
-								{
-									if (inventory[iNbBag][i][j].io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value > io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value)
-									{
-										if (pObjMin)
-										{
-											if (inventory[iNbBag][i][j].io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value > pObjMin->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value)
-											{
-												pObjMin = inventory[iNbBag][i][j].io;
-											}
-										}
-										else
-										{
-											pObjMin = inventory[iNbBag][i][j].io;
-										}
-									}
-									else
-									{
-										if (inventory[iNbBag][i][j].io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value < io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value)
-										{
-											if (pObjMax)
-											{
-												if (inventory[iNbBag][i][j].io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value < pObjMax->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value)
-												{
-													pObjMax = inventory[iNbBag][i][j].io;
-												}
-											}
-											else
-											{
-												pObjMax = inventory[iNbBag][i][j].io;
-											}
-										}
-									}
-								}
+			if(   (io->ioflags & IO_ITEM)
+			   && (bagEntity->ioflags & IO_ITEM)
+			   && bagEntity->_itemdata->equipitem
+			) {
+				if(bagEntity->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value == io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value) {
+					pIOChangeWeapon = bagEntity;
+					lChangeWeapon = 2;
+					return;
+				} else {
+					if(bagEntity->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value > io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value) {
+						if(pObjMin) {
+							if(bagEntity->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value < pObjMin->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value) {
+								pObjMin = bagEntity;
 							}
-							else
-							{
-								if (!pObjFIX)
-								{
-									pObjFIX = inventory[iNbBag][i][j].io;
+						} else {
+							pObjMin = bagEntity;
+						}
+					} else {
+						if(bagEntity->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value < io->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value) {
+							if(pObjMax) {
+								if(bagEntity->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value > pObjMax->_itemdata->equipitem->elements[IO_EQUIPITEM_ELEMENT_Damages].value) {
+									pObjMax = bagEntity;
 								}
+							} else {
+								pObjMax = bagEntity;
 							}
 						}
-
-						if (bStop)
-						{
-							break;
-						}
-					}
-
-					if (bStop)
-					{
-						break;
 					}
 				}
-
-				if (bStop)
-				{
-					break;
+			} else {
+				if(!pObjFIX) {
+					pObjFIX = bagEntity;
 				}
-				else
-				{
-					if (pObjMax)
-					{
-						pIOChangeWeapon = pObjMax;
-						lChangeWeapon = 2;
-					}
-					else
-					{
-						if (pObjMin)
-						{
-							pIOChangeWeapon = pObjMin;
-							lChangeWeapon = 2;
-						}
-						else
-						{
-							if (pObjFIX)
-							{
-								pIOChangeWeapon = pObjFIX;
-								lChangeWeapon = 2;
-							}
-						}
-					}
+			}
+		}
+		
+		if(pObjMax) {
+			pIOChangeWeapon = pObjMax;
+			lChangeWeapon = 2;
+		} else {
+			if(pObjMin) {
+				pIOChangeWeapon = pObjMin;
+				lChangeWeapon = 2;
+			} else {
+				if(pObjFIX) {
+					pIOChangeWeapon = pObjFIX;
+					lChangeWeapon = 2;
 				}
 			}
 		}
@@ -2151,16 +1852,6 @@ void loadScript(EERIE_SCRIPT & script, PakFile * file) {
 	script.size = file->size();
 	
 	std::transform(script.data, script.data + script.size, script.data, ::tolower);
-	
-	script.allowevents = 0;
-	
-	free(script.lvar), script.lvar = NULL, script.nblvar = 0;
-	
-	script.master = NULL;
-	
-	for(size_t j = 0; j < MAX_SCRIPTTIMERS; j++) {
-		script.timers[j] = 0;
-	}
 	
 	ARX_SCRIPT_ComputeShortcuts(script);
 	

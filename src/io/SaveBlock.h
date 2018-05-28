@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -99,12 +99,12 @@ private:
 	
 	typedef boost::unordered_map<std::string, File> Files;
 	
-	fs::path savefile;
-	fs::fstream handle;
-	size_t totalSize;
-	size_t usedSize;
-	size_t chunkCount;
-	Files files;
+	fs::path m_savefile;
+	fs::fstream m_handle;
+	size_t m_totalSize;
+	size_t m_usedSize;
+	size_t m_chunkCount;
+	Files m_files;
 	
 	bool defragment();
 	bool loadFileTable();
@@ -123,7 +123,7 @@ public:
 	
 	/*!
 	 * Open a save block.
-	 * @param writable must be true if the block is going to be changed
+	 * \param writable must be true if the block is going to be changed
 	 */
 	bool open(bool writable = false);
 	
@@ -139,6 +139,11 @@ public:
 	 * flush() should be called before destructing this SaveBlock instance
 	 */
 	bool save(const std::string & name, const char * data, size_t size);
+	
+	/*!
+	 * Remove a file from the save block.
+	 */
+	void remove(const std::string & name);
 	
 	char * load(const std::string & name, size_t & size);
 	bool hasFile(const std::string & name) const;
@@ -156,10 +161,10 @@ public:
 	 * 
 	 * This is optimized for loading the file named in flush().
 	 * 
-	 * @param savefile the save block to load from
-	 * @param name the file to load
-	 * @param size will be set to the loaded size
-	 * @return a new, malloc-allocated buffer or NULL if eiether the saveblock could not be opened or doesn't contain a file with the given name.
+	 * \param savefile the save block to load from
+	 * \param name the file to load
+	 * \param size will be set to the loaded size
+	 * \return a new, malloc-allocated buffer or NULL if eiether the saveblock could not be opened or doesn't contain a file with the given name.
 	 */
 	static char * load(const fs::path & savefile, const std::string & name, size_t & size);
 	

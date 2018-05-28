@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -52,9 +52,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 
 struct ARX_SPECIAL_ATTRACTOR {
-	long	ionum;  // -1 == not defined
-	float	power;
-	float	radius;
+	EntityHandle ionum;
+	float power;
+	float radius;
 };
 
 static const size_t MAX_ATTRACTORS = 16;
@@ -62,19 +62,19 @@ static ARX_SPECIAL_ATTRACTOR attractors[MAX_ATTRACTORS];
 
 void ARX_SPECIAL_ATTRACTORS_Reset() {
 	for(size_t i = 0; i < MAX_ATTRACTORS; i++) {
-		attractors[i].ionum = -1;
+		attractors[i].ionum = EntityHandle();
 	}
 }
 
-static void ARX_SPECIAL_ATTRACTORS_Remove(long ionum) {
+static void ARX_SPECIAL_ATTRACTORS_Remove(EntityHandle ionum) {
 	for(size_t i = 0; i < MAX_ATTRACTORS; i++) {
 		if(attractors[i].ionum == ionum) {
-			attractors[i].ionum = -1;
+			attractors[i].ionum = EntityHandle();
 		}
 	}
 }
 
-static long ARX_SPECIAL_ATTRACTORS_Exist(long ionum) {
+static long ARX_SPECIAL_ATTRACTORS_Exist(EntityHandle ionum) {
 	for(size_t i = 0; i < MAX_ATTRACTORS; i++) {
 		if(attractors[i].ionum == ionum) {
 			return i;
@@ -83,7 +83,7 @@ static long ARX_SPECIAL_ATTRACTORS_Exist(long ionum) {
 	return -1;
 }
 
-bool ARX_SPECIAL_ATTRACTORS_Add(long ionum, float power, float radius) {
+bool ARX_SPECIAL_ATTRACTORS_Add(EntityHandle ionum, float power, float radius) {
 	
 	if(power == 0.f) {
 		ARX_SPECIAL_ATTRACTORS_Remove(ionum);
@@ -97,7 +97,7 @@ bool ARX_SPECIAL_ATTRACTORS_Add(long ionum, float power, float radius) {
 	}
 	
 	for(size_t i = 0; i < MAX_ATTRACTORS; i++) {
-		if(attractors[i].ionum == -1) {
+		if(attractors[i].ionum == EntityHandle()) {
 			attractors[i].ionum = ionum;
 			attractors[i].power = power;
 			attractors[i].radius = radius;
@@ -110,15 +110,16 @@ bool ARX_SPECIAL_ATTRACTORS_Add(long ionum, float power, float radius) {
 
 void ARX_SPECIAL_ATTRACTORS_ComputeForIO(const Entity & ioo, Vec3f & force) {
 	
-	force = Vec3f::ZERO;
+	force = Vec3f_ZERO;
 	
 	for(size_t i = 0; i < MAX_ATTRACTORS; i++) {
 		
-		if(attractors[i].ionum == -1 || !ValidIONum(attractors[i].ionum)) {
+		Entity * iop = entities.get(attractors[i].ionum);
+		if(!iop) {
 			continue;
 		}
 		
-		const Entity & io = *entities[attractors[i].ionum];
+		const Entity & io = *iop;
 		
 		if(io.show != SHOW_FLAG_IN_SCENE || (io.ioflags & IO_NO_COLLISIONS)
 			 || !(io.gameFlags & GFLAG_ISINTREATZONE)) {
@@ -130,12 +131,12 @@ void ARX_SPECIAL_ATTRACTORS_ComputeForIO(const Entity & ioo, Vec3f & force) {
 		
 		if(dist > (ioo.physics.cyl.radius + io.physics.cyl.radius + 10.f) || power < 0.f) {
 			
-			float max_radius = attractors[i].radius; 
+			float max_radius = attractors[i].radius;
 			
 			if(dist < max_radius) {
 				float ratio_dist = 1.f - (dist / max_radius);
 				Vec3f vect = io.pos - ioo.pos;
-				fnormalize(vect);
+				vect = glm::normalize(vect);
 				power *= ratio_dist * 0.01f;
 				force = vect * power;
 			}

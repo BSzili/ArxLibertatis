@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -34,7 +34,7 @@ private:
 #ifdef ARX_DEBUG
 	void check() const;
 #else
-	inline void check() const { }
+	void check() const { }
 #endif
 	
 	static path resolve(const path & base, const path & branch);
@@ -50,23 +50,28 @@ public:
 	/* implicit */ path(const std::string & str) : pathstr(str) { check(); }
 	/* implicit */ path(const char * str) : pathstr(str) { check(); }
 	
-	inline path & operator=(const path & other) {
-		return (pathstr = other.pathstr, *this);
+	path & operator=(const path & other) {
+		pathstr = other.pathstr;
+		return *this;
 	}
 	
-	inline path & operator=(const std::string & str) {
-		return (pathstr = str, check(), *this);
+	path & operator=(const std::string & str) {
+		pathstr = str;
+		check();
+		return *this;
 	}
 	
-	inline path & operator=(const char * str) {
-		return (pathstr = str, check(), *this);
+	path & operator=(const char * str) {
+		pathstr = str;
+		check();
+		return *this;
 	}
 	
 	path operator/(const path & other) const;
 	
 	path & operator/=(const path & other);
 	
-	inline const std::string & string() const {
+	const std::string & string() const {
 		return pathstr;
 	}
 	
@@ -74,7 +79,7 @@ public:
 	 * If pathstr contains a slash, return everything preceding it.
 	 * Otherwise, return path().
 	 */
-	inline path parent() const {
+	path parent() const {
 		if(has_info()) {
 			size_t dirpos = pathstr.find_last_of(dir_sep);
 			return (dirpos == std::string::npos) ? path() : path(pathstr.substr(0, dirpos));
@@ -99,7 +104,7 @@ public:
 	 * If pathstr contains a slash, return everything following it.
 	 * Otherwise, return pathstr.
 	 */
-	inline std::string filename() const {
+	std::string filename() const {
 		size_t dirpos = pathstr.find_last_of(dir_sep);
 		return (dirpos == std::string::npos) ? pathstr : pathstr.substr(dirpos + 1);
 	}
@@ -116,51 +121,51 @@ public:
 	 */
 	std::string ext() const;
 	
-	inline bool empty() const {
+	bool empty() const {
 		return pathstr.empty();
 	}
 	
-	//! @return pathstr == other.pathstr
-	inline bool operator==(const path & other) const {
+	//! \return pathstr == other.pathstr
+	bool operator==(const path & other) const {
 		return (pathstr == other.pathstr);
 	}
 	
-	//! @return pathstr == str
-	inline bool operator==(const std::string & str) const {
+	//! \return pathstr == str
+	bool operator==(const std::string & str) const {
 		return (pathstr == str);
 	}
 	
 	/*!
-	 * @return pathstr == str
+	 * \return pathstr == str
 	 * This overload is neccessary so comparing with string constants isn't ambigous
 	 */
-	inline bool operator==(const char * str) const {
+	bool operator==(const char * str) const {
 		return !pathstr.compare(0, pathstr.length(), str);
 	}
 	
-	//! @return pathstr != other.pathstr
-	inline bool operator!=(const path & other) const {
+	//! \return pathstr != other.pathstr
+	bool operator!=(const path & other) const {
 		return (pathstr != other.pathstr);
 	}
 	
-	//! @return pathstr != str
-	inline bool operator!=(const std::string & str) const {
+	//! \return pathstr != str
+	bool operator!=(const std::string & str) const {
 		return (pathstr != str);
 	}
 	
 	/*!
-	 * @return pathstr != str
+	 * \return pathstr != str
 	 * This overload is neccessary so comparing with string constants isn't ambigous
 	 */
-	inline bool operator!=(const char * str) const {
+	bool operator!=(const char * str) const {
 		return pathstr.compare(0, pathstr.length(), str) != 0;
 	}
 	
 	/*!
 	 * To allow path being used in std::map, etc
-	 * @return pathstr < other.pathstr
+	 * \return pathstr < other.pathstr
 	 */
-	inline bool operator<(const path & other) const {
+	bool operator<(const path & other) const {
 		return (pathstr < other.pathstr);
 	}
 	
@@ -172,7 +177,7 @@ public:
 	
 	/*!
 	 * If pathstr constains a dot after the last slash, return everything preceeding the last dot
-	 * @return *this
+	 * \return *this
 	 */
 	path & remove_ext();
 	
@@ -181,22 +186,22 @@ public:
 	
 	path & set_basename(const std::string & basename);
 	
-	//! @return set_basename(get_basename() + basename_part)
+	//! \return set_basename(get_basename() + basename_part)
 	path & append_basename(const std::string & basename_part);
 	
-	inline void swap(path & other) {
+	void swap(path & other) {
 		pathstr.swap(other.pathstr);
 	}
 	
 	//! return str.empty() ? !ext().empty() : ext() == str || ext.substr(1) == str();
 	bool has_ext(const std::string & str = std::string()) const;
 	
-	inline bool is_up() const {
+	bool is_up() const {
 		return (pathstr.length() == 2 && pathstr[0] == '.' && pathstr[1] == '.')
 		       || (pathstr.length() >= 3 && pathstr[0] == '.' && pathstr[1] == '.' && pathstr[2] == dir_sep);
 	}
 	
-	inline bool has_info() const {
+	bool has_info() const {
 		return !pathstr.empty() && !(pathstr.length() == 2 && pathstr[0] == '.' && pathstr[1] == '.')
 		       && !(pathstr.length() >= 3 && pathstr[pathstr.length() - 1] == '.'
 		           && pathstr[pathstr.length() - 2] == '.' && pathstr[pathstr.length() - 3] == dir_sep);
@@ -211,15 +216,15 @@ public:
 	 */
 	path & append(const std::string & str);
 	
-	//! @return append(str)
+	//! \return append(str)
 	path & operator+=(const std::string & str) { append(str); return *this; }
 	
-	//! @return path(*this).append(str)
+	//! \return path(*this).append(str)
 	path operator+(const std::string & str) const {
 		return path(*this) += str;
 	}
 	
-	inline void clear() { pathstr.clear(); }
+	void clear() { pathstr.clear(); }
 	
 };
 
@@ -251,6 +256,6 @@ inline std::ostream & operator<<(std::ostream & strm, const path & path) {
 	return strm << '"' << path.string() << '"';
 }
 
-} // namespace fs
+} // namespace res
 
 #endif // ARX_IO_RESOURCE_RESOURCEPATH_H

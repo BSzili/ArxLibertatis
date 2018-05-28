@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -65,12 +65,12 @@ public:
 	
 	explicit ChunkFile(PakFileHandle * file);
 	
-	bool read(void *, size_t);
-	bool skip(size_t);
-	bool find(const char *);
-	//! @return true if next four bytes = chunk id;
-	bool check(const char *);
-	inline size_t size() { return offset; }
+	bool read(void * buffer, size_t size);
+	bool skip(size_t size);
+	bool find(const char * id);
+	//! \return true if next four bytes = chunk id;
+	bool check(const char * id);
+	size_t size() { return offset; }
 	bool restart();
 	
 private:
@@ -142,7 +142,7 @@ bool ChunkFile::check(const char * id) {
 		return false;
 	}
 	
-	if(memcmp(cc, id, 4)) {
+	if(memcmp(cc, id, 4) != 0) {
 		return false;
 	}
 	

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -51,49 +51,35 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 class TextureContainer;
 
-#define MAX_FLYOVER 32
-
-struct MENU_DYNAMIC_DATA {
-	
-	TextureContainer * Background;
-	TextureContainer * BookBackground;
-	TextureContainer * pTexCredits;
-	float creditspos;
-	float creditstart;
-	std::string flyover[MAX_FLYOVER];
-	std::string credits;
-	// New Quest Buttons Strings
-	std::string str_button_quickgen;
-	std::string str_button_skin;
-	std::string str_button_done;
-	
-	MENU_DYNAMIC_DATA() : Background(NULL), BookBackground(NULL),
-	  pTexCredits(NULL), creditspos(0), creditstart(0) { }
-	
-};
-
-// Possible values for ARXmenu.currentmode
 enum MenuMode {
-	AMCM_OFF,
-	AMCM_MAIN,
-	AMCM_CREDITS,
-	AMCM_NEWQUEST
+	Mode_InGame,
+	Mode_MainMenu,
+	Mode_Credits,
+	Mode_CharacterCreation
 };
 
-// ARX_MENU_DATA contains all Menu-datas
 struct ARX_MENU_DATA {
-	MenuMode currentmode;
-	MENU_DYNAMIC_DATA * mda;
+	
+	MenuMode mode() {
+		return m_currentMode;
+	}
+	void requestMode(MenuMode mode) {
+		m_currentMode = mode;
+	}
+	
+private:
+	MenuMode m_currentMode;
 };
 
 extern ARX_MENU_DATA ARXmenu;
+extern bool g_canResumeGame;
 
 void ARX_Menu_Manage();
-bool ARX_Menu_Render();
-void ARX_MENU_Launch();
-void ARX_MENU_Clicked_QUIT_GAME();
-void ARX_Menu_Resources_Create();
-void ARX_Menu_Resources_Release(bool _bNoSound = true);
+void ARX_Menu_Render();
+void ARX_MENU_Launch(bool allowResume);
+void ARX_Menu_Resources_Release();
 void ARX_MENU_Clicked_CREDITS();
+
+void ARX_MENU_Clicked_NEWQUEST();
 
 #endif // ARX_GUI_MENU_H

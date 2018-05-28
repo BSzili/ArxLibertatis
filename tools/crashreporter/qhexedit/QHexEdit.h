@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -121,14 +121,14 @@ public:
 	
 	/*!
 	 * Creates an instance of QHexEdit.
-	 * @param parent Parent widget of QHexEdit.
+	 * \param parent Parent widget of QHexEdit.
 	 */
 	explicit QHexEdit(QWidget * parent = 0);
 	
 	/*!
 	 * Inserts a byte array.
-	 * @param i Index position, where to insert
-	 * @param ba byte array, which is to insert
+	 * \param i Index position, where to insert
+	 * \param ba byte array, which is to insert
 	 * In overwrite mode, the existing data will be overwritten, in insertmode ba will be
 	 * insertet and size of data grows.
 	 */
@@ -136,8 +136,8 @@ public:
 	
 	/*!
 	 * Inserts a char.
-	 * @param i Index position, where to insert
-	 * @param ch Char, which is to insert
+	 * \param i Index position, where to insert
+	 * \param ch Char, which is to insert
 	 * In overwrite mode, the existing data will be overwritten, in insertmode ba will be
 	 * insertet and size of data grows.
 	 */
@@ -145,11 +145,11 @@ public:
 	
 	/*!
 	 * Removes len bytes from the content.
-	 * @param pos Index position, where to remove
-	 * @param len Amount of bytes to remove
+	 * \param pos Index position, where to remove
+	 * \param len Amount of bytes to remove
 	 * In overwrite mode, the existing bytes will be overwriten with 0x00.
 	 */
-	void remove(int pos, int len=1);
+	void remove(int pos, int len = 1);
 	
 	//! Gives back a formatted image of the content of QHexEdit
 	QString toReadableString();
@@ -157,7 +157,7 @@ public:
 	//! Gives back a formatted image of the selected content of QHexEdit
 	QString selectionToReadableString();
 	
-	//! @cond docNever
+	//! \cond docNever
 	void setAddressOffset(int offset);
 	int addressOffset();
 	void setData(QByteArray const & data);
@@ -174,7 +174,7 @@ public:
 	bool isReadOnly();
 	const QFont & font() const;
 	void setFont(const QFont & font);
-	//! @endcond docNever
+	//! \endcond docNever
 	
 public slots:
 	
@@ -186,25 +186,25 @@ public slots:
 	
 	/*!
 	 * Set the minimum width of the address area.
-	 * @param addressWidth Width in characters.
+	 * \param addressWidth Width in characters.
 	 */
 	void setAddressWidth(int addressWidth);
 	
 	/*!
 	 * Switch the address area on or off.
-	 * @param addressArea true (show it), false (hide it).
+	 * \param addressArea true (show it), false (hide it).
 	 */
 	void setAddressArea(bool addressArea);
 	
 	/*!
 	 * Switch the ascii area on or off.
-	 * @param asciiArea true (show it), false (hide it).
+	 * \param asciiArea true (show it), false (hide it).
 	 */
 	void setAsciiArea(bool asciiArea);
 	
 	/*!
 	 * Switch the highlighting feature on or of.
-	 * @param mode true (show it), false (hide it).
+	 * \param mode true (show it), false (hide it).
 	 */
 	void setHighlighting(bool mode);
 	
@@ -233,6 +233,7 @@ private:
 	//! \cond docNever
 	QHexEditPrivate * qHexEdit_p;
 	//! \endcond docNever
+	
 };
 
 #endif // ARX_TOOLS_CRASHREPORTER_QHEXEDIT_QHEXEDIT_H

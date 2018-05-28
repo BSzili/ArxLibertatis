@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -38,7 +38,7 @@ public:
 	void flush();
 	
 	/*!
-	 * @return a ColorLogger instance if colors are supported or a ConsoleLogger otherwise.
+	 * \return a ColorLogger instance if colors are supported or a ConsoleLogger otherwise.
 	 *         May return null if standard output / error is discarded.
 	 */
 	static Backend * get();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,53 +47,76 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <stddef.h>
 #include <string>
 #include <ostream>
+#include <utility>
 
-#include "math/MathFwd.h"
+#include "game/GameTypes.h"
+#include "math/Types.h"
 #include "script/Script.h"
 
 class Entity;
 
 struct INVENTORY_SLOT {
+	
 	Entity * io;
-	long show;
+	bool show;
+	
+	INVENTORY_SLOT()
+		: io(NULL)
+		, show(false)
+	{}
+	
 };
 
 struct INVENTORY_DATA {
+	
 	Entity * io;
-	long sizex;
-	long sizey;
+	Vec2s m_size;
 	INVENTORY_SLOT slot[20][20];
+	
+	INVENTORY_DATA()
+		: io(NULL)
+		, m_size(Vec2s(0, 0))
+	{}
+	
 };
 
+const size_t INVENTORY_BAGS = 3;
 const size_t INVENTORY_X = 16;
 const size_t INVENTORY_Y = 3;
 
 // TODO this should be completely wrapped in PlayerInventory!
-extern INVENTORY_SLOT inventory[3][INVENTORY_X][INVENTORY_Y];
+extern INVENTORY_SLOT g_inventory[INVENTORY_BAGS][INVENTORY_X][INVENTORY_Y];
 
 extern INVENTORY_DATA * SecondaryInventory;
 extern INVENTORY_DATA * TSecondaryInventory;
 extern Entity * DRAGINTER;
 extern Entity * ioSteal;
-extern long InventoryY;
+
+inline Vec2s inventorySizeFromTextureSize(Vec2i size) {
+	return Vec2s(glm::clamp((size + Vec2i(31, 31)) / Vec2i(32, 32), Vec2i(1, 1), Vec2i(3, 3)));
+}
 
 struct InventoryPos {
 	
 	typedef unsigned short index_type;
 	
-	long io;
+	EntityHandle io;
 	index_type bag;
 	index_type x;
 	index_type y;
 	
-	InventoryPos() : io(-1) { }
+	InventoryPos()
+		: bag(0)
+		, x(0)
+		, y(0)
+	{ }
 	
-	InventoryPos(long io, index_type bag, index_type x, index_type y)
-		: io(io), bag(bag), x(x), y(y) { }
+	InventoryPos(long io_, index_type bag_, index_type x_, index_type y_)
+		: io(io_), bag(bag_), x(x_), y(y_) { }
 	
-	//! @return true if this is a valid position
+	//! \return true if this is a valid position
 	operator bool() const {
-		return (io != -1);
+		return (io != EntityHandle());
 	}
 	
 };
@@ -113,9 +136,9 @@ public:
 	 *
 	 * Does not check if the item is already in the inventory!
 	 *
-	 * @param item the item to insert
+	 * \param item the item to insert
 	 *
-	 * @return true if the item was inserted, false otherwise
+	 * \return true if the item was inserted, false otherwise
 	 */
 	static bool insert(Entity * item);
 	
@@ -127,9 +150,9 @@ public:
 	 *
 	 * Does not check if the item is already in the inventory!
 	 *
-	 * @param item the item to insert
+	 * \param item the item to insert
 	 *
-	 * @return true if the item was inserted, false otherwise
+	 * \return true if the item was inserted, false otherwise
 	 */
 	static bool insert(Entity * item, const Pos & pos);
 	
@@ -139,7 +162,7 @@ public:
 	/*!
 	 * Get the position of an item in the inventory.
 	 *
-	 * @return the position of the item
+	 * \return the position of the item
 	 */
 	static Pos locate(const Entity * item);
 	
@@ -147,12 +170,12 @@ public:
 	 * Remove an item from the inventory.
 	 * The item is not deleted.
 	 *
-	 * @return the old position of the item
+	 * \return the old position of the item
 	 */
 	static Pos remove(const Entity * item);
 	
 	static Entity * get(const Pos & pos) {
-		return pos ? inventory[pos.bag][pos.x][pos.y].io : NULL;
+		return pos ? g_inventory[pos.bag][pos.x][pos.y].io : NULL;
 	}
 	
 };
@@ -165,9 +188,9 @@ extern PlayerInventory playerInventory;
  * Otherwise a the first empty slot will be used.
  * If no slot was available, the item is dropped in front of the player
  *
- * @param item the item to insert
+ * \param item the item to insert
  *
- * @return true if the item was added to the inventory, false if it was dropped
+ * \return true if the item was added to the inventory, false if it was dropped
  */
 bool giveToPlayer(Entity * item);
 
@@ -178,9 +201,9 @@ bool giveToPlayer(Entity * item);
  * If that fails, a the first empty slot will be used.
  * If no slot was available, the item is dropped in front of the player
  *
- * @param item the item to insert
+ * \param item the item to insert
  *
- * @return true if the item was added to the inventory, false if it was dropped
+ * \return true if the item was added to the inventory, false if it was dropped
  */
 bool giveToPlayer(Entity * item, const InventoryPos & pos);
 
@@ -192,16 +215,16 @@ bool giveToPlayer(Entity * item, const InventoryPos & pos);
  *
  * Does not check if the item is already in the inventory!
  *
- * @param item the item to insert
+ * \param item the item to insert
  *
- * @return true if the item was inserted, false otherwise
+ * \return true if the item was inserted, false otherwise
  */
 bool insertIntoInventory(Entity * item, const InventoryPos & pos);
 
 /*!
  * Get the position of an item in the inventory.
  *
- * @return the position of the item
+ * \return the position of the item
  */
 InventoryPos locateInInventories(const Entity * item);
 
@@ -209,7 +232,7 @@ InventoryPos locateInInventories(const Entity * item);
  * Remove an item from all inventories.
  * The item is not deleted.
  *
- * @return the old position of the item
+ * \return the old position of the item
  */
 InventoryPos removeFromInventories(Entity * item);
 
@@ -220,39 +243,41 @@ InventoryPos removeFromInventories(Entity * item);
  * If that fails, a the first empty slot will be used.
  * If no slot was available, the item is dropped in front of the player
  *
- * @param item the item to insert
+ * \param item the item to insert
  *
- * @return true if the item was added to the inventory, false if it was dropped
+ * \return true if the item was added to the inventory, false if it was dropped
  */
 bool putInInventory(Entity * item, const InventoryPos & pos);
 
+void ARX_INVENTORY_Declare_InventoryIn(Entity * io);
+
 void PutInFrontOfPlayer(Entity * io);
 
-bool GetItemWorldPosition(Entity * io, Vec3f * pos);
-bool GetItemWorldPositionSound(const Entity * io, Vec3f * pos);
+Vec3f GetItemWorldPosition(const Entity * io);
+Vec3f GetItemWorldPositionSound(const Entity * io);
 
-Entity * GetInventoryObj_INVENTORYUSE(Vec2s * pos);
+Entity * GetInventoryObj_INVENTORYUSE(const Vec2s & pos);
 void CheckForInventoryReplaceMe(Entity * io, Entity * old);
 
-bool InSecondaryInventoryPos(Vec2s * pos);
-bool InPlayerInventoryPos(Vec2s * pos);
-bool CanBePutInSecondaryInventory(INVENTORY_DATA * id, Entity * io, long * xx, long * yy);
+bool CanBePutInSecondaryInventory(INVENTORY_DATA * id, Entity * io);
 
 void CleanInventory();
 void SendInventoryObjectCommand(const std::string & _lpszText, ScriptMessage _lCommand);
-bool PutInInventory();
-bool TakeFromInventory(Vec2s * pos);
-Entity * GetFromInventory(Vec2s * pos);
-bool IsFlyingOverInventory(Vec2s * pos);
+void PutInInventory();
+bool TakeFromInventory(const Vec2s & pos);
+std::pair<Entity *, int> GetFromInventory(const Vec2s & pos);
 bool IsInPlayerInventory(Entity * io);
 bool IsInSecondaryInventory(Entity * io);
-bool InInventoryPos(Vec2s * pos);
+bool InInventoryPos(const Vec2s & pos);
 void RemoveFromAllInventories(const Entity * io);
 Entity * ARX_INVENTORY_GetTorchLowestDurability();
+long Player_Arrow_Count();
+Entity * Player_Arrow_Count_Decrease();
+
 void ARX_INVENTORY_IdentifyAll();
 void ARX_INVENTORY_OpenClose(Entity * io);
 void ARX_INVENTORY_TakeAllFromSecondaryInventory();
 
-void IO_Drop_Item(Entity * io_src, Entity * io);
+void ARX_INVENTORY_IdentifyIO(Entity * _pIO);
 
 #endif // ARX_GAME_INVENTORY_H

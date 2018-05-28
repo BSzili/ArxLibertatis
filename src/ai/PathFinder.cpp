@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -46,17 +46,22 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <limits>
 #include <algorithm>
 
+#include <boost/foreach.hpp>
+#include <boost/unordered_map.hpp>
+
+#include "ai/Anchors.h"
+
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Math.h"
 #include "graphics/data/Mesh.h"
+#include "math/GtxFunctions.h"
 #include "math/Random.h"
-#include "math/Vector3.h"
+#include "math/RandomVector.h"
+#include "math/Vector.h"
 #include "platform/Platform.h"
-#include "physics/Anchors.h"
+#include "scene/Light.h"
 
 static const float MIN_RADIUS = 110.0f;
-
-#define frnd() (1.0f - 2 * rnd())
 
 const float PathFinder::HEURISTIC_MIN = 0.0f;
 const float PathFinder::HEURISTIC_MAX = 0.5f;
@@ -78,23 +83,12 @@ public:
 	Node(long _id, const Node * _parent, float _distance, float _remaining)
 		: id(_id), parent(_parent), cost(_distance + _remaining), distance(_distance) { }
 	
-	inline NodeId getId() const {
-		return id;
-	}
+	NodeId getId() const { return id; }
+	const Node * getParent() const { return parent; }
+	float getCost() const { return cost; }
+	float getDistance() const { return distance; }
 	
-	inline const Node * getParent() const {
-		return parent;
-	}
-	
-	inline float getCost() const {
-		return cost;
-	}
-	
-	inline float getDistance() const {
-		return distance;
-	}
-	
-	inline void newParent(const Node * _parent, float _distance) {
+	void newParent(const Node * _parent, float _distance) {
 		parent = _parent;
 		cost = cost - distance + _distance;
 		distance = _distance;
@@ -104,7 +98,7 @@ public:
 
 class PathFinder::OpenNodeList {
 	
-	typedef std::vector<Node*> NodeList;
+	typedef std::vector<Node *> NodeList;
 	NodeList nodes;
 	
 public:
@@ -120,7 +114,7 @@ public:
 	 * Otherwise add a new node.
 	 * Assumes that remaining never changes for the same node id.
 	 */
-	inline void add(NodeId id, const Node * parent, float distance, float remaining) {
+	void add(NodeId id, const Node * parent, float distance, float remaining) {
 		
 		// Check if node is already in open list.
 		for(NodeList::iterator i = nodes.begin(); i != nodes.end(); ++i) {
@@ -161,51 +155,46 @@ public:
 
 class PathFinder::ClosedNodeList {
 	
-	typedef std::vector<Node*> NodeList;
+	typedef boost::unordered_map<NodeId, Node *> NodeList;
 	NodeList nodes;
 	
 public:
 	
 	~ClosedNodeList() {
-		for(NodeList::iterator i = nodes.begin(); i != nodes.end(); ++i) {
-			delete *i;
+		BOOST_FOREACH(NodeList::value_type & entry, nodes) {
+			delete entry.second;
 		}
 	}
 	
 	void add(Node * node) {
-		nodes.push_back(node);
+		arx_assert(!contains(node->getId()));
+		nodes.insert(NodeList::value_type(node->getId(), node));
 	}
 	
 	bool contains(NodeId id) const {
-		// TODO better datastructure: set of closed node ids
-		for(NodeList::const_iterator i = nodes.begin(); i != nodes.end(); ++i) {
-			if((*i)->getId() == id) {
-				return true;
-			}
-		}
-		return false;
+		return nodes.find(id) != nodes.end();
 	}
 	
 };
 
 PathFinder::PathFinder(size_t map_size, const ANCHOR_DATA * map_data,
                        size_t slight_count, const EERIE_LIGHT * const * slight_list)
-	: radius(RADIUS_DEFAULT), height(HEIGHT_DEFAULT), heuristic(HEURISTIC_DEFAULT),
+	: m_radius(RADIUS_DEFAULT), m_height(HEIGHT_DEFAULT), m_heuristic(HEURISTIC_DEFAULT),
 	  map_s(map_size), map_d(map_data), slight_c(slight_count), slight_l(slight_list) { }
 
-void PathFinder::setHeuristic(float _heuristic) {
-	if(_heuristic >= HEURISTIC_MAX) {
-		heuristic = HEURISTIC_MAX;
-	} else if(_heuristic <= HEURISTIC_MIN) {
-		heuristic = HEURISTIC_MIN;
+void PathFinder::setHeuristic(float heuristic) {
+	if(heuristic >= HEURISTIC_MAX) {
+		m_heuristic = HEURISTIC_MAX;
+	} else if(heuristic <= HEURISTIC_MIN) {
+		m_heuristic = HEURISTIC_MIN;
 	} else {
-		heuristic = _heuristic;
+		m_heuristic = heuristic;
 	}
 }
 
-void PathFinder::setCylinder(float _radius, float _height) {
-	radius = _radius;
-	height = _height;
+void PathFinder::setCylinder(float radius, float height) {
+	m_radius = radius;
+	m_height = height;
 }
 
 bool PathFinder::move(NodeId from, NodeId to, Result & rlist, bool stealth) const {
@@ -217,19 +206,16 @@ bool PathFinder::move(NodeId from, NodeId to, Result & rlist, bool stealth) cons
 	
 	// Create start node and put it on open list
 	Node * node = new Node(from, NULL, 0.0f, 0.0f);
-	if(!node) {
-		return false;
-	}
 	
 	// A* main loop
 	OpenNodeList open;
 	ClosedNodeList close;
 	do {
 		
+		NodeId nid = node->getId();
+		
 		// Put node onto close list as we have now examined this node.
 		close.add(node);
-		
-		NodeId nid = node->getId();
 		
 		// If it's the goal node then we're done.
 		if(nid == to) {
@@ -238,12 +224,10 @@ bool PathFinder::move(NodeId from, NodeId to, Result & rlist, bool stealth) cons
 		}
 		
 		// Otherwise, generate child from current node.
-		for(short i = 0; i < map_d[nid].nblinked; i++) {
+		BOOST_FOREACH(NodeId cid, map_d[nid].linked) {
 			
-			NodeId cid = map_d[nid].linked[i];
-			
-			if((map_d[cid].flags & ANCHOR_FLAG_BLOCKED) || map_d[cid].height > height
-			   || map_d[cid].radius < radius) {
+			if((map_d[cid].flags & ANCHOR_FLAG_BLOCKED) || map_d[cid].height > m_height
+			   || map_d[cid].radius < m_radius) {
 				continue;
 			}
 			
@@ -256,11 +240,11 @@ bool PathFinder::move(NodeId from, NodeId to, Result & rlist, bool stealth) cons
 			if(stealth) {
 				distance += getIlluminationCost(map_d[cid].pos);
 			}
-			distance *= heuristic;
+			distance *= m_heuristic;
 			distance += node->getDistance();
 			
 			// Estimated cost to get from this node to the destination.
-			float remaining = (1.0f - heuristic) * fdist(map_d[cid].pos, map_d[to].pos);
+			float remaining = (1.0f - m_heuristic) * fdist(map_d[cid].pos, map_d[to].pos);
 			
 			open.add(cid, node, distance, remaining);
 		}
@@ -293,6 +277,8 @@ bool PathFinder::flee(NodeId from, const Vec3f & danger, float safeDist, Result 
 	ClosedNodeList close;
 	do {
 		
+		NodeId nid = node->getId();
+		
 		// Put node onto close list as we have now examined this node.
 		close.add(node);
 		
@@ -302,15 +288,11 @@ bool PathFinder::flee(NodeId from, const Vec3f & danger, float safeDist, Result 
 			return true;
 		}
 		
-		NodeId nid = node->getId();
-		
 		// Otherwise, generate child from current node.
-		for(short i(0); i < map_d[nid].nblinked; i++) {
+		BOOST_FOREACH(NodeId cid, map_d[nid].linked) {
 			
-			long cid = map_d[nid].linked[i];
-			
-			if((map_d[cid].flags & ANCHOR_FLAG_BLOCKED) || map_d[cid].height > height
-			   || map_d[cid].radius < radius) {
+			if((map_d[cid].flags & ANCHOR_FLAG_BLOCKED) || map_d[cid].height > m_height
+			   || map_d[cid].radius < m_radius) {
 				continue;
 			}
 			
@@ -340,7 +322,7 @@ bool PathFinder::flee(NodeId from, const Vec3f & danger, float safeDist, Result 
 
 bool PathFinder::wanderAround(NodeId from, float rad, Result & rlist, bool stealth) const {
 	
-	if(!map_d[from].nblinked) {
+	if(map_d[from].linked.empty()) {
 		return false;
 	}
 	
@@ -353,24 +335,24 @@ bool PathFinder::wanderAround(NodeId from, float rad, Result & rlist, bool steal
 	
 	NodeId last = from;
 	
-	unsigned int step_c = Random::get(4, 9);
+	unsigned int step_c = Random::getu(4, 9);
 	for(unsigned int i = 0; i < step_c; i++) {
 		
 		NodeId next = from;
 		
 		// Select the next node.
-		unsigned int nb = Random::get(0, rad / 50);
-		for(unsigned int j = 0; j < nb && map_d[next].nblinked; j++) {
+		unsigned int nb = Random::getu(0, unsigned(rad / 50));
+		for(unsigned int j = 0; j < nb && !map_d[next].linked.empty(); j++) {
 			for(int notfinished = 0; notfinished < 4; notfinished++) {
 				
-				size_t r = Random::get(0, map_d[next].nblinked - 1);
-				arx_assert(r < (size_t)map_d[next].nblinked);
+				size_t r = Random::get(0, map_d[next].linked.size() - 1);
+				arx_assert(r < map_d[next].linked.size());
 				
 				arx_assert(map_d[next].linked[r] >= 0);
 				
 				NodeId nid = map_d[next].linked[r];
-				if((!(map_d[nid].flags & ANCHOR_FLAG_BLOCKED)) && (map_d[nid].nblinked)
-				   && (map_d[nid].height <= height) && (map_d[nid].radius >= radius)) {
+				if((!(map_d[nid].flags & ANCHOR_FLAG_BLOCKED)) && !map_d[nid].linked.empty()
+				   && (map_d[nid].height <= m_height) && (map_d[nid].radius >= m_radius)) {
 					next = nid;
 					break;
 				}
@@ -387,11 +369,7 @@ bool PathFinder::wanderAround(NodeId from, float rad, Result & rlist, bool steal
 	}
 	
 	// Close wander around path (return to start position).
-	if(rlist.size() == s || !move(last, from, rlist, stealth)) {
-		return false;
-	}
-	
-	return true;
+	return (rlist.size() != s && move(last, from, rlist, stealth));
 }
 
 PathFinder::NodeId PathFinder::getNearestNode(const Vec3f & pos) const {
@@ -400,8 +378,8 @@ PathFinder::NodeId PathFinder::getNearestNode(const Vec3f & pos) const {
 	float distance = std::numeric_limits<float>::max();
 	
 	for(size_t i = 0; i < map_s; i++) {
-		float dist = distSqr(map_d[i].pos, pos);
-		if(dist < distance && map_d[i].nblinked) {
+		float dist = arx::distance2(map_d[i].pos, pos);
+		if(dist < distance && !map_d[i].linked.empty() && !(map_d[i].flags & ANCHOR_FLAG_BLOCKED)) {
 			best = i;
 			distance = dist;
 		}
@@ -424,12 +402,12 @@ bool PathFinder::lookFor(NodeId from, const Vec3f & pos, float radius, Result & 
 	
 	NodeId last = from;
 	
-	unsigned long step_c = Random::get(4, 9);
+	unsigned long step_c = Random::getu(4, 9);
 	for(unsigned long i = 0; i < step_c; i++) {
 		
-		Vec3f pos = map_d[to].pos + randomVec(-1.f, 1.f) * radius;
+		Vec3f nextPos = map_d[to].pos + arx::randomVec(-1.f, 1.f) * radius;
 		
-		NodeId next = getNearestNode(pos);
+		NodeId next = getNearestNode(nextPos);
 		
 		if(!move(last, next, rlist, stealth)) {
 			// TODO can cause infinite loop?
@@ -441,11 +419,7 @@ bool PathFinder::lookFor(NodeId from, const Vec3f & pos, float radius, Result & 
 		last = next;
 	}
 	
-	if(rlist.size() == s) {
-		return false;
-	}
-	
-	return true;
+	return (rlist.size() != s);
 }
 
 void PathFinder::buildPath(const Node & node, Result & rlist) {
@@ -470,7 +444,7 @@ float PathFinder::getIlluminationCost(const Vec3f & pos) const {
 	
 	for(size_t i = 0; i < slight_c; i++) {
 		
-		if(!slight_l[i] || !slight_l[i]->exist || !slight_l[i]->status) {
+		if(!slight_l[i] || !slight_l[i]->exist || !slight_l[i]->m_ignitionStatus) {
 			continue;
 		}
 		

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,6 +47,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "gui/MiniMap.h"
 
 #include <cstdio>
+#include <sstream>
+#include <limits>
 
 #include "core/Core.h"
 #include "core/Localisation.h"
@@ -67,6 +69,8 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "io/log/Logger.h"
 
+#include "platform/profiler/Profiler.h"
+
 #include "scene/Interactive.h"
 #include "scene/SaveFormat.h"
 
@@ -76,48 +80,40 @@ void MiniMap::getData(int showLevel) {
 	
 	if(m_levels[showLevel].m_texContainer == NULL) {
 		
-		char name[256];
-		char levelMap[256];
-		GetLevelNameByNum(showLevel, name);
+		std::string name = GetLevelNameByNum(showLevel);
 		
-		sprintf(levelMap, "graph/levels/level%s/map", name);
-		m_levels[showLevel].m_texContainer = TextureContainer::Load(levelMap);
+		res::path levelMap = "graph/levels/level" + name + "/map";
+		m_levels[showLevel].m_texContainer = TextureContainer::Load(levelMap, TextureContainer::NoColorKey);
 		
 		if(m_levels[showLevel].m_texContainer) { // 4 pix/meter
 			
-			m_levels[showLevel].m_height = static_cast<float>(m_levels[showLevel].m_texContainer->m_dwHeight); 
-			m_levels[showLevel].m_width = static_cast<float>(m_levels[showLevel].m_texContainer->m_dwWidth);
+			m_levels[showLevel].m_size = Vec2f(m_levels[showLevel].m_texContainer->m_size);
 			
 			float minX = std::numeric_limits<float>::max();
 			float maxX = std::numeric_limits<float>::min();
 			float minY = std::numeric_limits<float>::max();
 			float maxY = std::numeric_limits<float>::min();
 			
-			EERIEPOLY *ep = NULL;
-			EERIE_BKG_INFO *eg = NULL;
-			
-			for(int j = 0; j < m_activeBkg->Zsize; j++) {
+			for(int z = 0; z < m_activeBkg->m_size.y; z++) {
 				
-				for(int i = 0; i < m_activeBkg->Xsize; i++) {
-					eg = &m_activeBkg->Backg[i+j*m_activeBkg->Xsize];
-					for(int k = 0; k < eg->nbpoly; k++) {
-						ep = &eg->polydata[k];
-						if(ep) {
-							minX = min(minX, ep->min.x);
-							maxX = max(maxX, ep->max.x);
-							minY = min(minY, ep->min.z);
-							maxY = max(maxY, ep->max.z);
-						}
+				for(int x = 0; x < m_activeBkg->m_size.x; x++) {
+					const BackgroundTileData & eg = m_activeBkg->m_tileData[x][z];
+					for(int k = 0; k < eg.nbpoly; k++) {
+						const EERIEPOLY & ep = eg.polydata[k];
+						
+						minX = std::min(minX, ep.min.x);
+						maxX = std::max(maxX, ep.max.x);
+						minY = std::min(minY, ep.min.z);
+						maxY = std::max(maxY, ep.max.z);
 					}
 				}
 				
 				m_mapMaxY[showLevel] = maxY;
-				m_levels[showLevel].m_ratioX = minX;
-				m_levels[showLevel].m_ratioY = minY;
+				m_levels[showLevel].m_ratio.x = minX;
+				m_levels[showLevel].m_ratio.y = minY;
 				
-				for(int l = 0; l < MAX_MINIMAP_LEVELS; l++) {
-					m_levels[l].m_offsetX = 0;
-					m_levels[l].m_offsetY = 0;
+				for(size_t l = 0; l < MAX_MINIMAP_LEVELS; l++) {
+					m_levels[l].m_offset = Vec2f_ZERO;
 				}
 			}
 		}
@@ -126,9 +122,9 @@ void MiniMap::getData(int showLevel) {
 
 void MiniMap::validatePos() {
 	
-	int showLevel = ARX_LEVELS_GetRealNum(m_currentLevel); 
+	int showLevel = ARX_LEVELS_GetRealNum(m_currentLevel);
 	
-	if((showLevel >= 0) && (showLevel < MAX_MINIMAP_LEVELS)) {
+	if((showLevel >= 0) && (showLevel < int(MAX_MINIMAP_LEVELS))) {
 		
 		if(m_levels[showLevel].m_texContainer == NULL) {
 			getData(showLevel);
@@ -152,7 +148,7 @@ void MiniMap::validatePlayerPos(int currentLevel, long blockPlayerControls, ARX_
 		
 		float req;
 		
-		if((m_player->Interface & INTER_MAP) && (!(m_player->Interface & INTER_COMBATMODE)) && (bookMode == BOOKMODE_MINIMAP)) {
+		if((m_player->Interface & INTER_PLAYERBOOK) && (!(m_player->Interface & INTER_COMBATMODE)) && (bookMode == BOOKMODE_MINIMAP)) {
 			req = 20.f;
 		} else {
 			req = 80.f;
@@ -166,11 +162,11 @@ void MiniMap::validatePlayerPos(int currentLevel, long blockPlayerControls, ARX_
 	}
 }
 
-void MiniMap::loadOffsets(PakReader *pakRes) {
+void MiniMap::loadOffsets(PakReader * pakRes) {
 	
 	std::string iniMiniOffsets = "graph/levels/mini_offsets.ini";
 	
-	PakFile *file = pakRes->getFile(iniMiniOffsets.c_str());
+	PakFile * file = pakRes->getFile(iniMiniOffsets.c_str());
 	
 	if(!file) {
 		LogError << "Missing " << iniMiniOffsets;
@@ -178,72 +174,44 @@ void MiniMap::loadOffsets(PakReader *pakRes) {
 	}
 	
 	size_t fileSize = file->size();
-	char *dat = new char[fileSize + 2];
-	dat[fileSize + 1] = '\0';
+	char * dat = new char[fileSize + 1];
+	dat[fileSize] = '\0';
 	
 	file->read(dat);
 	
-	if(dat) {
-		
-		size_t pos = 0;
-		
-		for(int i = 0; i < 29; i++) { // Why 29?
-			
-			char t[512];
-			int nRead = sscanf(dat + pos, "%s %f %f", t, &m_miniOffsetX[i], &m_miniOffsetY[i]);
-			
-#ifdef __MORPHOS__
-			// setlocale() won't work, we have to replace decimal dots with decimal commas
-			if(nRead != 3) {
-				for(int j = 0; j < fileSize + 1; j++) {
-					if(dat[j] == '.') {
-						dat[j] = ',';
-					}
-				}
-				nRead = sscanf(dat + pos, "%s %f %f", t, &m_miniOffsetX[i], &m_miniOffsetY[i]);
-			}
-#endif
-			
-			if(nRead != 3) {
-				LogError << "Error parsing line " << i << " of mini_offsets.ini: read " << nRead;
-			}
-			
-			while((pos < fileSize) && (dat[pos] != '\n')) {
-				pos++;
-			}
-			
-			pos++;
-			
-			if(pos >= fileSize) {
-				break;
-			}
+	std::istringstream iss(dat);
+	
+	std::string dummy;
+	
+	for(int i = 0; i < 29; i++) { // Why 29?
+		iss >> dummy >> m_miniOffset[i].x >> m_miniOffset[i].y;
+		if(iss.fail()) {
+			LogError << "Error parsing line " << i << " of mini_offsets.ini";
 		}
-		
-		delete[] dat;
+		iss.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 	}
 	
-	m_miniOffsetX[0] = 0;
-	m_miniOffsetY[0] = -0.5;
-	m_miniOffsetX[1] = 0;
-	m_miniOffsetY[1] = 0;
-	m_miniOffsetX[14] = 130;
-	m_miniOffsetY[14] = 0;
-	m_miniOffsetX[15] = 31;
-	m_miniOffsetY[15] = -3.5;
+	delete[] dat;
+	
+	m_miniOffset[0] = Vec2f(0, -0.5);
+	m_miniOffset[1] = Vec2f(0, 0);
+	m_miniOffset[14] = Vec2f(130, 0);
+	m_miniOffset[15] = Vec2f(31, -3.5);
 }
 
 void MiniMap::reveal() {
 	
-	for(int d = 0; d < MAX_MINIMAP_LEVELS; d++) {
-		for(int j = 0; j < MINIMAP_MAX_Z; j++) {
-			for(int i = 0; i < MINIMAP_MAX_X; i++) {
-				m_levels[d].m_revealed[i][j] = 255;
+	for(size_t l = 0; l < MAX_MINIMAP_LEVELS; l++) {
+		for(size_t z = 0; z < MINIMAP_MAX_Z; z++) {
+			for(size_t x = 0; x < MINIMAP_MAX_X; x++) {
+				m_levels[l].m_revealed[x][z] = 255;
 			}
 		}
 	}
+	
 }
 
-void MiniMap::firstInit(ARXCHARACTER *pl, PakReader *pakRes, EntityManager *entityMng) {
+void MiniMap::firstInit(ARXCHARACTER * pl, PakReader * pakRes, EntityManager * entityMng) {
 	
 	m_pTexDetect = NULL;
 	m_mapMarkerTexCont = NULL;
@@ -252,18 +220,19 @@ void MiniMap::firstInit(ARXCHARACTER *pl, PakReader *pakRes, EntityManager *enti
 	m_playerLastPosX = -999999.f;
 	m_playerLastPosZ = -999999.f;
 	
-	m_modX = (float)MAX_BKGX / (float)MINIMAP_MAX_X;
-	m_modZ = (float)MAX_BKGZ / (float)MINIMAP_MAX_Z;
+	m_mod.x = float(MAX_BKGX) / MINIMAP_MAX_X;
+	m_mod.y = float(MAX_BKGZ) / MINIMAP_MAX_Z;
 	
 	m_currentLevel = 0;
 	m_entities = entityMng;
 	m_activeBkg = NULL;
-	
+
+    m_mapVertices.reserve(MINIMAP_MAX_X * MINIMAP_MAX_Z);
+
 	resetLevels();
 	
-	for(int i = 0; i < MAX_MINIMAP_LEVELS; i++) {
-		m_miniOffsetX[i] = 0;
-		m_miniOffsetY[i] = 0;
+	for(size_t i = 0; i < MAX_MINIMAP_LEVELS; i++) {
+		m_miniOffset[i] = Vec2f_ZERO;
 	}
 	
 	loadOffsets(pakRes);
@@ -271,15 +240,13 @@ void MiniMap::firstInit(ARXCHARACTER *pl, PakReader *pakRes, EntityManager *enti
 
 void MiniMap::resetLevels() {
 	
-	for(int i = 0; i < MAX_MINIMAP_LEVELS; i++) {
+	for(size_t i = 0; i < MAX_MINIMAP_LEVELS; i++) {
 		m_levels[i].m_texContainer = NULL;
-		m_levels[i].m_offsetX = 0.f;
-		m_levels[i].m_offsetY = 0.f;
-		m_levels[i].m_ratioX = 0.f;
-		m_levels[i].m_ratioY = 0.f;
-		m_levels[i].m_width = 0.f;
-		m_levels[i].m_height = 0.f;
-		memset(m_levels[i].m_revealed, 0, sizeof(m_levels[i].m_revealed[0][0] * MINIMAP_MAX_X * MINIMAP_MAX_Z)); // Sets the whole array to 0
+		m_levels[i].m_offset = Vec2f_ZERO;
+		m_levels[i].m_ratio = Vec2f_ZERO;
+		m_levels[i].m_size = Vec2f_ZERO;
+		// Sets the whole array to 0
+		memset(m_levels[i].m_revealed, 0, sizeof(m_levels[i].m_revealed));
 	}
 }
 
@@ -291,7 +258,7 @@ void MiniMap::reset() {
 
 void MiniMap::purgeTexContainer() {
 	
-	for(int i = 0; i < MAX_MINIMAP_LEVELS; i++) {
+	for(size_t i = 0; i < MAX_MINIMAP_LEVELS; i++) {
 		delete m_levels[i].m_texContainer;
 		m_levels[i].m_texContainer = NULL;
 	}
@@ -299,12 +266,15 @@ void MiniMap::purgeTexContainer() {
 
 void MiniMap::showPlayerMiniMap(int showLevel) {
 	
+	UseRenderState state(render2D());
+	
+	ARX_PROFILE_FUNC();
+	
 	const float miniMapZoom = 300.f; // zoom of the minimap
 	const Rect miniMapRect(390, 135, 590, 295); // minimap rect on a 640*480 screen
 	const float playerSize = 4.f; // red arrow size
 	
-	const float decalY = -150;
-	const float decalX = +40;
+	static const Vec2f decal = Vec2f(40.f, -150.f);
 	
 	// First Load Minimap TC & DATA if needed
 	if(m_levels[showLevel].m_texContainer == NULL) {
@@ -313,30 +283,25 @@ void MiniMap::showPlayerMiniMap(int showLevel) {
 	
 	if(m_levels[showLevel].m_texContainer) {
 		
-		GRenderer->SetRenderState(Renderer::DepthTest, false);
-		
-		float startX = 0.f;
-		float startY = 0.f;
+		Vec2f start = Vec2f_ZERO;
 		
 		Vec2f playerPos(0.f, 0.f);
 		
 		if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
 			playerPos = computePlayerPos(miniMapZoom, showLevel);
-			startX = 490.f - playerPos.x;
-			startY = 220.f - playerPos.y;
-			playerPos.x += startX;
-			playerPos.y += startY;
+			start = Vec2f(490.f, 220.f) - playerPos;
+			playerPos += start;
 		}
 		
 		// Draw the background
-		drawBackground(showLevel, Rect(390, 135, 590, 295), startX, startY, miniMapZoom, 20.f, decalX, decalY, true, 0.5f);
+		drawBackground(showLevel, miniMapRect, start, miniMapZoom, 20.f, decal, true, 0.5f);
 		
-		GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
+		GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 		
 		// Draw the player (red arrow)
 		if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
-			drawPlayer(playerSize, playerPos.x + decalX, playerPos.y + decalY, true);
-			drawDetectedEntities(showLevel, startX + decalX, startY + decalY, miniMapZoom);
+			drawPlayer(playerSize, playerPos + decal, true);
+			drawDetectedEntities(showLevel, start + decal, miniMapZoom);
 		}
 		
 	}
@@ -344,6 +309,8 @@ void MiniMap::showPlayerMiniMap(int showLevel) {
 
 void MiniMap::showBookMiniMap(int showLevel) {
 	
+	UseRenderState state(render2D());
+	
 	// First Load Minimap TC & DATA if needed
 	if(m_levels[showLevel].m_texContainer == NULL) {
 		getData(showLevel);
@@ -351,35 +318,32 @@ void MiniMap::showBookMiniMap(int showLevel) {
 	
 	if(m_levels[showLevel].m_texContainer) {
 		
-		GRenderer->SetRenderState(Renderer::DepthTest, false);
-		
 		float zoom = 900.f;
-		float startX = 0.f;
-		float startY = 0.f;
 		
+		Vec2f start = Vec2f_ZERO;
 		Vec2f playerPos(0.f, 0.f);
 		
 		if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
 			playerPos = computePlayerPos(zoom, showLevel);
-			startX = 490.f - playerPos.x;
-			startY = 220.f - playerPos.y;
-			playerPos.x += startX;
-			playerPos.y += startY;
+			start = Vec2f(490.f, 220.f) - playerPos;
+			playerPos += start;
 		}
 		
-		drawBackground(showLevel, Rect(360, 85, 555, 355), startX, startY, zoom, 20.f);
+		drawBackground(showLevel, Rect(360, 85, 555, 355), start, zoom, 20.f);
 		
-		GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
+		GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 		
 		if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
-			drawPlayer(6.f, playerPos.x, playerPos.y);
-			drawDetectedEntities(showLevel, startX, startY, zoom);
+			drawPlayer(6.f, playerPos, false);
+			drawDetectedEntities(showLevel, start, zoom);
 		}
 		
 	}
 }
 
 void MiniMap::showBookEntireMap(int showLevel) {
+	
+	UseRenderState state(render2D());
 	
 	// First Load Minimap TC & DATA if needed
 	if(m_levels[showLevel].m_texContainer == NULL) {
@@ -390,38 +354,34 @@ void MiniMap::showBookEntireMap(int showLevel) {
 		return;
 	}
 	
-	GRenderer->SetRenderState(Renderer::DepthTest, false);
-	
 	float zoom = 250.f;
-	float startX = 140.f;
-	float startY = 120.f;
+	
+	Vec2f start(140.f, 120.f);
 	
 	Vec2f playerPos(0.f, 0.f);
 	
 	if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
 		playerPos = computePlayerPos(zoom, showLevel);
-		playerPos.x += startX;
-		playerPos.y += startY;
+		playerPos += start;
 	}
 	
-	drawBackground(showLevel, Rect(0, 0, 345, 290), startX, startY, zoom);
+	drawBackground(showLevel, Rect(0, 0, 345, 290), start, zoom);
 	
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapRepeat);
+	GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapRepeat);
 	
 	if(showLevel == ARX_LEVELS_GetRealNum(m_currentLevel)) {
-		drawPlayer(3.f, playerPos.x, playerPos.y);
-		drawDetectedEntities(showLevel, startX, startY, zoom);
+		drawPlayer(3.f, playerPos, false);
+		drawDetectedEntities(showLevel, start, zoom);
 	}
 	
 	TexturedVertex verts[4];
 	for(int k = 0; k < 4; k++) {
-		verts[k].color = 0xFFFFFFFF;
-		verts[k].rhw = 1;
+		verts[k].color = Color(255, 255, 255, 255).toRGBA();
+		verts[k].w = 1;
 		verts[k].p.z = 0.00001f;
 	}
 	
-	float caseX = zoom / ((float)MINIMAP_MAX_X);
-	float caseY = zoom / ((float)MINIMAP_MAX_Z);
+	Vec2f casePos(zoom / MINIMAP_MAX_X, zoom / MINIMAP_MAX_Z);
 	float ratio = 1.f;
 	
 	for(size_t i = 0; i < m_mapMarkers.size(); i++) {
@@ -430,40 +390,54 @@ void MiniMap::showBookEntireMap(int showLevel) {
 			continue;
 		}
 		
-		float pos_x = m_mapMarkers[i].m_x * 8 * ratio * m_activeBkg->Xmul * caseX + startX;
-		float pos_y = m_mapMarkers[i].m_y * 8 * ratio * m_activeBkg->Zmul * caseY + startY;
-		float size = 5.f * ratio;
-		verts[0].color = 0xFFFF0000;
-		verts[1].color = 0xFFFF0000;
-		verts[2].color = 0xFFFF0000;
-		verts[3].color = 0xFFFF0000;
-		verts[0].p.x = (pos_x - size) * Xratio;
-		verts[0].p.y = (pos_y - size) * Yratio;
-		verts[1].p.x = (pos_x + size) * Xratio;
-		verts[1].p.y = (pos_y - size) * Yratio;
-		verts[2].p.x = (pos_x + size) * Xratio;
-		verts[2].p.y = (pos_y + size) * Yratio;
-		verts[3].p.x = (pos_x - size) * Xratio;
-		verts[3].p.y = (pos_y + size) * Yratio;
-		verts[0].uv = Vec2f::ZERO;
-		verts[1].uv = Vec2f::X_AXIS;
-		verts[2].uv = Vec2f::ONE;
-		verts[3].uv = Vec2f::Y_AXIS;
+		Vec2f pos;
+		pos.x = m_mapMarkers[i].m_pos.x * 8 * ratio * m_activeBkg->m_mul.x * casePos.x + start.x;
+		pos.y = m_mapMarkers[i].m_pos.y * 8 * ratio * m_activeBkg->m_mul.y * casePos.y + start.y;
 		
-		if(MouseInRect(verts[0].p.x, verts[0].p.y, verts[2].p.x, verts[2].p.y)) {
+		float size = 5.f * ratio;
+		verts[0].color = Color(255, 0, 0, 255).toRGBA();
+		verts[1].color = Color(255, 0, 0, 255).toRGBA();
+		verts[2].color = Color(255, 0, 0, 255).toRGBA();
+		verts[3].color = Color(255, 0, 0, 255).toRGBA();
+		verts[0].p.x = (pos.x - size) * g_sizeRatio.x;
+		verts[0].p.y = (pos.y - size) * g_sizeRatio.y;
+		verts[1].p.x = (pos.x + size) * g_sizeRatio.x;
+		verts[1].p.y = (pos.y - size) * g_sizeRatio.y;
+		verts[2].p.x = (pos.x + size) * g_sizeRatio.x;
+		verts[2].p.y = (pos.y + size) * g_sizeRatio.y;
+		verts[3].p.x = (pos.x - size) * g_sizeRatio.x;
+		verts[3].p.y = (pos.y + size) * g_sizeRatio.y;
+		verts[0].uv = Vec2f_ZERO;
+		verts[1].uv = Vec2f_X_AXIS;
+		verts[2].uv = Vec2f_ONE;
+		verts[3].uv = Vec2f_Y_AXIS;
+		
+		const Rect mouseTestRect(
+			s32(verts[0].p.x),
+			s32(verts[0].p.y),
+			s32(verts[2].p.x),
+			s32(verts[2].p.y)
+		);
+		
+		if(mouseTestRect.contains(Vec2i(DANAEMouse))) {
 			if(!m_mapMarkers[i].m_text.empty()) {
 				
-				Rect bRect(140, 290, 140 + 205, 358);
+				Rect bRect(140, 295, 140 + 205, 358);
 				
-				Rect::Num left = checked_range_cast<Rect::Num>((bRect.left) * Xratio);
-				Rect::Num right = checked_range_cast<Rect::Num>((bRect.right) * Xratio);
-				Rect::Num top = checked_range_cast<Rect::Num>((bRect.top) * Yratio);
-				Rect::Num bottom = checked_range_cast<Rect::Num>((bRect.bottom) * Yratio);
+				Rect::Num left = checked_range_cast<Rect::Num>((bRect.left) * g_sizeRatio.x);
+				Rect::Num right = checked_range_cast<Rect::Num>((bRect.right) * g_sizeRatio.x);
+				Rect::Num top = checked_range_cast<Rect::Num>((bRect.top) * g_sizeRatio.y);
+				Rect::Num bottom = checked_range_cast<Rect::Num>((bRect.bottom) * g_sizeRatio.y);
 				Rect rRect = Rect(left, top, right, bottom);
 				
-				long lLengthDraw = ARX_UNICODE_ForceFormattingInRect(hFontInGameNote, m_mapMarkers[i].m_text, rRect);
+				long lLengthDraw = ARX_UNICODE_ForceFormattingInRect(hFontInGameNote, m_mapMarkers[i].m_text.begin(), m_mapMarkers[i].m_text.end(), rRect);
 				
-				DrawBookTextInRect(hFontInGameNote, float(bRect.left), float(bRect.top), float(bRect.right), m_mapMarkers[i].m_text.substr(0, lLengthDraw), Color::none);
+				
+				ARX_UNICODE_DrawTextInRect(hFontInGameNote,
+				                           (BOOKDEC + Vec2f(bRect.topLeft())) * g_sizeRatio,
+				                           (BOOKDEC.x + float(bRect.right)) * g_sizeRatio.x,
+				                           m_mapMarkers[i].m_text.substr(0, lLengthDraw),
+				                           Color::none);
 			}
 		}
 		
@@ -480,259 +454,294 @@ void MiniMap::showBookEntireMap(int showLevel) {
 void MiniMap::revealPlayerPos(int showLevel) {
 	
 	float zoom = 250.f;
-	float startX = 140.f;
-	float startY = 120.f;
-	float caseX = zoom / ((float)MINIMAP_MAX_X);
-	float caseY = zoom / ((float)MINIMAP_MAX_Z);
+	float maxDistance = 6.0f;
+	Vec2f start = Vec2f(140.f, 120.f);
+	Vec2f cas;
+	cas.x = zoom / MINIMAP_MAX_X;
+	cas.y = zoom / MINIMAP_MAX_Z;
 	
 	Vec2f playerPos = computePlayerPos(zoom, showLevel);
-	playerPos.x += startX;
-	playerPos.y += startY;
+	Vec2i playerCell = Vec2i(playerPos.x / cas.x, playerPos.y / cas.y);
 	
-	// TODO this is inefficient - we don't really need to iterate over the whole minimap!
-	// only the area around the player will be modified
-	for(int j = 0; j < MINIMAP_MAX_Z; j++) {
-		for(int i = 0; i < MINIMAP_MAX_X; i++) {
-			
-			float posx = startX + i * caseX;
-			float posy = startY + j * caseY;
-			
-			float d = fdist(Vec2f(posx + caseX * 0.5f, posy), playerPos);
-			if(d > 6.f) {
-				continue;
-			}
-			
-			float vv = (6 - d) * (1.f / 6);
-			
-			if(vv >= 0.5f) {
-				vv = 1.f;
-			} else if(vv > 0.f) {
-				vv = vv * 2.f;
-			} else {
-				vv = 0.f;
-			}
-			
-			int r = vv * 255.f;
-			
-			int ucLevel =  max(r, (int)m_levels[showLevel].m_revealed[i][j]);
-			m_levels[showLevel].m_revealed[i][j] = checked_range_cast<unsigned char>(ucLevel);
+	if(   playerCell.x < 0
+	   || playerCell.x >= s32(MINIMAP_MAX_X)
+	   || playerCell.y < 0
+	   || playerCell.y >= s32(MINIMAP_MAX_Z)
+	   ) {
+		return;
+	}
+	
+	playerPos += start;
+	
+	Vec2i startCell = playerCell - Vec2i(s32(glm::ceil(maxDistance / cas.x)));
+	Vec2i endCell = playerCell + Vec2i(s32(glm::ceil(maxDistance / cas.y)));
+
+	Vec2i maxCell = Vec2i(MINIMAP_MAX_X - 1, MINIMAP_MAX_Z - 1);
+	
+	startCell = glm::clamp(startCell, Vec2i_ZERO, maxCell);
+	endCell = glm::clamp(endCell, Vec2i_ZERO, maxCell);
+	
+	for(int z = startCell.y; z <= endCell.y; z++) {
+	for(int x = startCell.x; x <= endCell.x; x++) {
+		
+		Vec2f pos;
+		pos.x = start.x + x * cas.x;
+		pos.y = start.y + z * cas.y;
+		
+		float d = fdist(Vec2f(pos.x + cas.x * 0.5f, pos.y), playerPos);
+		if(d >= maxDistance) {
+			continue;
 		}
+		
+		float revealPercent = (maxDistance - d) * (1.f / maxDistance);
+		revealPercent = arx::clamp(revealPercent * 2.0f, 0.0f, 1.0f);
+		
+		int r = int(revealPercent * 255.f);
+		
+		int ucLevel = std::max(r, (int)m_levels[showLevel].m_revealed[x][z]);
+		m_levels[showLevel].m_revealed[x][z] = checked_range_cast<unsigned char>(ucLevel);
+	}
 	}
 }
 
 Vec2f MiniMap::computePlayerPos(float zoom, int showLevel) {
 	
-	float caseX = zoom / ((float)MINIMAP_MAX_X);
-	float caseY = zoom / ((float)MINIMAP_MAX_Z);
+	Vec2f cas;
+	cas.x = zoom / MINIMAP_MAX_X;
+	cas.y = zoom / MINIMAP_MAX_Z;
+	
 	float ratio = zoom / 250.f;
 	
 	Vec2f pos(0.f, 0.f);
 	
-	float ofx = m_miniOffsetX[m_currentLevel];
-	float ofx2 = m_levels[showLevel].m_ratioX;
-	float ofy = m_miniOffsetY[m_currentLevel];
-	float ofy2 = m_levels[showLevel].m_ratioY;
+	const Vec2f of = m_miniOffset[m_currentLevel];
+	const Vec2f of2 = m_levels[showLevel].m_ratio;
 	
-	pos.x = ((m_player->pos.x + ofx - ofx2) * ( 1.0f / 100 ) * caseX
-	+ m_miniOffsetX[m_currentLevel] * ratio * m_modX) / m_modX;
-	pos.y = ((m_mapMaxY[showLevel] - ofy - ofy2) * ( 1.0f / 100 ) * caseY
-	- (m_player->pos.z + ofy - ofy2) * ( 1.0f / 100 ) * caseY + m_miniOffsetY[m_currentLevel] * ratio * m_modZ) / m_modZ;
+	pos.x = ((m_player->pos.x + of.x - of2.x) * ( 1.0f / 100 ) * cas.x
+	+ of.x * ratio * m_mod.x) / m_mod.x;
+	pos.y = ((m_mapMaxY[showLevel] - of.y - of2.y) * ( 1.0f / 100 ) * cas.y
+	- (m_player->pos.z + of.y - of2.y) * ( 1.0f / 100 ) * cas.y + of.y * ratio * m_mod.y) / m_mod.y;
 	
 	return pos;
 }
 
-void MiniMap::drawBackground(int showLevel, Rect boundaries, float startX, float startY, float zoom, float fadeBorder, float decalX, float decalY, bool invColor, float alpha) {
+void MiniMap::drawBackground(int showLevel, Rect boundaries, Vec2f start, float zoom, float fadeBorder, Vec2f decal, bool invColor, float alpha) {
 	
-	float caseX = zoom / ((float)MINIMAP_MAX_X);
-	float caseY = zoom / ((float)MINIMAP_MAX_Z);
+	m_mapVertices.clear();
 	
-	TexturedVertex verts[4];
+	Vec2f cas;
+	cas.x = zoom / MINIMAP_MAX_X;
+	cas.y = zoom / MINIMAP_MAX_Z;
+	
 	GRenderer->SetTexture(0, m_levels[showLevel].m_texContainer);
-	
-	for(int k = 0; k < 4; k++) {
-		verts[k].color = 0xFFFFFFFF;
-		verts[k].rhw = 1;
-		verts[k].p.z = 0.00001f;
-	}
 	
 	float div = (1.0f / 25);
 	TextureContainer * tc = m_levels[showLevel].m_texContainer;
-	float dw = 1.f / tc->m_pTexture->getStoredSize().x; 
-	float dh = 1.f / tc->m_pTexture->getStoredSize().y;
+	Vec2f d;
+	d.x = 1.f / tc->m_pTexture->getStoredSize().x;
+	d.y = 1.f / tc->m_pTexture->getStoredSize().y;
 	
-	float vx2 = 4.f * dw * m_modX;
-	float vy2 = 4.f * dh * m_modZ;
+	Vec2f v2;
+	v2.x = 4.f * d.x * m_mod.x;
+	v2.y = 4.f * d.y * m_mod.y;
 	
 	float fadeDiv = 0.f;
 	Rect fadeBounds(0, 0, 0, 0);
-	
 	if(fadeBorder > 0.f) {
-		fadeDiv = 1.f/fadeBorder;
-		fadeBounds.left = checked_range_cast<Rect::Num>((boundaries.left + fadeBorder) * Xratio);
-		fadeBounds.right = checked_range_cast<Rect::Num>((boundaries.right - fadeBorder) * Xratio);
-		fadeBounds.top = checked_range_cast<Rect::Num>((boundaries.top + fadeBorder) * Yratio);
-		fadeBounds.bottom = checked_range_cast<Rect::Num>((boundaries.bottom - fadeBorder) * Yratio);
+		fadeDiv = 1.f / fadeBorder;
+		fadeBounds.left = checked_range_cast<Rect::Num>((boundaries.left + fadeBorder) * g_sizeRatio.x);
+		fadeBounds.right = checked_range_cast<Rect::Num>((boundaries.right - fadeBorder) * g_sizeRatio.x);
+		fadeBounds.top = checked_range_cast<Rect::Num>((boundaries.top + fadeBorder) * g_sizeRatio.y);
+		fadeBounds.bottom = checked_range_cast<Rect::Num>((boundaries.bottom - fadeBorder) * g_sizeRatio.y);
 	}
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
+	RenderState desiredState = render2D();
 	if(invColor) {
-		GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendInvSrcColor);
+		desiredState.setBlend(BlendOne, BlendInvSrcColor);
 	} else {
-		GRenderer->SetBlendFunc(Renderer::BlendZero, Renderer::BlendInvSrcColor);
+		desiredState.setBlend(BlendZero, BlendInvSrcColor);
 	}
-	GRenderer->GetTextureStage(0)->SetWrapMode(TextureStage::WrapClamp);
-	
-	for(int j = -2; j < MINIMAP_MAX_Z + 2; j++) {
-		for(int i = -2; i < MINIMAP_MAX_X + 2; i++) {
+	UseRenderState state(desiredState);
+	GRenderer->GetTextureStage(0)->setWrapMode(TextureStage::WrapClamp);
+	GRenderer->GetTextureStage(0)->setMinFilter(TextureStage::FilterLinear);
+	GRenderer->GetTextureStage(0)->setMagFilter(TextureStage::FilterLinear);
+
+	for(int z = -2; z < int(MINIMAP_MAX_Z) + 2; z++) {
+	for(int x = -2; x < int(MINIMAP_MAX_X) + 2; x++) {
+		
+		Vec2f v3;
+		v3.x = float(x) * g_backgroundTileSize.x * m_mod.x;
+		v3.y = float(z) * g_backgroundTileSize.y * m_mod.y;
+		
+		Vec2f v4;
+		v4.x = (v3.x * div) * d.x;
+		v4.y = (v3.y * div) * d.y;
+		
+		Vec2f pos;
+		pos.x = (start.x + x * cas.x) * g_sizeRatio.x;
+		pos.y = (start.y + z * cas.y) * g_sizeRatio.y;
+		
+		if((pos.x < boundaries.left * g_sizeRatio.x)
+		   || (pos.x > boundaries.right * g_sizeRatio.x)
+		   || (pos.y < boundaries.top * g_sizeRatio.y)
+		   || (pos.y > boundaries.bottom * g_sizeRatio.y)) {
+			continue; // out of bounds
+		}
+		
+		TexturedVertex verts[4];
+		
+		verts[3].p.x = verts[0].p.x = pos.x;
+		verts[1].p.y = verts[0].p.y = pos.y;
+		verts[2].p.x = verts[1].p.x = pos.x + (cas.x * g_sizeRatio.x);
+		verts[3].p.y = verts[2].p.y = pos.y + (cas.y * g_sizeRatio.y);
+		
+		verts[3].uv.x = verts[0].uv.x = v4.x;
+		verts[1].uv.y = verts[0].uv.y = v4.y;
+		verts[2].uv.x = verts[1].uv.x = v4.x + v2.x;
+		verts[3].uv.y = verts[2].uv.y = v4.y + v2.y;
+		
+		float v;
+		float oo = 0.f;
+		
+		for(int vert = 0; vert < 4; vert++) {
+			verts[vert].color = Color(255, 255, 255, 255).toRGBA();
+			verts[vert].w = 1;
+			verts[vert].p.z = 0.00001f;
+
+			// Array offset according to "vert"
+			int iOffset = 0;
+			int jOffset = 0;
 			
-			float vx, vy, vxx, vyy;
-			vxx = ((float)i * (float)m_activeBkg->Xdiv * m_modX);
-			vyy = ((float)j * (float)m_activeBkg->Zdiv * m_modZ);
-			vx = (vxx * div) * dw;
-			vy = (vyy * div) * dh;
+			if(vert == 1 || vert == 2)
+				iOffset = 1;
+			if(vert == 2 || vert == 3)
+				jOffset = 1;
 			
-			float posx = (startX + i * caseX) * Xratio;
-			float posy = (startY + j * caseY) * Yratio;
-			
-			if((posx < boundaries.left * Xratio)
-			   || (posx > boundaries.right * Xratio)
-			   || (posy < boundaries.top * Yratio)
-			   || (posy > boundaries.bottom * Yratio)) {
-				continue; // out of bounds
+			if((x + iOffset < 0) || (x + iOffset >= int(MINIMAP_MAX_X)) || (z + jOffset < 0) || (z + jOffset >= int(MINIMAP_MAX_Z))) {
+				v = 0;
+			} else {
+				int minx = std::min(x + iOffset, int(MINIMAP_MAX_X) - iOffset);
+				int minz = std::min(z + jOffset, int(MINIMAP_MAX_Z) - jOffset);
+				v = float(m_levels[showLevel].m_revealed[minx][minz]) * (1.0f / 255);
 			}
 			
-			verts[3].p.x = verts[0].p.x = (posx);
-			verts[1].p.y = verts[0].p.y = (posy);
-			verts[2].p.x = verts[1].p.x = posx + (caseX * Xratio);
-			verts[3].p.y = verts[2].p.y = posy + (caseY * Yratio);
-			
-			verts[3].uv.x = verts[0].uv.x = vx;
-			verts[1].uv.y = verts[0].uv.y = vy;
-			verts[2].uv.x = verts[1].uv.x = vx + vx2;
-			verts[3].uv.y = verts[2].uv.y = vy + vy2;
-			
-			float v;
-			float oo = 0.f;
-			
-			for(int vert = 0; vert < 4; vert++) {
+			if(fadeBorder > 0.f) {
 				
-				// Array offset according to "vert"
-				int iOffset = 0;
-				int jOffset = 0;
+				float _px = verts[vert].p.x - fadeBounds.left;
 				
-				if(vert == 1 || vert == 2)
-					iOffset = 1;
-				if(vert == 2 || vert == 3)
-					jOffset = 1;
-				
-				if((i + iOffset < 0) || (i + iOffset >= MINIMAP_MAX_X) || (j + jOffset < 0) || (j + jOffset >= MINIMAP_MAX_Z)) {
-					v = 0;
-				} else {
-					v = ((float)m_levels[showLevel].m_revealed[min(i+iOffset, MINIMAP_MAX_X-iOffset)][min(j+jOffset, MINIMAP_MAX_Z-jOffset)]) * (1.0f / 255);
+				if(_px < 0.f) {
+					v = 0.f;
+				} else if(_px < fadeBorder) {
+					v *= _px * fadeDiv;
 				}
 				
-				if(fadeBorder > 0.f) {
-					
-					float _px = verts[vert].p.x - fadeBounds.left;
-					
-					if(_px < 0.f) {
-						v = 0.f;
-					} else if(_px < fadeBorder) {
-						v *= _px * fadeDiv;
-					}
-					
-					_px = fadeBounds.right - verts[vert].p.x;
-					
-					if(_px < 0.f) {
-						v = 0.f;
-					} else if(_px < fadeBorder) {
-						v *= _px * fadeDiv;
-					}
-					
-					_px = verts[vert].p.y - fadeBounds.top;
-					
-					if(_px < 0.f) {
-						v = 0.f;
-					} else if(_px < fadeBorder) {
-						v *= _px * fadeDiv;
-					}
-					
-					_px = fadeBounds.bottom - verts[vert].p.y;
-					
-					if(_px < 0.f) {
-						v = 0.f;
-					} else if(_px < fadeBorder) {
-						v *= _px * fadeDiv;
-					}
+				_px = fadeBounds.right - verts[vert].p.x;
+				
+				if(_px < 0.f) {
+					v = 0.f;
+				} else if(_px < fadeBorder) {
+					v *= _px * fadeDiv;
 				}
 				
-				verts[vert].color = Color::gray(v * alpha).toBGR();
+				_px = verts[vert].p.y - fadeBounds.top;
 				
-				oo += v;
+				if(_px < 0.f) {
+					v = 0.f;
+				} else if(_px < fadeBorder) {
+					v *= _px * fadeDiv;
+				}
+				
+				_px = fadeBounds.bottom - verts[vert].p.y;
+				
+				if(_px < 0.f) {
+					v = 0.f;
+				} else if(_px < fadeBorder) {
+					v *= _px * fadeDiv;
+				}
 			}
 			
-			if(oo > 0.f) {
-				
-				verts[0].p.x += decalX * Xratio;
-				verts[0].p.y += decalY * Yratio;
-				verts[1].p.x += decalX * Xratio;
-				verts[1].p.y += decalY * Yratio;
-				verts[2].p.x += decalX * Xratio;
-				verts[2].p.y += decalY * Yratio;
-				verts[3].p.x += decalX * Xratio;
-				verts[3].p.y += decalY * Yratio;
-				
-				EERIEDRAWPRIM(Renderer::TriangleFan, verts, 4);
-			}
+			verts[vert].color = Color::gray(v * alpha).toRGB();
+			
+			oo += v;
+		}
+		
+		if(oo > 0.f) {
+			
+			verts[0].p.x += decal.x * g_sizeRatio.x;
+			verts[0].p.y += decal.y * g_sizeRatio.y;
+			verts[1].p.x += decal.x * g_sizeRatio.x;
+			verts[1].p.y += decal.y * g_sizeRatio.y;
+			verts[2].p.x += decal.x * g_sizeRatio.x;
+			verts[2].p.y += decal.y * g_sizeRatio.y;
+			verts[3].p.x += decal.x * g_sizeRatio.x;
+			verts[3].p.y += decal.y * g_sizeRatio.y;
+			
+			m_mapVertices.push_back(verts[0]);
+			m_mapVertices.push_back(verts[1]);
+			m_mapVertices.push_back(verts[2]);
+			
+			m_mapVertices.push_back(verts[0]);
+			m_mapVertices.push_back(verts[2]);
+			m_mapVertices.push_back(verts[3]);
 		}
 	}
+	}
+
+	if(!m_mapVertices.empty()) {
+		EERIEDRAWPRIM(Renderer::TriangleList, &m_mapVertices[0], m_mapVertices.size());
+	}
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 }
 
-void MiniMap::drawPlayer(float playerSize, float playerX, float playerY, bool alphaBlending) {
+void MiniMap::drawPlayer(float playerSize, Vec2f playerPos, bool alphaBlending) {
+	
+	GRenderer->SetAntialiasing(true);
 	
 	TexturedVertex verts[4];
 	
 	for(int k = 0; k < 4; k++) {
-		verts[k].color = 0xFFFF0000; // red
-		verts[k].rhw = 1;
+		verts[k].color = Color(255, 0, 0, 255).toRGBA();
+		verts[k].w = 1;
 		verts[k].p.z = 0.00001f;
 	}
 	
-	float rx = 0.f;
-	float ry = -playerSize * 1.8f;
-	float rx2 = -playerSize * (1.0f / 2);
-	float ry2 = playerSize;
-	float rx3 = playerSize * (1.0f / 2);
-	float ry3 = playerSize;
+	Vec2f r1;
+	r1.x = 0.f;
+	r1.y = -playerSize * 1.8f;
+	Vec2f r2;
+	r2.x = -playerSize * (1.0f / 2);
+	r2.y = playerSize;
+	Vec2f r3;
+	r3.x = playerSize * (1.0f / 2);
+	r3.y = playerSize;
 	
-	float angle = radians(m_player->angle.b);
-	float ca = EEcos(angle);
-	float sa = EEsin(angle);
+	float angle = glm::radians(m_player->angle.getYaw());
+	float ca = std::cos(angle);
+	float sa = std::sin(angle);
 	
-	verts[0].p.x = (playerX + rx2 * ca + ry2 * sa) * Xratio;
-	verts[0].p.y = (playerY + ry2 * ca - rx2 * sa) * Yratio;
-	verts[1].p.x = (playerX + rx * ca + ry * sa) * Xratio;
-	verts[1].p.y = (playerY + ry * ca - rx * sa) * Yratio;
-	verts[2].p.x = (playerX + rx3 * ca + ry3 * sa) * Xratio;
-	verts[2].p.y = (playerY + ry3 * ca - rx3 * sa) * Yratio;
+	verts[0].p.x = (playerPos.x + r2.x * ca + r2.y * sa) * g_sizeRatio.x;
+	verts[0].p.y = (playerPos.y + r2.y * ca - r2.x * sa) * g_sizeRatio.y;
+	verts[1].p.x = (playerPos.x + r1.x * ca + r1.y * sa) * g_sizeRatio.x;
+	verts[1].p.y = (playerPos.y + r1.y * ca - r1.x * sa) * g_sizeRatio.y;
+	verts[2].p.x = (playerPos.x + r3.x * ca + r3.y * sa) * g_sizeRatio.x;
+	verts[2].p.y = (playerPos.y + r3.y * ca - r3.x * sa) * g_sizeRatio.y;
 	
 	GRenderer->ResetTexture(0);
-	GRenderer->SetRenderState(Renderer::AlphaBlending, alphaBlending);
-	if(alphaBlending) {
-		GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendInvSrcColor);
-	}
+	
+	UseRenderState state(alphaBlending ? render2D().blend(BlendOne, BlendInvSrcColor) : render2D());
 	
 	EERIEDRAWPRIM(Renderer::TriangleFan, verts);
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
+	GRenderer->SetAntialiasing(false);
+	
 }
 
-void MiniMap::drawDetectedEntities(int showLevel, float startX, float startY, float zoom) {
+void MiniMap::drawDetectedEntities(int showLevel, Vec2f start, float zoom) {
 	
-	float caseX = zoom / ((float)MINIMAP_MAX_X);
-	float caseY = zoom / ((float)MINIMAP_MAX_Z);
+	Vec2f cas;
+	cas.x = zoom / MINIMAP_MAX_X;
+	cas.y = zoom / MINIMAP_MAX_Z;
+	
 	float ratio = zoom / 250.f;
 	
 	if(!m_pTexDetect) {
@@ -740,23 +749,21 @@ void MiniMap::drawDetectedEntities(int showLevel, float startX, float startY, fl
 	}
 	
 	// Computes playerpos
-	float ofx = m_miniOffsetX[m_currentLevel];
-	float ofx2 = m_levels[showLevel].m_ratioX;
-	float ofy = m_miniOffsetY[m_currentLevel];
-	float ofy2 = m_levels[showLevel].m_ratioY;
+	const Vec2f of = m_miniOffset[m_currentLevel];
+	const Vec2f of2 = m_levels[showLevel].m_ratio;
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, true);
-	GRenderer->SetBlendFunc(Renderer::BlendOne, Renderer::BlendOne);
+	UseRenderState state(render2D().blendAdditive());
 	
-	const EntityManager &ents = *m_entities; // for convenience
+	const EntityManager & ents = *m_entities;
 	for(size_t lnpc = 1; lnpc < ents.size(); lnpc++) {
-		Entity * npc = ents[lnpc];
+		const EntityHandle handle = EntityHandle(lnpc);
+		Entity * npc = ents[handle];
 		
 		if(!npc || !(npc->ioflags & IO_NPC)) {
 			continue; // only NPCs can be detected
 		}
 		
-		if(npc->_npcdata->life < 0.f) {
+		if(npc->_npcdata->lifePool.current < 0.f) {
 			continue; // don't show dead NPCs
 		}
 		
@@ -768,17 +775,19 @@ void MiniMap::drawDetectedEntities(int showLevel, float startX, float startY, fl
 			continue; // don't show undetectable NPCs
 		}
 		
-		if(player.Full_Skill_Etheral_Link < npc->_npcdata->fDetect) {
+		if(player.m_skillFull.etheralLink < npc->_npcdata->fDetect) {
 			continue; // the player doesn't have enough skill to detect this NPC
 		}
 		
-		float fpx = startX + ((npc->pos.x - 100 + ofx - ofx2) * ( 1.0f / 100 ) * caseX
-		+ m_miniOffsetX[m_currentLevel] * ratio * m_modX) / m_modX; 
-		float fpy = startY + ((m_mapMaxY[showLevel] - ofy - ofy2) * ( 1.0f / 100 ) * caseY
-		- (npc->pos.z + 200 + ofy - ofy2) * ( 1.0f / 100 ) * caseY + m_miniOffsetY[m_currentLevel] * ratio * m_modZ) / m_modZ;
+		Vec2f fp;
+		
+		fp.x = start.x + ((npc->pos.x - 100 + of.x - of2.x) * ( 1.0f / 100 ) * cas.x
+		+ of.x * ratio * m_mod.x) / m_mod.x;
+		fp.y = start.y + ((m_mapMaxY[showLevel] - of.y - of2.y) * ( 1.0f / 100 ) * cas.y
+		- (npc->pos.z + 200 + of.y - of2.y) * ( 1.0f / 100 ) * cas.y + of.y * ratio * m_mod.y) / m_mod.y;
 		
 		float d = fdist(Vec2f(m_player->pos.x, m_player->pos.z), Vec2f(npc->pos.x, npc->pos.z));
-		if(d > 800 || fabs(ents.player()->pos.y - npc->pos.y) > 250.f) {
+		if(d > 800 || glm::abs(ents.player()->pos.y - npc->pos.y) > 250.f) {
 			continue; // the NPC is too far away to be detected
 		}
 		
@@ -788,24 +797,27 @@ void MiniMap::drawDetectedEntities(int showLevel, float startX, float startY, fl
 			col = 1.f - (d - 600.f) * ( 1.0f / 200 );
 		}
 		
-		fpx *= Xratio;
-		fpy *= Yratio;
-		EERIEDrawBitmap(fpx, fpy, 5.f * ratio, 5.f * ratio, 0, m_pTexDetect,
-		Color3f(col, 0, 0).to<u8>());
+		fp *= g_sizeRatio;
+		
+		Rectf rect(
+			fp,
+			5.f * ratio,
+			5.f * ratio
+		);
+		EERIEDrawBitmap(rect, 0, m_pTexDetect, Color3f(col, 0, 0).to<u8>());
 	}
 	
-	GRenderer->SetRenderState(Renderer::AlphaBlending, false);
 }
 
 void MiniMap::clearMarkerTexCont() {
 	m_mapMarkerTexCont = NULL;
 }
 
-void MiniMap::load(const SavedMiniMap *saved, size_t size) {
+void MiniMap::load(const SavedMiniMap * saved, size_t size) {
 	std::copy(saved, saved + size, m_levels);
 }
 
-void MiniMap::save(SavedMiniMap *toSave, size_t size) {
+void MiniMap::save(SavedMiniMap * toSave, size_t size) {
 	std::copy(m_levels, m_levels + size, toSave);
 }
 
@@ -816,7 +828,7 @@ void MiniMap::mapMarkerInit(size_t reserveSize) {
 		m_mapMarkers.reserve(reserveSize);
 }
 
-int MiniMap::mapMarkerGetID(const std::string &name) {
+int MiniMap::mapMarkerGetID(const std::string & name) {
 	
 	for(size_t i = 0; i < m_mapMarkers.size(); i++) {
 		if(m_mapMarkers[i].m_name == name) {
@@ -827,29 +839,29 @@ int MiniMap::mapMarkerGetID(const std::string &name) {
 	return -1;
 }
 
-void MiniMap::mapMarkerAdd(float x, float y, int lvl, const std::string &name) {
+void MiniMap::mapMarkerAdd(const Vec2f & pos, int lvl, const std::string & name) {
 	
 	int num = mapMarkerGetID(name);
 	
 	if(num >= 0) {
 		// Already exists, update it
 		m_mapMarkers[num].m_lvl = lvl;
-		m_mapMarkers[num].m_x = x;
-		m_mapMarkers[num].m_y = y;
+		m_mapMarkers[num].m_pos.x = pos.x;
+		m_mapMarkers[num].m_pos.y = pos.y;
 		return;
 	}
 	
 	// Else, create one
 	MapMarkerData newMMD;
 	newMMD.m_lvl = lvl;
-	newMMD.m_x = x;
-	newMMD.m_y = y;
+	newMMD.m_pos.x = pos.x;
+	newMMD.m_pos.y = pos.y;
 	newMMD.m_name = name;
 	newMMD.m_text = getLocalised(name);
 	m_mapMarkers.push_back(newMMD);
 }
 
-void MiniMap::mapMarkerRemove(const std::string &name) {
+void MiniMap::mapMarkerRemove(const std::string & name) {
 	
 	int num = mapMarkerGetID(name);
 	
@@ -870,6 +882,6 @@ MiniMap::MapMarkerData MiniMap::mapMarkerGet(size_t id) {
 	return m_mapMarkers[id];
 }
 
-void MiniMap::setActiveBackground(EERIE_BACKGROUND *activeBkg) {
+void MiniMap::setActiveBackground(BackgroundData * activeBkg) {
 	m_activeBkg = activeBkg;
 }

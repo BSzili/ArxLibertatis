@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,10 +20,17 @@
 #ifndef ARX_TOOLS_CRASHREPORTER_TBG_TBG_H
 #define ARX_TOOLS_CRASHREPORTER_TBG_TBG_H
 
+#include <string>
+
+#include <QFuture>
 #include <QString>
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
-#include <QNetworkReply>
+
+namespace http {
+	class Session;
+	class Request;
+	class POSTRequest;
+	class Response;
+}
 
 namespace TBG {
 
@@ -33,48 +40,48 @@ public:
 	
 	enum OperatingSystem {
 		OS_Linux = 100,   // Linux
-		OS_MacOSX = 200,  // Mac
+		OS_macOS = 200,   // macOS
 		OS_FreeBSD = 300, // FreeBSD
+		OS_BSD = 350,     // *BSD
 		OS_Windows = 400, // Windows
-		OS_Other = 0xFFFFFFFF
+		OS_Other = -1
 	};
 	
 	enum Architecture {
 		Arch_Amd64 = 3,
 		Arch_x86 = 2,
-		Arch_Other = 0xFFFFFFFF
+		Arch_Other = -1
 	};
 	
-	explicit Server(const QString & adress);
+	explicit Server(const QString & adress, const std::string & userAgent);
+	~Server();
 	
 	bool login(const QString & username, const QString & password);
-	bool createCrashReport(const QString & title, const QString & description,
-	                       const QString & reproSteps, int version_id, int & issue_id);
+	QString createCrashReport(const QString & title, const QString & description,
+	                          const QString & reproSteps, int version_id, int & issue_id);
 	bool addComment(int issue_id, const QString & comment);
 	bool setOperatingSystem(int issue_id, int os_id);
 	bool setArchitecture(int issue_id, int arch_id);
 	bool attachFile(int issue_id, const QString & filePath, const QString & fileDescription,
 	                const QString & comment);
-	bool findIssue(const QString & text, int & issue_id);
+	QString findIssue(const QString & text, int & issue_id);
 	
-	QUrl getUrl() const;
-	
-	const QString & getErrorString() const;
+	const QString & getErrorString() const { return m_lastErrorString; }
 	
 private:
 	
-	bool waitForReply(bool followRedirect = true);
+	http::Response * wait(QFuture<http::Response *> future);
+	http::Response * get(const http::Request & request);
+	http::Response * post(const http::POSTRequest & request);
+	
 	bool setFieldValue(const QString & fieldName, int issue_id, int value_id);
-	bool getIssueIdFromUrl(const QUrl & url, int& issue_id);
+	bool getIssueIdFromUrl(const std::string & url, int & issue_id);
 	
-private:
+	QString m_serverAddress;
+	QString m_serverPrefix;
+	http::Session * m_session;
+	QString m_lastErrorString;
 	
-	QString               m_ServerAddress;
-	QString               m_ServerPrefix;
-	QNetworkAccessManager m_NetAccessManager;
-	QNetworkReply *       m_CurrentReply;
-	QUrl                  m_CurrentUrl;
-	QString               m_LastErrorString;
 };
 
 }

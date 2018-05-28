@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -49,39 +49,18 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "game/Entity.h"
 #include "game/EntityManager.h"
 #include "game/Camera.h"
+#include "game/effect/Quake.h"
 #include "graphics/Math.h"
 #include "graphics/data/Mesh.h"
+#include "graphics/effects/Fade.h"
 #include "gui/Interface.h"
 #include "scene/Interactive.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-
-extern Entity * CAMERACONTROLLER;
-extern long FRAME_COUNT;
 
 namespace script {
 
 namespace {
-
-class CameraControlCommand : public Command {
-	
-public:
-	
-	CameraControlCommand() : Command("cameracontrol", IO_CAMERA) { }
-	
-	Result execute(Context & context) {
-		
-		bool enable = context.getBool();
-		
-		DebugScript(' ' << enable);
-		
-		CAMERACONTROLLER = enable ? context.getEntity() : NULL;
-		
-		return Success;
-	}
-	
-};
 
 class CameraActivateCommand : public Command {
 	
@@ -91,28 +70,21 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
 		if(target == "none") {
-			FRAME_COUNT = -1;
-			MasterCamera.exist = 0;
+			g_cameraEntity = NULL;
 			return Success;
 		}
 		
-		FRAME_COUNT = 0;
-		
 		Entity * t = entities.getById(target, context.getEntity());
-		
 		if(!t || !(t->ioflags & IO_CAMERA)) {
 			return Failed;
 		}
 		
-		MasterCamera.exist |= 2;
-		MasterCamera.want_io = t;
-		MasterCamera.want_aup = t->usepath;
-		MasterCamera.want_cam = &t->_camdata->cam;
+		g_cameraEntity = t;
 		
 		return Success;
 	}
@@ -131,7 +103,7 @@ public:
 		
 		DebugScript(' ' << smoothing);
 		
-		context.getEntity()->_camdata->cam.smoothing = smoothing;
+		context.getEntity()->_camdata->smoothing = smoothing;
 		
 		return Success;
 	}
@@ -157,7 +129,7 @@ public:
 		
 		DebugScript(' ' << options << ' ' << enable);
 		
-		ARX_INTERFACE_SetCinemascope(enable ? 1 : 0, smooth);
+		cinematicBorder.set(enable, smooth);
 		
 		return Success;
 	}
@@ -172,7 +144,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		float focal = clamp(context.getFloat(), 100.f, 800.f);
+		float focal = glm::clamp(context.getFloat(), 100.f, 800.f);
 		
 		DebugScript(' ' << focal);
 		
@@ -197,7 +169,7 @@ public:
 		
 		DebugScript(' ' << x << ' ' << y << ' ' << z);
 		
-		context.getEntity()->_camdata->cam.translatetarget = Vec3f(x, y, z);
+		context.getEntity()->_camdata->translatetarget = Vec3f(x, y, z);
 		
 		return Success;
 	}
@@ -212,26 +184,25 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string inout = context.getWord();
-		
-		FADEDURATION = context.getFloat();
-		FADESTART = arxtime.get_updated_ul();
+		std::string inout = context.getWord();
+		const PlatformDuration duration = PlatformDurationMsf(context.getFloat());
 		
 		if(inout == "out") {
 			
-			FADECOLOR.r = context.getFloat();
-			FADECOLOR.g = context.getFloat();
-			FADECOLOR.b = context.getFloat();
-			FADEDIR = -1;
+			Color3f color;
+			color.r = context.getFloat();
+			color.g = context.getFloat();
+			color.b = context.getFloat();
+			fadeSetColor(color);
 			
-			DebugScript(" out " << FADEDURATION << ' ' << FADECOLOR.r << ' ' << FADECOLOR.g << ' ' << FADECOLOR.b);
+			fadeRequestStart(FadeType_Out, duration);
 			
+			DebugScript(" out " << toMs(duration) << ' ' << color.r << ' ' << color.g << ' ' << color.b);
 		} else if(inout == "in") {
 			
-			FADEDIR = 1;
+			fadeRequestStart(FadeType_In, duration);
 			
-			DebugScript(" in " << FADEDURATION);
-			
+			DebugScript(" in " << toMs(duration));
 		} else {
 			ScriptWarning << "unexpected fade direction: " << inout;
 			return Failed;
@@ -256,18 +227,17 @@ public:
 		
 		DebugScript(' ' << intensity << ' ' << duration << ' ' << period);
 		
-		AddQuakeFX(intensity, duration, period, 1);
+		AddQuakeFX(intensity, duration, period, true);
 		
 		return Success;
 	}
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedCamera() {
 	
-	ScriptEvent::registerCommand(new CameraControlCommand);
 	ScriptEvent::registerCommand(new CameraActivateCommand);
 	ScriptEvent::registerCommand(new CameraSmoothingCommand);
 	ScriptEvent::registerCommand(new CinemascopeCommand);

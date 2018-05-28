@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,14 +25,21 @@
  * For available variables see cmake/VersionString.cmake.
  */
 
-#if ${VERSION_COUNT} != 4 && ${VERSION_COUNT} != 5
-#error "Configure error - the VERSION file should specify three or five non-empty lines!"
+#if ${VERSION_COUNT} != 6 && ${VERSION_COUNT} != 7
+#error "Configure error - the VERSION file should specify 5 or 6 non-empty lines!"
 #endif
 
-const std::string arx_version = "${VERSION_0}${GIT_SUFFIX_5}";
-const std::string arx_release_codename = "${VERSION_4}";
+const std::string arx_name = "${VERSION_0_NAME}";
+const std::string arx_icon_name = "${VERSION_1_STRING}";
+const std::string arx_version = "${VERSION_0_STRING}${VERSION_SUFFIX}${GIT_SUFFIX_7}";
+const u64 arx_version_number = (u64(${VERSION_MAJOR}) << 48) | (u64(${VERSION_MINOR}) << 32)
+                             | (u64(${VERSION_PATCH}) << 16) | (u64(${VERSION_BUILD}) << 0);
+const std::string arx_release_codename = "${VERSION_6}";
 
 // TODO move this to an external file once we ship our own resources
 const std::string arx_credits = "${AUTHORS}";
+const std::string arx_copyright = "${COPYING}";
 
-const int tbg_version_id = ${VERSION_2};
+const std::string cmake_version = "${CMAKE_VERSION}";
+
+const int tbg_version_id = ${VERSION_4_NUMBER};

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,8 +25,7 @@
 
 #include "platform/PlatformConfig.h"
 
-#define ARX_STR_HELPER(x) # x
-#define ARX_STR(x) ARX_STR_HELPER(x)
+#include <boost/preprocessor/cat.hpp>
 
 /* ---------------------------------------------------------
                           Platforms
@@ -35,7 +34,7 @@
 #define ARX_PLATFORM_UNKNOWN 0
 #define ARX_PLATFORM_WIN32   1
 #define ARX_PLATFORM_LINUX   2
-#define ARX_PLATFORM_MACOSX  3
+#define ARX_PLATFORM_MACOS   3
 #define ARX_PLATFORM_BSD     100 // Generic BSD system
 #define ARX_PLATFORM_UNIX    101 // Generic UNIX system
 
@@ -44,7 +43,7 @@
 #elif defined(_WIN32)
 	#define ARX_PLATFORM ARX_PLATFORM_WIN32
 #elif defined(__MACH__)
-	#define ARX_PLATFORM ARX_PLATFORM_MACOSX
+	#define ARX_PLATFORM ARX_PLATFORM_MACOS
 #elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) \
       || defined(__bsdi__) || defined(__DragonFly__)
 	#define ARX_PLATFORM ARX_PLATFORM_BSD
@@ -60,18 +59,13 @@
 
 // This is used in many places, keep it for now
 #if defined(_MSC_VER)
-#define ARX_COMPILER_MSVC 1
+	#define ARX_COMPILER_MSVC 1
 #else
-#define ARX_COMPILER_MSVC 0
+	#define ARX_COMPILER_MSVC 0
 #endif
 
 #if ARX_COMPILER_MSVC
-	#include <direct.h>
 	#define __func__ __FUNCTION__ // MSVC doesn't know about C99 __func__
-#endif
-
-#if ARX_COMPILER_MSVC && (_MSC_VER >= 1600 /* MSVC 10 */)
-	#define ARX_COMPILER_HAS_CXX11_AUTO
 #endif
 
 /* ---------------------------------------------------------
@@ -92,7 +86,7 @@
 	typedef signed long long s64;   // 64 bits signed integer
 	typedef unsigned long long u64; // 64 bits unsigned integer
 	
-#else // ARX_COMPILER_MSVC
+#else
 	
 	#include <stdint.h>
 	
@@ -108,7 +102,7 @@
 	typedef int64_t s64;  // 64 bits signed integer
 	typedef uint64_t u64; // 64 bits unsigned integer
 	
-#endif // ARX_COMPILER_MSVC
+#endif
 
 typedef float f32; // 32 bits float
 typedef double f64; // 64 bits double float
@@ -119,7 +113,8 @@ typedef double f64; // 64 bits double float
 ------------------------------------------------------------*/
 
 /*!
- * ARX_DEBUG_BREAK() - halt execution and notify any attached debugger
+ * \def ARX_DEBUG_BREAK()
+ * \brief Halt execution and notify any attached debugger
  */
 #if ARX_COMPILER_MSVC
 	#define ARX_DEBUG_BREAK() __debugbreak()
@@ -133,7 +128,34 @@ typedef double f64; // 64 bits double float
                 Compiler-specific attributes
 ------------------------------------------------------------*/
 
-//! ARX_DISCARD(...) - Discard parameters from a macro
+/*!
+ * \def ARX_FORMAT_PRINTF(message_arg, param_vararg)
+ * \brief Declare that a function argument is a printf-like format string
+ *
+ * Usage: T function(args, message, ...) ARX_FORMAT_PRINTF(message_arg, param_vararg)
+ *
+ * \param message_arg index of the format string arg (1 for the first)
+ * \param param_vararg index of the vararg for the parameters
+ *
+ * This is useful to
+ *  a) Let the compiler check the format string and parameters when calling the function
+ *  b) Prevent warnings due to a non-literal format string in the implementation
+ */
+#if ARX_HAVE_ATTRIBUTE_FORMAT_PRINTF
+	#define ARX_FORMAT_PRINTF(message_arg, param_vararg) \
+		__attribute__((format(printf, message_arg, param_vararg)))
+#else
+	#define ARX_FORMAT_PRINTF(message_arg, param_vararg)
+#endif
+
+/* ---------------------------------------------------------
+                Helper macros
+------------------------------------------------------------*/
+
+/*!
+ * \def ARX_DISCARD(...)
+ * \brief Discard parameters from a macro
+ */
 #if ARX_COMPILER_MSVC
 	// MS compilers support noop which discards everything inside the parens
 	#define ARX_DISCARD(...) __noop
@@ -142,106 +164,156 @@ typedef double f64; // 64 bits double float
 #endif
 
 /*!
- * Declare that a function argument is a printf-like format string.
- * 
- * Usage: T function(args, message, ...) ARX_FORMAT_PRINTF(message_arg, param_vararg)
- * 
- * @param message_arg index of the format string arg (1 for the first)
- * @param param_vararg index of the vararg for the parameters
- * 
- * This is useful to
- *  a) Let the compiler check the format string and parameters when calling the function
- *  b) Prevent warnings due to a non-literal format string in the implementation
+ * \def ARX_FILE
+ * \brief Path to the current source file
+ * In release builds this will be defined to the relative path to the current
+ * translation unit to avoid compiling the full source path into release executables.
  */
-#if ARX_HAVE_ATTRIBUTE_FORMAT_PRINTF
-#define ARX_FORMAT_PRINTF(message_arg, param_vararg) \
-	__attribute__((format(printf, message_arg, param_vararg)))
+#if !defined(ARX_FILE)
+	#define ARX_FILE __FILE__
+#endif
+
+/*!
+ * \def ARX_STR(x)
+ * \brief Turn argument into a string constant
+ */
+#define ARX_STR_HELPER(x) # x
+#define ARX_STR(x) ARX_STR_HELPER(x)
+
+/*!
+ * \def ARX_UNUSED(x)
+ * \brief Remove warnings about unused but necessary variable
+ *
+ * (unused params, variables only used for asserts...)
+ */
+#define ARX_UNUSED(x) ((void)(x))
+
+/*!
+ * \def ARX_ANONYMOUS_SYMBOL(Name)
+ * \brief Make a symbol name specific to the current "translation unit"
+ * The constructed symbol will still be unique for each source file in unity builds.
+ * This should be used for anonymous namespaces or static variables / functions.
+ */
+#if defined(ARX_TRANSLATION_UNIT)
+	#define ARX_ANONYMOUS_SYMBOL(Name) \
+		BOOST_PP_CAT(BOOST_PP_CAT(Name, _), ARX_TRANSLATION_UNIT)
 #else
-#define ARX_FORMAT_PRINTF(message_arg, param_vararg)
+	#define ARX_ANONYMOUS_SYMBOL(Name) Name
+#endif
+
+/*!
+ * \def ARX_UNIQUE_SYMBOL(Name)
+ * \brief Make a symbol unique to the current translation unit.
+ * The constructed symbol will still be unique for each source file in unity builds.
+ * May only be used once on each line with the same \a Name.
+ */
+#define ARX_UNIQUE_SYMBOL(Name) \
+	BOOST_PP_CAT(BOOST_PP_CAT(ARX_ANONYMOUS_SYMBOL(Name), _), __LINE__)
+
+/*!
+ * \def ARX_ANONYMOUS_NAMESPACE
+ * \brief Name for an "anonymous namespace"
+ * This ensures the namespace is still unique for each source file in unity builds.
+ * Usage: \code
+namespace ARX_ANONYMOUS_NAMESPACE {
+	…
+} ARX_END_ANONYMOUS_NAMESPACE \endcode
+ * This is required to avoid name collision and because GCC comlains if a type from
+ * an anonymous namespace is used in a file that isn't the main source file
+ */
+#if defined(ARX_TRANSLATION_UNIT)
+	#define ARX_ANONYMOUS_NAMESPACE ARX_ANONYMOUS_SYMBOL(arx_tu)
+	#define ARX_ANONYMOUS_NAMESPACE_DECL namespace ARX_ANONYMOUS_SYMBOL(arx_tu)
+	#define ARX_END_ANONYMOUS_NAMESPACE using ARX_ANONYMOUS_NAMESPACE_DECL;
+#else
+	#define ARX_ANONYMOUS_NAMESPACE
+	#define ARX_END_ANONYMOUS_NAMESPACE
+#endif
+
+/*!
+ * \def ARRAY_SIZE(a)
+ * \brief Get the number of items in a static array
+ * This should only be used if the array size needs to be known as a compile-time
+ * constant. For other uses, prefer \ref boost::size()!
+ * TODO add ARX_ prefix
+ */
+#define ARRAY_SIZE(a) \
+	((sizeof(a) / sizeof(*(a))) / static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
+
+/*!
+ * \def ARX_NOEXCEPT
+ * \brief Declare that a function never throws exceptions.
+ */
+#if ARX_HAVE_CXX11_NOEXCEPT
+	#define ARX_NOEXCEPT noexcept
+#else
+	#define ARX_NOEXCEPT throw()
+#endif
+
+/*!
+ * \def ARX_STATIC_ASSERT
+ * \brief Declare that a function never throws exceptions.
+ */
+#if ARX_HAVE_CXX11_STATIC_ASSERT
+	#define ARX_STATIC_ASSERT(Condition, Message) static_assert(Condition, Message)
+#else
+	#include <boost/static_assert.hpp>
+	#define ARX_STATIC_ASSERT(Condition, Message) BOOST_STATIC_ASSERT_MSG(Condition, Message)
 #endif
 
 /* ---------------------------------------------------------
-                     Macro for assertion
+                          Assertions
 ------------------------------------------------------------*/
-
-/*!
- * Log that an assertion has failed.
- * This is a low-level implementation, use arx_assert() or arx_assert_msg() instead!
- */
-void assertionFailed(const char * expression, const char * file, unsigned line,
-                     const char * message = NULL, ...) ARX_FORMAT_PRINTF(4, 5);
 
 #ifdef ARX_DEBUG
-	#define arx_assert_impl(Expression, File, Line, ...) { \
+	/*!
+	 * \brief Log that an assertion has failed
+	 *
+	 * This is a low-level implementation, use arx_assert() instead!
+	 */
+	void assertionFailed(const char * expression, const char * file, unsigned line,
+	                     const char * message, ...) ARX_FORMAT_PRINTF(4, 5);
+	#define arx_assert_impl(Expression, ExpressionString, ...) \
+		do { \
 			if(!(Expression)) { \
-				assertionFailed(#Expression, File, Line, ##__VA_ARGS__); \
+				assertionFailed(ExpressionString, (ARX_FILE), __LINE__, __VA_ARGS__); \
 				ARX_DEBUG_BREAK(); \
 			} \
-		}
+		} while(0)
 #else // ARX_DEBUG
-	#define arx_assert_impl(Expression, File, Line, ...) \
-		ARX_DISCARD(Expression, File, Line, Message, ##__VA_ARGS__)
+	#define arx_assert_impl(Expression, ExpressionString, ...) \
+		ARX_DISCARD(Expression, ExpressionString, __VA_ARGS__)
 #endif // ARX_DEBUG
 
-#define arx_assert_msg(Expression, Message, ...) \
-	arx_assert_impl(Expression, (__FILE__), __LINE__, Message, ##__VA_ARGS__)
-#define arx_assert(Expression) \
-	arx_assert_impl(Expression, (__FILE__), __LINE__)
-
-#define arx_error_msg(Message, ...) arx_assert_msg(false, Message, ##__VA_ARGS__)
-#define arx_error() arx_assert(false)
-
-/* ---------------------------------------------------------
-                            Define
-------------------------------------------------------------*/
-
-//! Get the number of items in a static array
-#define ARRAY_SIZE(a) ((sizeof(a) / sizeof(*(a))) / static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
-
-/* ---------------------------------------------------------
-                           Pragma
-------------------------------------------------------------*/
-
-#define ARX_DEAD_CODE() arx_assert(false)
+/*!
+ * \def arx_assert(Expression)
+ * \brief Abort if \a Expression evaluates to false
+ * Does nothing in release builds.
+ */
+#define arx_assert(Expression)          arx_assert_impl(Expression, #Expression, NULL)
 
 /*!
- * Remove warnings about unused but necessary variable
- * (unused params, variables only used for asserts...)
+ * \def arx_assert_msg(Expression, Message, MessageArguments...)
+ * \brief Abort and print a message if \a Expression evaluates to false
+ * You must provide a failure message in printf-like syntax and arguments for it as
+ * as additional arguments after the expression.
+ * Does nothing in release builds.
  */
-#define ARX_UNUSED(x) ((void)&x)
+#define arx_assert_msg(Expression, ...) arx_assert_impl(Expression, #Expression, __VA_ARGS__)
 
-/* ---------------------------------------------------------
-                      String utilities
-------------------------------------------------------------*/
+/*!
+ * \def ARX_DEAD_CODE()
+ * \brief Assert that a code branch cannot be reached.
+ */
+#ifdef ARX_DEBUG
+#define ARX_DEAD_CODE() arx_assert_impl(false, "unreachable code", NULL)
+#elif ARX_COMPILER_MSVC
+#define ARX_DEAD_CODE() __assume(0)
+#elif ARX_HAVE_BUILTIN_UNREACHABLE
+#define ARX_DEAD_CODE() __builtin_unreachable()
+#else
+#define ARX_DEAD_CODE() ((void)0)
+#endif
 
-// TODO move into a separate header
-
-template <class CTYPE, class STYPE>
-inline CTYPE * safeGetString(CTYPE * & pos, STYPE & size) {	
-	
-	CTYPE * begin = pos;
-	
-	for(size_t i = 0; i < size; i++) {
-		if(pos[i] == 0) {
-			size -= i + 1;
-			pos += i + 1;
-			return begin;
-		}
-	}
-	
-	return NULL;
-}
-
-template <class T, class CTYPE, class STYPE>
-inline bool safeGet(T & data, CTYPE * & pos, STYPE & size) {
-	
-	if(size < sizeof(T)) {
-		return false;
-	}
-	data = *reinterpret_cast<const T *>(pos);
-	pos += sizeof(T);
-	size -= sizeof(T);
-	return true;
-}
 
 #endif // ARX_PLATFORM_PLATFORM_H

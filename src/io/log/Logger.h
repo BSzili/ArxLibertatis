@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -25,38 +25,42 @@
 
 #include "platform/Platform.h"
 
+#define ARX_LOG(Level)         ::Logger(ARX_FILE, __LINE__, Level)
+#define ARX_LOG_FORCED(Level)  ::Logger(ARX_FILE, __LINE__, Level, true)
+#define ARX_LOG_ENABLED(Level) ::Logger::isEnabled(ARX_FILE, Level)
+
 #ifdef ARX_DEBUG
 //! Log a Debug message. Arguments are only evaluated if their results will be used.
 #define LogDebug(...)    \
-	if(::Logger::isEnabled(__FILE__, ::Logger::Debug)) \
-		::Logger(__FILE__, __LINE__, ::Logger::Debug, true) << __VA_ARGS__
+	if(ARX_LOG_ENABLED(::Logger::Debug)) \
+		ARX_LOG_FORCED(::Logger::Debug) << __VA_ARGS__
 #else
 #define LogDebug(...)    ARX_DISCARD(__VA_ARGS__)
 #endif
 
 //! Log an Info message. Arguments are always evaluated.
-#define LogInfo     ::Logger(__FILE__, __LINE__, ::Logger::Info)
+#define LogInfo     ARX_LOG(::Logger::Info)
 
 //! Log a Warning message. Arguments are always evaluated.
-#define LogWarning  ::Logger(__FILE__, __LINE__, ::Logger::Warning)
+#define LogWarning  ARX_LOG(::Logger::Warning)
 
 //! Log an Error message. Arguments are always evaluated.
-#define LogError    ::Logger(__FILE__, __LINE__, ::Logger::Error)
+#define LogError    ARX_LOG(::Logger::Error)
 
 //! Log a Critical message - will cause the application to exit with a dialog. Arguments are always evaluated.
-#define LogCritical ::Logger(__FILE__, __LINE__, ::Logger::Critical)
+#define LogCritical ARX_LOG(::Logger::Critical)
 
 //! Test if the Debug log level is enabled for the current file.
-#define LogDebugEnabled   ::Logger::isEnabled(__FILE__, ::Logger::Debug)
+#define LogDebugEnabled   ARX_LOG_ENABLED(::Logger::Debug)
 
 //! Test if the Info log level is enabled for the current file.
-#define LogInfoEnabled    ::Logger::isEnabled(__FILE__, ::Logger::Info)
+#define LogInfoEnabled    ARX_LOG_ENABLED(::Logger::Info)
 
 //! Test if the Warning log level is enabled for the current file.
-#define LogWarningEnabled ::Logger::isEnabled(__FILE__, ::Logger::Warning)
+#define LogWarningEnabled ARX_LOG_ENABLED(::Logger::Warning)
 
 //! Test if the Error log level is enabled for the current file.
-#define LogErrorEnabled   ::Logger::isEnabled(__FILE__, ::Logger::Error)
+#define LogErrorEnabled   ARX_LOG_ENABLED(::Logger::Error)
 
 namespace logger { class Backend; }
 
@@ -70,6 +74,7 @@ public:
 	enum LogLevel {
 		Debug,
 		Info,
+		Console,
 		Warning,
 		Error,
 		Critical,
@@ -89,20 +94,20 @@ private:
 	
 public:
 	
-	inline Logger(const char * _file, int _line, LogLevel _level, bool _enabled)
-	       : file(_file), line(_line), level(_level), enabled(_enabled) { }
-	inline Logger(const char * _file, int _line, LogLevel _level)
-	       : file(_file), line(_line), level(_level), enabled(isEnabled(_file, _level)) { }
+	Logger(const char * _file, int _line, LogLevel _level, bool _enabled)
+		: file(_file), line(_line), level(_level), enabled(_enabled) { }
+	Logger(const char * _file, int _line, LogLevel _level)
+		: file(_file), line(_line), level(_level), enabled(isEnabled(_file, _level)) { }
 	
-	template<class T>
-	inline Logger & operator<<(const T & i) {
+	template <class T>
+	Logger & operator<<(const T & i) {
 		if(enabled) {
 			buffer << i;
 		}
 		return *this;
 	}
 	
-	inline ~Logger() {
+	~Logger() {
 		if(enabled) {
 			log(file, line, level, buffer.str());
 		}
@@ -124,12 +129,12 @@ public:
 	
 	/*!
 	 * Set the log level for a file or group of files.
-	 * @param component Path component of all files to set the log level for.
+	 * \param component Path component of all files to set the log level for.
 	 *               This must be either 'src', 'tools' or a subdirectory,
 	 *               or the basename of a contained file (excluding the extension).
 	 *               The order in which log levels are set is ignored,
 	 *               but more specific prefixes overwrite more general ones.
-	 * @param level The log level to set. Use log level none to disable logging completely.
+	 * \param level The log level to set. Use log level none to disable logging completely.
 	 */
 	static void set(const std::string & component, LogLevel level);
 	
@@ -151,10 +156,10 @@ public:
 	 *  - "none" / "n" / "N"
 	 *  - "reset" / "r" / "R" / "-"
 	 */
-	static void configure(const std::string config);
+	static void configure(const std::string & config);
 	
 	/*!
-	 * @return true if the given log level is currently enabled for the current level.
+	 * \return true if the given log level is currently enabled for the current level.
 	 *         Log levels inherit their enabled state: e.g. if Info is enabled,
 	 *         Warning and Error are also enabled.
 	 */

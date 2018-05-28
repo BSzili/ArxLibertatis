@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -66,7 +66,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 // -> Then depending on offsets just read data directly.
 
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 
 
 struct ARX_FTL_PRIMARY_HEADER {
@@ -83,19 +83,6 @@ struct ARX_FTL_SECONDARY_HEADER {
 	s32 offset_physics_box; // -1 = no
 };
 
-struct ARX_FTL_PROGRESSIVE_DATA_HEADER {
-	s32 nb_vertex;
-};
-
-struct ARX_FTL_CLOTHES_DATA_HEADER {
-	s32 nb_cvert;
-	s32 nb_springs;
-};
-
-struct ARX_FTL_COLLISION_SPHERES_DATA_HEADER {
-	s32 nb_spheres;
-};
-
 struct ARX_FTL_3D_DATA_HEADER {
 	s32 nb_vertex;
 	s32 nb_faces;
@@ -103,7 +90,7 @@ struct ARX_FTL_3D_DATA_HEADER {
 	s32 nb_groups;
 	s32 nb_action;
 	s32 nb_selections; // data will follow this order
-	s32 origin;
+	s32 origin; // TODO this is always >= 0 replace with u32
 	char name[256];
 };
 
@@ -135,19 +122,10 @@ struct EERIE_FACE_FTL {
 struct EERIE_GROUPLIST_FTL {
 	
 	char name[256];
-	s32 origin;
+	s32 origin; // TODO this is always positive use u32 ?
 	s32 nb_index;
 	s32 indexes;
 	f32 siz;
-	
-	EERIE_GROUPLIST_FTL & operator=(const EERIE_GROUPLIST & b) {
-		strcpy(name, b.name.c_str());
-		origin = b.origin;
-		nb_index = b.indexes.size();
-		indexes = 0;
-		siz = b.siz;
-		return *this;
-	}
 	
 };
 
@@ -158,21 +136,13 @@ struct EERIE_ACTIONLIST_FTL {
 	s32 action;
 	s32 sfx;
 	
-	inline operator EERIE_ACTIONLIST() const {
+	operator EERIE_ACTIONLIST() const {
 		EERIE_ACTIONLIST a;
 		a.name = boost::to_lower_copy(util::loadString(name));
-		a.idx = idx;
+		a.idx = ActionPoint(idx);
 		a.act = action;
 		a.sfx = sfx;
 		return a;
-	}
-	
-	inline EERIE_ACTIONLIST_FTL & operator=(const EERIE_ACTIONLIST & b) {
-		strcpy(name, b.name.c_str());
-		idx = b.idx;
-		action = b.act;
-		sfx = b.sfx;
-		return *this;
 	}
 	
 };
@@ -183,138 +153,21 @@ struct EERIE_SELECTIONS_FTL {
 	s32 nb_selected;
 	s32 selected;
 	
-	inline EERIE_SELECTIONS_FTL & operator=(const EERIE_SELECTIONS & b) {
-		strcpy(name, b.name.c_str());
-		nb_selected = b.selected.size();
-		selected = 0;
-		return *this;
-	}
-	
-};
-
-struct COLLISION_SPHERE_FTL {
-	
-	s16 idx;
-	s16 flags;
-	f32 radius;
-	
-	inline operator COLLISION_SPHERE() const {
-		COLLISION_SPHERE a;
-		a.idx = idx;
-		a.flags = flags;
-		a.radius = radius;
-		return a;
-	}
-	
-	inline COLLISION_SPHERE_FTL & operator=(const COLLISION_SPHERE & b) {
-		idx = b.idx;
-		flags = b.flags;
-		radius = b.radius;
-		return *this;
-	}
-	
-};
-
-struct EERIE_SPRINGS_FTL {
-	
-	s16 startidx;
-	s16 endidx;
-	f32 restlength;
-	f32 constant; // spring constant
-	f32 damping; // spring damping
-	s32 type;
-	
-	inline operator EERIE_SPRINGS() const {
-		EERIE_SPRINGS a;
-		a.startidx = startidx;
-		a.endidx = endidx;
-		a.restlength = restlength;
-		a.constant = constant;
-		a.damping = damping;
-		a.type = type;
-		return a;
-	}
-	
-	inline EERIE_SPRINGS_FTL & operator=(const EERIE_SPRINGS & b) {
-		startidx = b.startidx;
-		endidx = b.endidx;
-		restlength = b.restlength;
-		constant = b.constant;
-		damping = b.damping;
-		type = b.type;
-		return *this;
-	}
-	
 };
 
 struct EERIE_OLD_VERTEX {
 	
-	SavedTextureVertex vert;
+	char unused[32];
 	SavedVec3 v;
 	SavedVec3 norm;
 	
-	inline operator EERIE_VERTEX() const {
+	operator EERIE_VERTEX() const {
 		EERIE_VERTEX a;
-		a.vert = vert, a.v = v, a.norm = norm;
+		a.v = v.toVec3(), a.norm = norm.toVec3();
 		return a;
 	}
 	
-	inline EERIE_OLD_VERTEX & operator=(const EERIE_VERTEX & b) {
-		vert = b.vert, v = b.v, norm = b.norm;
-		return *this;
-	}
-	
 };
-
-struct CLOTHESVERTEX_FTL {
-	
-	s16 idx;
-	u8 flags;
-	s8 coll;
-	SavedVec3 pos;
-	SavedVec3 velocity;
-	SavedVec3 force;
-	f32 mass;
-	
-	SavedVec3 t_pos;
-	SavedVec3 t_velocity;
-	SavedVec3 t_force;
-	
-	SavedVec3 lastpos;
-	
-	inline operator CLOTHESVERTEX() const {
-		CLOTHESVERTEX a;
-		a.idx = idx;
-		a.flags = flags;
-		a.coll = coll;
-		a.pos = pos;
-		a.velocity = velocity;
-		a.force = force;
-		a.mass = mass;
-		a.t_pos = t_pos;
-		a.t_velocity = t_velocity;
-		a.t_force = t_force;
-		a.lastpos = lastpos;
-		return a;
-	}
-	
-	inline CLOTHESVERTEX_FTL & operator=(const CLOTHESVERTEX & b) {
-		idx = b.idx;
-		flags = b.flags;
-		coll = b.coll;
-		pos = b.pos;
-		velocity = b.velocity;
-		force = b.force;
-		mass = b.mass;
-		t_pos = b.t_pos;
-		t_velocity = b.t_velocity;
-		t_force = b.t_force;
-		lastpos = b.lastpos;
-		return *this;
-	}
-	
-};
-
 
 #pragma pack(pop)
 

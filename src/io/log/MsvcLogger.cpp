@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -23,16 +23,19 @@
 
 #include <windows.h>
 
+#include "platform/WindowsUtils.h"
+
 namespace logger {
 
 MsvcDebugger::~MsvcDebugger() {
 	// nothing to clean up
 }
 
-void MsvcDebugger::log(const Source & file, int line, Logger::LogLevel level, const std::string & str) {
+void MsvcDebugger::log(const Source & file, int line, Logger::LogLevel level,
+                       const std::string & str) {
 	std::ostringstream oss;
 	format(oss, file, line, level, str);
-	OutputDebugString(oss.str().c_str());
+	OutputDebugStringW(platform::WideString(oss.str()));
 }
 
 MsvcDebugger * MsvcDebugger::get() {

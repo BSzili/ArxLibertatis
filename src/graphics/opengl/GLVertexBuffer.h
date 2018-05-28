@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,14 +20,21 @@
 #ifndef ARX_GRAPHICS_OPENGL_GLVERTEXBUFFER_H
 #define ARX_GRAPHICS_OPENGL_GLVERTEXBUFFER_H
 
+#include <algorithm>
+#include <cstring>
+#include <vector>
+#include <limits>
+
 #include "graphics/VertexBuffer.h"
 #include "graphics/Vertex.h"
 #include "graphics/Math.h"
 #include "graphics/opengl/OpenGLRenderer.h"
 #include "graphics/opengl/OpenGLUtil.h"
 
+#include "io/log/Logger.h"
+
 template <class Vertex>
-static void setVertexArray(const Vertex * vertex, const void * ref);
+static void setVertexArray(OpenGLRenderer * renderer, const Vertex * vertex, const void * ref);
 
 // cached vertex array definitions
 enum GLArrayClientState {
@@ -37,302 +44,655 @@ enum GLArrayClientState {
 	GL_SMY_VERTEX3
 };
 
-static GLArrayClientState glArrayClientState = GL_NoArray;
-static const void * glArrayClientStateRef = NULL;
-static int glArrayClientStateTexCount = 0;
-
-static void setVertexArrayTexCoord(int index, const void * coord, size_t stride) {
-	
-	glClientActiveTexture(GL_TEXTURE0 + index);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, stride, coord);
-	
-}
-
-static bool switchVertexArray(GLArrayClientState type, const void * ref, int texcount) {
-	
-	if(glArrayClientState == type && glArrayClientStateRef == ref) {
-		return false;
-	}
-	
-	if(glArrayClientState != type) {
-		for(int i = texcount; i < glArrayClientStateTexCount; i++) {
-			glClientActiveTexture(GL_TEXTURE0 + i);
-			glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-		}
-		glArrayClientStateTexCount = texcount;
-	}
-	
-	glArrayClientState = type;
-	glArrayClientStateRef = ref;
-	
-	return true;
-}
+void bindBuffer(GLuint buffer);
+void unbindBuffer(GLuint buffer);
+void setVertexArrayTexCoord(int index, const void * coord, size_t stride);
+bool switchVertexArray(GLArrayClientState type, const void * ref, int texcount);
+void clearVertexArray(const void * ref);
 
 template <>
-void setVertexArray(const TexturedVertex * vertices, const void * ref) {
+inline void setVertexArray(OpenGLRenderer * renderer, const TexturedVertex * vertices, const void * ref) {
 	
+	ARX_UNUSED(vertices);
+
 	if(!switchVertexArray(GL_TexturedVertex, ref, 1)) {
 		return;
 	}
 	
-	// rhw -> w conversion is done in a vertex shader
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(4, GL_FLOAT, sizeof(TexturedVertex), &vertices->p);
+	glVertexPointer(4, GL_FLOAT, sizeof(*vertices), &vertices->p);
 	
-	glEnableClientState(GL_COLOR_ARRAY);
-	glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, sizeof(TexturedVertex), &vertices->color);
+	if(renderer->hasVertexFogCoordinate()) {
+		// Use clip.w == view.z as the fog depth to match other vertex types
+		// TODO remove GL_FOG_COORDINATE_* uses once vertices are provided in view-space coordinates
+		glEnableClientState(GL_FOG_COORDINATE_ARRAY);
+		glFogCoordPointer(GL_FLOAT, sizeof(*vertices), &vertices->w);
+	}
 	
-	setVertexArrayTexCoord(0, &vertices->uv, sizeof(TexturedVertex));
+	glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(*vertices), &vertices->color);
 	
-	CHECK_GL;
+	setVertexArrayTexCoord(0, &vertices->uv, sizeof(*vertices));
 }
 
 template <>
-void setVertexArray(const SMY_VERTEX * vertices, const void * ref) {
+inline void setVertexArray(OpenGLRenderer * renderer, const SMY_VERTEX * vertices, const void * ref) {
 	
 	if(!switchVertexArray(GL_SMY_VERTEX, ref, 1)) {
 		return;
 	}
 	
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, sizeof(SMY_VERTEX), &vertices->p.x);
+	glVertexPointer(3, GL_FLOAT, sizeof(*vertices), &vertices->p.x);
 	
-	glEnableClientState(GL_COLOR_ARRAY);
-	glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, sizeof(SMY_VERTEX), &vertices->color);
+	if(renderer->hasVertexFogCoordinate()) {
+		glDisableClientState(GL_FOG_COORDINATE_ARRAY);
+	}
 	
-	setVertexArrayTexCoord(0, &vertices->uv, sizeof(SMY_VERTEX));
+	glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(*vertices), &vertices->color);
 	
-	CHECK_GL;
+	setVertexArrayTexCoord(0, &vertices->uv, sizeof(*vertices));
 }
 
 template <>
-void setVertexArray(const SMY_VERTEX3 * vertices, const void * ref) {
+inline void setVertexArray(OpenGLRenderer * renderer, const SMY_VERTEX3 * vertices, const void * ref) {
 	
 	if(!switchVertexArray(GL_SMY_VERTEX3, ref, 3)) {
 		return;
 	}
 	
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, sizeof(SMY_VERTEX3), &vertices->p.x);
+	glVertexPointer(3, GL_FLOAT, sizeof(*vertices), &vertices->p.x);
 	
-	glEnableClientState(GL_COLOR_ARRAY);
-	glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, sizeof(SMY_VERTEX3), &vertices->color);
+	if(renderer->hasVertexFogCoordinate()) {
+		glDisableClientState(GL_FOG_COORDINATE_ARRAY);
+	};
 	
-	setVertexArrayTexCoord(0, &vertices->uv[0], sizeof(SMY_VERTEX3));
-	setVertexArrayTexCoord(1, &vertices->uv[1], sizeof(SMY_VERTEX3));
-	setVertexArrayTexCoord(2, &vertices->uv[2], sizeof(SMY_VERTEX3));
+	glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(*vertices), &vertices->color);
 	
-	CHECK_GL;
+	setVertexArrayTexCoord(0, &vertices->uv[0], sizeof(*vertices));
+	setVertexArrayTexCoord(1, &vertices->uv[1], sizeof(*vertices));
+	setVertexArrayTexCoord(2, &vertices->uv[2], sizeof(*vertices));
 }
-
-static const GLenum arxToGlBufferUsage[] = {
-	GL_STATIC_DRAW,  // Static,
-	GL_DYNAMIC_DRAW, // Dynamic,
-	GL_STREAM_DRAW   // Stream
-};
 
 extern const GLenum arxToGlPrimitiveType[];
 
-std::vector<GLushort> glShortIndexBuffer;
-std::vector<GLuint> glIntIndexBuffer;
+extern std::vector<GLushort> glShortIndexBuffer;
+extern std::vector<GLuint> glIntIndexBuffer;
 
 template <class Vertex>
-class GLVertexBuffer : public VertexBuffer<Vertex> {
+class BaseGLVertexBuffer : public VertexBuffer<Vertex> {
+	
+	typedef VertexBuffer<Vertex> Base;
 	
 public:
 	
-	using VertexBuffer<Vertex>::capacity;
+	using Base::capacity;
 	
-	GLVertexBuffer(OpenGLRenderer * _renderer, size_t capacity, Renderer::BufferUsage _usage) : VertexBuffer<Vertex>(capacity), renderer(_renderer), buffer(0), usage(_usage) {
-		
-		glGenBuffers(1, &buffer);
-		
-		arx_assert(buffer != GL_NONE);
-		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-		glBufferData(GL_ARRAY_BUFFER, capacity * sizeof(Vertex), NULL, arxToGlBufferUsage[usage]);
-		
-		CHECK_GL;
-	}
-	
-	void setData(const Vertex * vertices, size_t count, size_t offset, BufferFlags flags) {
-		ARX_UNUSED(flags);
-		
-		arx_assert(offset + count <= capacity());
-		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-		
-		if(GLEW_ARB_map_buffer_range && count != 0) {
-			
-			GLbitfield glflags = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT;
-			
-			if(flags & DiscardBuffer) {
-				glflags |= GL_MAP_INVALIDATE_BUFFER_BIT;
-			}
-			if(flags & NoOverwrite) {
-				glflags |= GL_MAP_UNSYNCHRONIZED_BIT;
-			}
-			
-			size_t obytes = offset * sizeof(Vertex);
-			size_t nbytes = count * sizeof(Vertex);
-			void * buf = glMapBufferRange(GL_ARRAY_BUFFER, obytes, nbytes, glflags);
-			
-			if(buf) {
-				
-				memcpy(buf, vertices, nbytes);
-				
-				GLboolean ret = glUnmapBuffer(GL_ARRAY_BUFFER);
-				if(ret == GL_FALSE) {
-					// TODO handle GL_FALSE return (buffer invalidated)
-					LogWarning << "Vertex buffer invalidated";
-				}
-				
-			}
-			
-		} else {
-			
-			if(flags & DiscardBuffer) {
-				// avoid waiting if GL is still using the old buffer contents
-				glBufferData(GL_ARRAY_BUFFER, capacity() * sizeof(Vertex), NULL, arxToGlBufferUsage[usage]);
-			}
-			
-			if(count != 0) {
-				glBufferSubData(GL_ARRAY_BUFFER, offset * sizeof(Vertex), count * sizeof(Vertex), vertices);
-			}
-			
-		}
-		
-		CHECK_GL;
-	}
-	
-	Vertex * lock(BufferFlags flags, size_t offset, size_t count) {
-		ARX_UNUSED(flags);
-		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-		
-		Vertex * buf;
-		
-		if(GLEW_ARB_map_buffer_range) {
-			
-			GLbitfield glflags = GL_MAP_WRITE_BIT;
-			
-			if(flags & DiscardBuffer) {
-				glflags |= GL_MAP_INVALIDATE_BUFFER_BIT;
-			}
-			if(flags & DiscardRange) {
-				glflags |= GL_MAP_INVALIDATE_RANGE_BIT;
-			}
-			if(flags & NoOverwrite) {
-				glflags |= GL_MAP_UNSYNCHRONIZED_BIT;
-			}
-			
-			size_t obytes = offset * sizeof(Vertex);
-			size_t nbytes = std::min(count, capacity() - offset) * sizeof(Vertex);
-			
-			buf = reinterpret_cast<Vertex *>(glMapBufferRange(GL_ARRAY_BUFFER, obytes, nbytes, glflags));
-			
-		} else {
-			
-			if(flags & DiscardBuffer) {
-				// avoid waiting if GL is still using the old buffer contents
-				glBufferData(GL_ARRAY_BUFFER, capacity() * sizeof(Vertex), NULL, arxToGlBufferUsage[usage]);
-			}
-			
-			buf = reinterpret_cast<Vertex *>(glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY));
-			if(buf) {
-				buf += offset;
-			}
-		}
-		
-		CHECK_GL;
-		
-		arx_assert(buf != NULL); // TODO OpenGL doesn't guarantee this
-		
-		return buf;
-	}
-	
-	void unlock() {
-		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-		
-		GLboolean ret = glUnmapBuffer(GL_ARRAY_BUFFER);
-		
-		if(ret == GL_FALSE) {
-			// TODO handle GL_FALSE return (buffer invalidated)
-			LogWarning << "Vertex buffer invalidated";
-		}
-		
-		CHECK_GL;
+	BaseGLVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage)
+		: Base(size)
+		, m_renderer(renderer)
+		, m_buffer(GL_NONE)
+		, m_offset(0)
+		, m_usage(usage)
+	{
+		glGenBuffers(1, &m_buffer);
+		arx_assert(m_buffer != GL_NONE);
 	}
 	
 	void draw(Renderer::Primitive primitive, size_t count, size_t offset) const {
 		
+		arx_assert(offset < capacity());
 		arx_assert(offset + count <= capacity());
 		
-		renderer->beforeDraw<Vertex>();
+		m_renderer->beforeDraw<Vertex>();
 		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
+		bindBuffer(m_buffer);
 		
-		setVertexArray<Vertex>(NULL, this);
+		setVertexArray<Vertex>(m_renderer, NULL, this);
 		
-		glDrawArrays(arxToGlPrimitiveType[primitive], offset, count);
+		glDrawArrays(arxToGlPrimitiveType[primitive], m_offset + offset, count);
 		
-		CHECK_GL;
 	}
 	
-	void drawIndexed(Renderer::Primitive primitive, size_t count, size_t offset, unsigned short * indices, size_t nbindices) const {
+	void drawIndexed(Renderer::Primitive primitive, size_t count, size_t offset,
+	                 const unsigned short * indices, size_t nbindices) const {
 		
+		arx_assert(offset < capacity());
 		arx_assert(offset + count <= capacity());
 		arx_assert(indices != NULL);
 		
-		renderer->beforeDraw<Vertex>();
+		offset += m_offset;
 		
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
+		m_renderer->beforeDraw<Vertex>();
 		
-		setVertexArray<Vertex>(NULL, this);
+		bindBuffer(m_buffer);
 		
-		if(GLEW_ARB_draw_elements_base_vertex) {
+		setVertexArray<Vertex>(m_renderer, NULL, this);
+		
+		GLenum mode = arxToGlPrimitiveType[primitive];
+		GLenum type = GL_UNSIGNED_SHORT;
+		const void * data = indices;
+		
+		if(m_renderer->hasDrawElementsBaseVertex()) {
 			
-			glDrawRangeElementsBaseVertex(arxToGlPrimitiveType[primitive], 0, count - 1, nbindices, GL_UNSIGNED_SHORT, indices, offset);
-			
-			CHECK_GL;
-			
-		} else if(offset + count - 1 <= std::numeric_limits<GLushort>::max()) {
-			
-			glShortIndexBuffer.resize(std::max(glShortIndexBuffer.size(), nbindices));
-			for(size_t i = 0; i < nbindices; i++) {
-				glShortIndexBuffer[i] = GLushort(indices[i] + offset);
+			if(m_renderer->hasDrawRangeElements()) {
+				#if !ARX_HAVE_GLEW
+				glDrawRangeElementsBaseVertex(mode, 0, count - 1, nbindices, type, data, offset);
+				#else
+				glDrawRangeElementsBaseVertex(mode, 0, count - 1, nbindices, type, const_cast<void *>(data), offset);
+				#endif
+			} else {
+				#if !ARX_HAVE_GLEW
+				glDrawElementsBaseVertex(mode, nbindices, type, data, offset);
+				#else
+				glDrawElementsBaseVertex(mode, nbindices, type, const_cast<void *>(data), offset);
+				#endif
 			}
-			
-			glDrawRangeElements(arxToGlPrimitiveType[primitive], offset, offset + count - 1, nbindices, GL_UNSIGNED_SHORT, &glShortIndexBuffer[0]);
-			
-			CHECK_GL;
 			
 		} else {
 			
-			glIntIndexBuffer.resize(std::max(glIntIndexBuffer.size(), nbindices));
-			for(size_t i = 0; i < nbindices; i++) {
-				glIntIndexBuffer[i] = GLuint(indices[i] + offset);
+			if(offset != 0) {
+				if(offset + count - 1 <= std::numeric_limits<GLushort>::max()) {
+					glShortIndexBuffer.resize(std::max(glShortIndexBuffer.size(), size_t(nbindices)));
+					for(size_t i = 0; i < nbindices; i++) {
+						glShortIndexBuffer[i] = GLushort(indices[i] + offset);
+					}
+					type = GL_UNSIGNED_SHORT;
+					data = &glShortIndexBuffer[0];
+				} else {
+					glIntIndexBuffer.resize(std::max(glIntIndexBuffer.size(), size_t(nbindices)));
+					for(size_t i = 0; i < nbindices; i++) {
+						glIntIndexBuffer[i] = GLuint(indices[i] + offset);
+					}
+					type = GL_UNSIGNED_INT;
+					data = &glIntIndexBuffer[0];
+				}
 			}
 			
-			glDrawRangeElements(arxToGlPrimitiveType[primitive], offset, offset + count - 1, nbindices, GL_UNSIGNED_INT, &glIntIndexBuffer[0]);
+			if(m_renderer->hasDrawRangeElements()) {
+				glDrawRangeElements(mode, offset, offset + count - 1, nbindices, type, data);
+			} else {
+				glDrawElements(mode, nbindices, type, data);
+			}
 			
-			CHECK_GL;
 		}
+		
 	}
 	
-	~GLVertexBuffer() {
-		glDeleteBuffers(1, &buffer);
-		CHECK_GL;
-	};
+	~BaseGLVertexBuffer() {
+		clearVertexArray(this);
+		unbindBuffer(m_buffer);
+		glDeleteBuffers(1, &m_buffer);
+	}
 	
-private:
+protected:
 	
-	OpenGLRenderer * renderer;
-	GLuint buffer;
-	Renderer::BufferUsage usage;
+	OpenGLRenderer * m_renderer;
+	GLuint m_buffer;
+	size_t m_offset;
+	Renderer::BufferUsage m_usage;
 	
 };
+
+template <class Vertex>
+class GLVertexBuffer : public BaseGLVertexBuffer<Vertex> {
+	
+	typedef BaseGLVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	GLVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+		, m_initialized(false)
+	{ }
+	
+	void setData(const Vertex * vertices, size_t count, size_t offset, BufferFlags flags) {
+		
+		arx_assert(offset < capacity());
+		arx_assert(offset + count <= capacity());
+		
+		bindBuffer(m_buffer);
+		
+		if(offset == 0 && count == capacity()) {
+			initialize(vertices);
+			return;
+		}
+		
+		if(!m_initialized || (flags & DiscardBuffer)) {
+			// Orphan buffer to avoid waiting if the GL is still using the old contents
+			initialize();
+		}
+		
+		if(count != 0) {
+			size_t obytes = offset * sizeof(Vertex);
+			size_t nbytes = count * sizeof(Vertex);
+			glBufferSubData(GL_ARRAY_BUFFER, obytes, nbytes, vertices);
+		}
+		
+	}
+	
+protected:
+	
+	void initialize(const Vertex * data = NULL) {
+		arx_assert(!m_initialized || m_usage != Renderer::Static);
+		arx_assert(data || m_usage != Renderer::Static);
+		#ifdef GL_ARB_buffer_storage
+		if(m_usage == Renderer::Static && m_renderer->hasBufferStorage()) {
+			glBufferStorage(GL_ARRAY_BUFFER, capacity() * sizeof(Vertex), data, 0);
+		}
+		else
+		#endif
+		{
+			GLenum usage = m_usage == Renderer::Static ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
+			if(m_usage == Renderer::Stream && m_renderer->hasBufferUsageStream()) {
+				usage = GL_STREAM_DRAW;
+			}
+			glBufferData(GL_ARRAY_BUFFER, capacity() * sizeof(Vertex), data, usage);
+		}
+		m_initialized = true;
+	}
+	
+	using Base::m_renderer;
+	using Base::m_buffer;
+	using Base::m_usage;
+	bool m_initialized;
+	
+};
+
+template <class Vertex>
+class GLShadowVertexBuffer : public GLVertexBuffer<Vertex> {
+	
+	typedef GLVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	GLShadowVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+		, m_lockedFlags(0)
+		, m_lockedOffset(0)
+		, m_lockedCount(0)
+	{ }
+	
+	void setData(const Vertex * vertices, size_t count, size_t offset, BufferFlags flags) {
+		
+		if(m_usage == Renderer::Dynamic) {
+			m_shadow.resize(capacity());
+			std::memcpy(&m_shadow[0] + offset, vertices, count * sizeof(Vertex));
+		}
+		
+		Base::setData(vertices, count, offset, flags);
+	}
+	
+	Vertex * lock(BufferFlags flags, size_t offset, size_t count) {
+		
+		m_shadow.resize(capacity());
+		
+		arx_assert(offset < capacity());
+		
+		m_lockedFlags = flags;
+		m_lockedOffset = offset;
+		m_lockedCount = std::min(count, capacity() - offset);
+		
+		return &m_shadow[0] + offset;
+	}
+	
+	void unlock() {
+		Base::setData(&m_shadow[0] + m_lockedOffset, m_lockedCount, m_lockedOffset, m_lockedFlags);
+	}
+	
+protected:
+	
+	using Base::m_usage;
+	using Base::m_initialized;
+	
+	std::vector<Vertex> m_shadow;
+	BufferFlags m_lockedFlags;
+	size_t m_lockedOffset;
+	size_t m_lockedCount;
+	
+};
+
+template <class Vertex>
+class GLMapVertexBuffer : public GLVertexBuffer<Vertex> {
+	
+	typedef GLVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	GLMapVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+	{ }
+	
+	Vertex * lock(BufferFlags flags, size_t offset, size_t count) {
+		ARX_UNUSED(count);
+		
+		arx_assert(offset < capacity());
+		
+		bindBuffer(m_buffer);
+		
+		if(!m_initialized || (flags & DiscardBuffer)) {
+			// Orphan buffer to avoid waiting if the GL is still using the old contents
+			initialize();
+		}
+		
+		void * buf = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+		if(!buf) {
+			LogError << "Could not map vertex buffer!";
+		}
+		
+		return reinterpret_cast<Vertex *>(buf) + offset;
+	}
+	
+	void unlock() {
+		
+		bindBuffer(m_buffer);
+		
+		GLboolean ret = glUnmapBuffer(GL_ARRAY_BUFFER);
+		if(ret == GL_FALSE) {
+			LogWarning << "Vertex buffer invalidated";
+		}
+		
+	}
+	
+protected:
+	
+	using Base::initialize;
+	
+	using Base::m_buffer;
+	using Base::m_initialized;
+	
+};
+
+template <class Vertex>
+class GLMapRangeVertexBuffer : public GLMapVertexBuffer<Vertex> {
+	
+	typedef GLMapVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	GLMapRangeVertexBuffer(OpenGLRenderer * renderer, size_t size,
+	                       Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+	{ }
+	
+	Vertex * lock(BufferFlags flags, size_t offset, size_t count) {
+		
+		arx_assert(offset < capacity());
+		
+		bindBuffer(m_buffer);
+		
+		if(!m_initialized) {
+			initialize();
+		}
+		
+		GLbitfield glflags = GL_MAP_WRITE_BIT;
+		
+		if(flags & DiscardBuffer) {
+			glflags |= GL_MAP_INVALIDATE_BUFFER_BIT;
+		}
+		if(flags & DiscardRange) {
+			glflags |= GL_MAP_INVALIDATE_RANGE_BIT;
+		}
+		if(flags & NoOverwrite) {
+			glflags |= GL_MAP_UNSYNCHRONIZED_BIT;
+		}
+		
+		size_t obytes = offset * sizeof(Vertex);
+		size_t nbytes = std::min(count, capacity() - offset) * sizeof(Vertex);
+		
+		void * buf = glMapBufferRange(GL_ARRAY_BUFFER, obytes, nbytes, glflags);
+		if(!buf) {
+			LogError << "Could not map vertex buffer!";
+		}
+		
+		return reinterpret_cast<Vertex *>(buf);
+	}
+	
+protected:
+	
+	using Base::initialize;
+	
+	using Base::m_buffer;
+	using Base::m_initialized;
+	
+};
+
+#ifdef GL_ARB_buffer_storage
+
+template <class Vertex>
+class BaseGLPersistentVertexBuffer : public BaseGLVertexBuffer<Vertex> {
+	
+	typedef BaseGLVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	BaseGLPersistentVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage,
+	                             size_t multiplier = 1)
+		: Base(renderer, size, usage)
+		, m_multiplier(multiplier)
+		, m_mapping(NULL)
+	{
+		
+		bindBuffer(m_buffer);
+		m_mapping = create();
+		
+	}
+	
+protected:
+	
+	size_t size() const { return capacity() * sizeof(Vertex) * m_multiplier; }
+	
+	Vertex * map(GLbitfield flags) const {
+		flags |= GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+		return reinterpret_cast<Vertex *>(glMapBufferRange(GL_ARRAY_BUFFER, 0, size(), flags));
+	}
+	
+	Vertex * create() const {
+		
+		arx_assert(m_usage != Renderer::Static);
+		GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+		if(m_usage == Renderer::Stream) {
+			flags |= GL_CLIENT_STORAGE_BIT;
+		}
+		glBufferStorage(GL_ARRAY_BUFFER, size(), NULL, flags);
+		
+		return map(GL_MAP_UNSYNCHRONIZED_BIT);
+	}
+	
+	virtual void discardBuffer() = 0;
+	
+	void syncPersistent(BufferFlags flags) {
+		
+		if(flags & DiscardBuffer) {
+			discardBuffer();
+		} else if(!(flags & NoOverwrite)) {
+			LogWarning << "Blocking buffer upload, use DiscardBuffer or NoOverwrite!";
+			glFinish();
+		}
+		
+	}
+	
+public:
+	
+	void setData(const Vertex * vertices, size_t count, size_t offset, BufferFlags flags) {
+		
+		arx_assert(offset < capacity());
+		arx_assert(offset + count <= capacity());
+		
+		syncPersistent(flags);
+		
+		if(count > 0) {
+			std::memcpy(m_mapping + m_offset + offset, vertices, count * sizeof(Vertex));
+		}
+		
+	}
+	
+	Vertex * lock(BufferFlags flags, size_t offset, size_t count) {
+		ARX_UNUSED(count);
+		
+		arx_assert(offset < capacity());
+		
+		syncPersistent(flags);
+		
+		return m_mapping + m_offset + offset;
+	}
+	
+	void unlock() { }
+	
+	~BaseGLPersistentVertexBuffer() {
+		
+		if(m_mapping) {
+			bindBuffer(m_buffer);
+			GLboolean ret = glUnmapBuffer(GL_ARRAY_BUFFER);
+			if(ret == GL_FALSE) {
+				LogWarning << "Persistently mapped vertex buffer invalidated";
+			}
+		}
+		
+	}
+	
+protected:
+	
+	using Base::m_buffer;
+	using Base::m_offset;
+	using Base::m_usage;
+	
+	size_t m_multiplier;
+	
+	Vertex * m_mapping;
+	
+};
+
+template <class Vertex>
+class GLPersistentUnsynchronizedVertexBuffer
+	: public BaseGLPersistentVertexBuffer<Vertex>
+{
+	
+	typedef BaseGLPersistentVertexBuffer<Vertex> Base;
+	
+public:
+	
+	GLPersistentUnsynchronizedVertexBuffer(OpenGLRenderer * renderer, size_t size,
+	                                       Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+	{ }
+	
+	void discardBuffer() {
+		// Assume the GL already rendered far enough
+	}
+	
+protected:
+	
+	using Base::map;
+	
+	using Base::m_buffer;
+	using Base::m_mapping;
+	
+};
+
+template <class Vertex>
+class GLPersistentOrphanVertexBuffer
+	: public BaseGLPersistentVertexBuffer<Vertex>
+{
+	
+	typedef BaseGLPersistentVertexBuffer<Vertex> Base;
+	
+public:
+	
+	GLPersistentOrphanVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage)
+		: Base(renderer, size, usage)
+	{ }
+	
+	void discardBuffer() {
+		
+		bindBuffer(m_buffer);
+		glUnmapBuffer(GL_ARRAY_BUFFER);
+		m_mapping = map(GL_MAP_INVALIDATE_BUFFER_BIT);
+		
+	}
+	
+protected:
+	
+	using Base::map;
+	
+	using Base::m_buffer;
+	using Base::m_mapping;
+	
+};
+
+template <class Vertex, size_t MaxFences>
+class GLPersistentFenceVertexBuffer
+	: public BaseGLPersistentVertexBuffer<Vertex>
+{
+	
+	typedef BaseGLPersistentVertexBuffer<Vertex> Base;
+	
+public:
+	
+	using Base::capacity;
+	
+	GLPersistentFenceVertexBuffer(OpenGLRenderer * renderer, size_t size, Renderer::BufferUsage usage,
+	                              size_t fenceCount)
+		: Base(renderer, size, usage, fenceCount)
+	{
+		
+		m_position = 0;
+		
+		arx_assert(m_multiplier <= MaxFences);
+		for(size_t i = 0; i < m_multiplier; i++) {
+			m_fences[i] = 0;
+		}
+		
+	}
+	
+	void discardBuffer() {
+		
+		// Create a fence for the current buffer
+		arx_assert(!m_fences[m_position]);
+		m_fences[m_position] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		
+		// Switch to the next buffer and wait for its fence
+		m_position = (m_position + 1) % m_multiplier;
+		if(m_fences[m_position]) {
+			GLenum ret = GL_UNSIGNALED;
+			while(ret != GL_ALREADY_SIGNALED && ret != GL_CONDITION_SATISFIED) {
+				ret = glClientWaitSync(m_fences[m_position], GL_SYNC_FLUSH_COMMANDS_BIT, 1);
+			}
+			glDeleteSync(m_fences[m_position]);
+			m_fences[m_position] = 0;
+		}
+		
+		m_offset = m_position * capacity();
+		
+	}
+	
+	~GLPersistentFenceVertexBuffer() {
+		
+		for(size_t i = 0; i < m_multiplier; i++) {
+			if(m_fences[i]) {
+				glDeleteSync(m_fences[i]);
+			}
+		}
+		
+	}
+	
+protected:
+	
+	using Base::m_offset;
+	using Base::m_multiplier;
+	
+	size_t m_position;
+	GLsync m_fences[MaxFences];
+	
+};
+
+#endif // GL_ARB_buffer_storage
 
 #endif // ARX_GRAPHICS_OPENGL_GLVERTEXBUFFER_H

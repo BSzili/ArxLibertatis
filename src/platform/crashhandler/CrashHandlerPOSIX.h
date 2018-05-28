@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -20,6 +20,8 @@
 #ifndef ARX_PLATFORM_CRASHHANDLER_CRASHHANDLERPOSIX_H
 #define ARX_PLATFORM_CRASHHANDLER_CRASHHANDLERPOSIX_H
 
+#include <string>
+
 #include "platform/crashhandler/CrashHandlerImpl.h"
 
 class CrashHandlerPOSIX : public CrashHandlerImpl {
@@ -37,20 +39,26 @@ public:
 	void registerCrashCallback(CrashHandler::CrashCallback crashCallback);
 	void unregisterCrashCallback(CrashHandler::CrashCallback crashCallback);
 	
-	void handleCrash(int signal, int code);
+	void handleCrash(int signal, void * info, void * context);
 	
 	static CrashHandlerPOSIX & getInstance();
 	
 private:
 	
-	void fillBasicCrashInfo();
+	std::string m_arg;
+	
 	bool registerCrashHandlers();
 	void unregisterCrashHandlers();
 	
-	// Crash handlers to restore.
-	struct PlatformCrashHandlers * m_pPreviousCrashHandlers;
+	void processCrashInfo();
+	void processCrashSignal();
+	void processCrashTrace();
+	void processCrashDump();
 	
+	// Crash handlers to restore
+	struct PlatformCrashHandlers * m_pPreviousCrashHandlers;
 	static CrashHandlerPOSIX * m_sInstance;
+	
 };
 
 #endif // ARX_PLATFORM_CRASHHANDLER_CRASHHANDLERPOSIX_H

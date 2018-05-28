@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -54,17 +54,15 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
-using std::strcpy;
 
 namespace script {
 
 namespace {
 
-typedef std::map<string, AnimationNumber> Animations;
+typedef std::map<std::string, AnimationNumber> Animations;
 Animations animations;
 
-AnimationNumber getAnimationNumber(const string & name) {
+AnimationNumber getAnimationNumber(const std::string & name) {
 	
 	Animations::const_iterator it = animations.find(name);
 	
@@ -81,21 +79,17 @@ public:
 		
 		Entity * io = context.getEntity();
 		
-		float t1 = context.getFloat();
-		float t2 = context.getFloat();
-		float t3 = context.getFloat();
+		float pitch = context.getFloat();
+		float yaw   = context.getFloat();
+		float roll  = context.getFloat();
 		
-		DebugScript(' ' << t1 << ' ' << t2 << ' ' << t3);
+		DebugScript(' ' << pitch << ' ' << yaw << ' ' << roll);
 		
-		io->angle.a += t1;
-		io->angle.b += t2;
-		io->angle.g += t3;
+		io->angle.setPitch(io->angle.getPitch() + pitch);
+		io->angle.setYaw(io->angle.getYaw() + yaw);
+		io->angle.setRoll(io->angle.getRoll() + roll);
 		
-		if((size_t)io->nb_lastanimvertex != io->obj->vertexlist.size()) {
-			free(io->lastanimvertex);
-			io->lastanimvertex = NULL;
-		}
-		io->lastanimtime = 0;
+		io->animBlend.lastanimtime = 0;
 		
 		return Success;
 	}
@@ -106,19 +100,20 @@ class ForceAnimCommand : public Command {
 	
 	static void forceAnim(Entity & io, ANIM_HANDLE * ea) {
 		
-		if(io.animlayer[0].cur_anim
-		   && io.animlayer[0].cur_anim != io.anims[ANIM_DIE]
-		   && io.animlayer[0].cur_anim != io.anims[ANIM_HIT1]) {
+		AnimLayer & layer0 = io.animlayer[0];
+		
+		if(layer0.cur_anim
+		   && layer0.cur_anim != io.anims[ANIM_DIE]
+		   && layer0.cur_anim != io.anims[ANIM_HIT1]) {
 			AcquireLastAnim(&io);
 		}
 		
-		FinishAnim(&io, io.animlayer[0].cur_anim);
-		io.lastmove = Vec3f::ZERO;
-		ANIM_Set(&io.animlayer[0], ea);
-		io.animlayer[0].flags |= EA_FORCEPLAY;
-		io.animlayer[0].nextflags = 0;
+		FinishAnim(&io, layer0.cur_anim);
+		io.lastmove = Vec3f_ZERO;
+		ANIM_Set(layer0, ea);
+		layer0.flags |= EA_FORCEPLAY;
 		
-		CheckSetAnimOutOfTreatZone(&io, 0);
+		CheckSetAnimOutOfTreatZone(&io, layer0);
 	}
 	
 public:
@@ -127,7 +122,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string anim = context.getWord();
+		std::string anim = context.getWord();
 		
 		DebugScript(' ' << anim);
 		
@@ -139,7 +134,7 @@ public:
 		
 		Entity & io = *context.getEntity();
 		if(!io.anims[num]) {
-			ScriptWarning << "animation " << anim << " not set";
+			ScriptWarning << "animation " << anim << " not loaded";
 			return Failed;
 		}
 		
@@ -162,7 +157,7 @@ public:
 		
 		DebugScript(' ' << angle);
 		
-		context.getEntity()->angle.b = angle;
+		context.getEntity()->angle.setYaw(angle);
 		
 		return Success;
 	}
@@ -171,7 +166,7 @@ public:
 
 class PlayAnimCommand : public Command {
 	
-	static void setNextAnim(Entity * io, ANIM_HANDLE * ea, long layer, bool loop, bool nointerpol) {
+	static void setNextAnim(Entity * io, ANIM_HANDLE * ea, AnimLayer & layer, bool loop, bool nointerpol) {
 		
 		if(IsDeadNPC(io)) {
 			return;
@@ -181,16 +176,15 @@ class PlayAnimCommand : public Command {
 			AcquireLastAnim(io);
 		}
 		
-		FinishAnim(io, io->animlayer[layer].cur_anim);
-		ANIM_Set(&io->animlayer[layer], ea);
-		io->animlayer[layer].next_anim = NULL;
+		FinishAnim(io, layer.cur_anim);
+		ANIM_Set(layer, ea);
 		
 		if(loop) {
-			io->animlayer[layer].flags |= EA_LOOP;
+			layer.flags |= EA_LOOP;
 		} else {
-			io->animlayer[layer].flags &= ~EA_LOOP;
+			layer.flags &= ~EA_LOOP;
 		}
-		io->animlayer[layer].flags |= EA_FORCEPLAY;
+		layer.flags |= EA_FORCEPLAY;
 	}
 	
 public:
@@ -200,31 +194,31 @@ public:
 	Result execute(Context & context) {
 		
 		Entity * iot = context.getEntity();
-		long nu = 0;
+		long layerIndex = 0;
 		bool loop = false;
 		bool nointerpol = false;
 		bool execute = false;
 		
 		HandleFlags("123lnep") {
 			if(flg & flag('1')) {
-				nu = 0;
+				layerIndex = 0;
 			}
 			if(flg & flag('2')) {
-				nu = 1;
+				layerIndex = 1;
 			}
 			if(flg & flag('3')) {
-				nu = 2;
+				layerIndex = 2;
 			}
 			loop = test_flag(flg, 'l');
 			nointerpol = test_flag(flg, 'n');
 			execute = test_flag(flg, 'e');
 			if(flg & flag('p')) {
 				iot = entities.player();
-				iot->move = iot->lastmove = Vec3f::ZERO;
+				iot->move = iot->lastmove = Vec3f_ZERO;
 			}
 		}
 		
-		string anim = context.getWord();
+		std::string anim = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << anim);
 		
@@ -233,11 +227,10 @@ public:
 			return Failed;
 		}
 		
-		ANIM_USE & layer = iot->animlayer[nu];
+		AnimLayer & layer = iot->animlayer[layerIndex];
 		
 		if(anim == "none") {
 			layer.cur_anim = NULL;
-			layer.next_anim = NULL;
 			return Success;
 		}
 		
@@ -253,10 +246,10 @@ public:
 		}
 		
 		iot->ioflags |= IO_NO_PHYSICS_INTERPOL;
-		setNextAnim(iot, iot->anims[num], nu, loop, nointerpol);
+		setNextAnim(iot, iot->anims[num], layer, loop, nointerpol);
 		
 		if(!loop) {
-			CheckSetAnimOutOfTreatZone(iot, nu);
+			CheckSetAnimOutOfTreatZone(iot, layer);
 		}
 		
 		if(iot == entities.player()) {
@@ -265,7 +258,7 @@ public:
 		
 		if(execute) {
 			
-			string timername = "anim_" + ARX_SCRIPT_Timer_GetDefaultName();
+			std::string timername = "anim_" + ARX_SCRIPT_Timer_GetDefaultName();
 			long num2 = ARX_SCRIPT_Timer_GetFree();
 			if(num2 < 0) {
 				ScriptError << "no free timer";
@@ -273,26 +266,35 @@ public:
 			}
 			
 			size_t pos = context.skipCommand();
-			if(pos != (size_t)-1) {
-				scr_timer[num2].reset();
-				ActiveTimers++;
-				scr_timer[num2].es = context.getScript();
-				scr_timer[num2].exist = 1;
-				scr_timer[num2].io = context.getEntity();
-				scr_timer[num2].msecs = 1000.f;
-				// Don't assume that we successfully set the animation - use the current animation
-				if(layer.cur_anim) {
-					arx_assert(layer.altidx_cur >= 0 && layer.altidx_cur < layer.cur_anim->alt_nb);
-					if(layer.cur_anim->anims[layer.altidx_cur]->anim_time > scr_timer[num2].msecs) {
-						scr_timer[num2].msecs = layer.cur_anim->anims[layer.altidx_cur]->anim_time;
-					}
-				}
-				scr_timer[num2].name = timername;
-				scr_timer[num2].pos = pos;
-				scr_timer[num2].tim = (unsigned long)(arxtime);
-				scr_timer[num2].times = 1;
-				scr_timer[num2].longinfo = 0;
+			if(pos == size_t(-1)) {
+				ScriptWarning << "used -e flag without command to execute";
+				return Success;
 			}
+			
+			SCR_TIMER & timer = scr_timer[num2];
+			
+			timer.reset();
+			ActiveTimers++;
+			timer.es = context.getScript();
+			timer.exist = 1;
+			timer.io = context.getEntity();
+			timer.interval = GameDurationMs(1000);
+			// Don't assume that we successfully set the animation - use the current animation
+			if(layer.cur_anim) {
+				arx_assert(layer.altidx_cur >= 0 && layer.altidx_cur < layer.cur_anim->alt_nb);
+				if(layer.cur_anim->anims[layer.altidx_cur]->anim_time > toAnimationDuration(timer.interval)) {
+					timer.interval = toGameDuration(layer.cur_anim->anims[layer.altidx_cur]->anim_time);
+				}
+			}
+			timer.name = timername;
+			timer.pos = pos;
+			timer.start = g_gameTime.now();
+			timer.count = 1;
+			timer.longinfo = 0;
+			
+			DebugScript(": scheduled timer #" << num2 << ' ' << timername << " in "
+			            << toMsi(timer.interval) << "ms");
+			
 		}
 		
 		return Success;
@@ -316,7 +318,7 @@ public:
 			}
 		}
 		
-		string anim = context.getWord();
+		std::string anim = context.getWord();
 		
 		res::path file = res::path::load(context.getWord());
 		
@@ -391,7 +393,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string type = context.getWord();
+		std::string type = context.getWord();
 		
 		DebugScript(' ' << type);
 		
@@ -431,7 +433,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string zone = context.getWord();
+		std::string zone = context.getWord();
 		
 		DebugScript(' ' << zone);
 		
@@ -463,13 +465,14 @@ public:
 			followdir = test_flag(flg, 'f');
 		}
 		
-		string name = context.getWord();
+		std::string name = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << name);
 		
 		Entity * io = context.getEntity();
 		if(name == "none") {
-			free(io->usepath), io->usepath = NULL;
+			delete io->usepath;
+			io->usepath = NULL;
 		} else {
 			
 			ARX_PATH * ap = ARX_PATH_GetAddressByName(name);
@@ -478,10 +481,11 @@ public:
 				return Failed;
 			}
 			
-			free(io->usepath), io->usepath = NULL;
+			delete io->usepath;
+			io->usepath = NULL;
 			
-			ARX_USE_PATH * aup = (ARX_USE_PATH *)malloc(sizeof(ARX_USE_PATH));
-			aup->_starttime = aup->_curtime = arxtime;
+			ARX_USE_PATH * aup = new ARX_USE_PATH;
+			aup->_starttime = aup->_curtime = g_gameTime.now();
 			aup->aupflags = ARX_USEPATH_FORWARD;
 			if(wormspecific) {
 				aup->aupflags |= ARX_USEPATH_WORM_SPECIFIC | ARX_USEPATH_FLAG_ADDSTARTPOS;
@@ -508,7 +512,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string name = context.getWord();
+		std::string name = context.getWord();
 		
 		DebugScript(' ' << name);
 		
@@ -518,7 +522,7 @@ public:
 			return Failed;
 		}
 		
-		ap->controled = context.getEntity()->long_name();
+		ap->controled = context.getEntity()->idString();
 		
 		return Success;
 	}
@@ -686,7 +690,7 @@ void initAnimationNumbers() {
 	
 }
 
-}
+} // anonymous namespace
 
 void setupScriptedAnimation() {
 	

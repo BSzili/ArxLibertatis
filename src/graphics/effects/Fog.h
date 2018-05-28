@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,23 +47,53 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_EFFECTS_FOG_H
 #define ARX_GRAPHICS_EFFECTS_FOG_H
 
-#include "math/MathFwd.h"
+#include "math/Types.h"
+#include "math/Angle.h"
+#include "math/Vector.h"
+#include "graphics/Color.h"
 
 struct EERIE_3DOBJ;
 
-void ARX_FOGS_Set_Object(EERIE_3DOBJ * _fogobj);
-void ARX_FOGS_RenderAll();
+struct FOG_DEF {
+	
+	bool exist;
+	Vec3f pos;
+	Color3f rgb;
+	float size;
+	long special;
+	float scale;
+	Vec3f move;
+	Anglef angle;
+	float speed;
+	float rotatespeed;
+	long tolive;
+	long blend;
+	float frequency;
+	
+	FOG_DEF()
+		: exist(false)
+		, pos(Vec3f_ZERO)
+		, rgb(Color3f::black)
+		, size(0.f)
+		, special(0)
+		, scale(0.f)
+		, move(Vec3f_ZERO)
+		, speed(0.f)
+		, rotatespeed(0.f)
+		, tolive(0)
+		, blend(0)
+		, frequency(0.f)
+	{ }
+	
+};
+
+#define FOG_DIRECTIONAL 1
+
+static const size_t MAX_FOG = 100;
+extern FOG_DEF fogs[MAX_FOG];
+
 void ARX_FOGS_Render();
-long ARX_FOGS_Count();
 long ARX_FOGS_GetFree();
-void ARX_FOGS_KillSelected();
-void ARX_FOGS_KillByIndex(long num);
-void ARX_FOGS_Select(long n);
-void ARX_FOGS_UnselectAll();
-void ARX_FOGS_TranslateSelected(Vec3f * trans);
 void ARX_FOGS_Clear();
-void ARX_FOGS_FirstInit();
-void ARX_FOGS_TimeReset();
-void AddPoisonFog(Vec3f * pos, float power);
 
 #endif // ARX_GRAPHICS_EFFECTS_FOG_H

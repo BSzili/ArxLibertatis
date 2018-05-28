@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -34,9 +34,9 @@ Source::~Source() {
 	sample->dereference();
 }
 
-void Source::addCallback(Callback * callback, size_t time, TimeUnit unit) {
+void Source::addCallback(Callback * callback, size_t position) {
 	
-	size_t pos = std::min(unitsToBytes(time, sample->getFormat(), unit), sample->getLength());
+	size_t pos = std::min(position, sample->getLength());
 	
 	size_t i = 0;
 	while(i != callbacks.size() && callbacks[i].second <= pos) {
@@ -97,7 +97,7 @@ aalError Source::setVolume(float v) {
 		return AAL_ERROR_INIT;
 	}
 	
-	channel.volume = clamp(v, 0.f, 1.f);
+	channel.volume = glm::clamp(v, 0.f, 1.f);
 	
 	return updateVolume();
 }
@@ -107,10 +107,6 @@ aalError Source::setMixer(MixerId mixer) {
 	channel.mixer = mixer;
 	
 	return updateVolume();
-}
-
-size_t Source::getTime(TimeUnit unit) const {
-	return bytesToUnits(time, sample->getFormat(), unit);
 }
 
 } // namespace audio

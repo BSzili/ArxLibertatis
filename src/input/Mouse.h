@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -26,6 +26,8 @@ public:
 	
 	enum Button {
 		
+		Button_Invalid = -1,
+		
 		ButtonBase = 0x20000000,
 		
 		Button_0 = ButtonBase,
@@ -48,6 +50,12 @@ public:
 		Wheel_Up = WheelBase,
 		Wheel_Down
 	};
+	
+	enum Mode {
+		Absolute,
+		Relative
+	};
+	
 };
 
 #endif // ARX_INPUT_MOUSE_H

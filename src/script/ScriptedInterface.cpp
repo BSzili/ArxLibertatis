@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -43,20 +43,20 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "script/ScriptedInterface.h"
 
+#include <boost/foreach.hpp>
+
+#include "animation/Intro.h"
 #include "game/Inventory.h"
 #include "game/Entity.h"
 #include "game/Player.h"
+#include "gui/Hud.h"
 #include "gui/Interface.h"
 #include "gui/Menu.h"
 #include "gui/MiniMap.h"
+#include "gui/hud/SecondaryInventory.h"
 #include "scene/GameSound.h"
 #include "script/ScriptEvent.h"
 #include "script/ScriptUtils.h"
-
-using std::string;
-
-extern float InventoryDir;
-extern long REFUSE_GAME_RETURN;
 
 namespace script {
 
@@ -72,22 +72,22 @@ public:
 		
 		HandleFlags("aem") {
 			if(flg & flag('a')) { // Magic
-				Book_Mode = BOOKMODE_MINIMAP;
+				g_playerBook.forcePage(BOOKMODE_MINIMAP);
 			}
 			if(flg & flag('e')) { // Equip
-				Book_Mode = BOOKMODE_SPELLS;
+				g_playerBook.forcePage(BOOKMODE_SPELLS);
 			}
 			if(flg & flag('m')) { // Map
-				Book_Mode = BOOKMODE_QUESTS;
+				g_playerBook.forcePage(BOOKMODE_QUESTS);
 			}
 		}
 		
-		string command = context.getWord();
+		std::string command = context.getWord();
 		
 		if(command == "open") {
-			ARX_INTERFACE_BookOpenClose(1);
+			g_playerBook.open();
 		} else if(command == "close") {
-			ARX_INTERFACE_BookOpenClose(2);
+			g_playerBook.close();
 		} else if(command == "change") {
 			// Nothing to do, mode already changed by flags.
 		} else {
@@ -115,13 +115,7 @@ public:
 			return Success;
 		}
 		
-		Entity * pio = (SecondaryInventory) ? SecondaryInventory->io : ioSteal;
-		if(pio && pio == ioSteal) {
-			InventoryDir = -1;
-			SendIOScriptEvent(pio, SM_INVENTORY2_CLOSE);
-			TSecondaryInventory = SecondaryInventory;
-			SecondaryInventory = NULL;
-		}
+		g_secondaryInventoryHud.close();
 		
 		return Success;
 	}
@@ -136,20 +130,20 @@ public:
 	
 	Result execute(Context & context) {
 		
-		gui::Note::Type type;
-		string tpname = context.getWord();
+		Note::Type type;
+		std::string tpname = context.getWord();
 		if(tpname == "note") {
-			type = gui::Note::SmallNote;
+			type = Note::SmallNote;
 		} else if(tpname == "notice") {
-			type = gui::Note::Notice;
+			type = Note::Notice;
 		} else if(tpname == "book") {
-			type = gui::Note::Book;
+			type = Note::Book;
 		} else {
 			ScriptWarning << "unexpected note type: " << tpname;
-			type = gui::Note::SmallNote;
+			type = Note::SmallNote;
 		}
 		
-		string text = loadUnlocalized(context.getWord());
+		std::string text = loadUnlocalized(context.getWord());
 		
 		DebugScript(' ' << tpname << ' ' << text);
 		
@@ -159,6 +153,17 @@ public:
 	}
 	
 };
+
+struct PrintGlobalVariables { };
+
+std::ostream & operator<<(std::ostream & os, const PrintGlobalVariables & /* unused */) {
+	
+	BOOST_FOREACH(const SCRIPT_VAR & var, svar) {
+		os << var << '\n';
+	}
+	
+	return os;
+}
 
 class ShowGlobalsCommand : public Command {
 	
@@ -172,14 +177,29 @@ public:
 		
 		DebugScript("");
 		
-		string text;
-		MakeGlobalText(text);
-		LogInfo << "Global vars:\n" << text;
+		LogInfo << "Global variables:\n" << PrintGlobalVariables();
 		
 		return Success;
 	}
 	
 };
+
+struct PrintLocalVariables {
+	
+	Entity * m_entity;
+	
+	explicit PrintLocalVariables(Entity * entity) : m_entity(entity) { }
+	
+};
+
+std::ostream & operator<<(std::ostream & os, const PrintLocalVariables & data) {
+	
+	BOOST_FOREACH(const SCRIPT_VAR & var, data.m_entity->m_variables) {
+		os << var << '\n';
+	}
+	
+	return os;
+}
 
 class ShowLocalsCommand : public Command {
 	
@@ -191,9 +211,7 @@ public:
 		
 		DebugScript("");
 		
-		string text;
-		MakeLocalText(context.getScript(), text);
-		LogInfo << "Local vars:\n" << text;
+		LogInfo << "Local variables:\n" << PrintLocalVariables(context.getEntity());
 		
 		return Success;
 	}
@@ -210,11 +228,10 @@ public:
 		
 		DebugScript("");
 		
-		string text;
-		MakeGlobalText(text);
-		text += "--------------------------\n";
-		MakeLocalText(context.getScript(), text);
-		LogInfo << "Vars:\n" << text;
+		LogInfo << "Variables:\n"
+		        << PrintGlobalVariables()
+		        << "--------------------------\n"
+		        << PrintLocalVariables(context.getEntity());
 		
 		return Success;
 	}
@@ -234,14 +251,14 @@ public:
 			smooth = test_flag(flg, 's');
 		}
 		
-		string command = context.getWord();
+		std::string command = context.getWord();
 		
 		DebugScript(' ' << options << ' ' << command);
 		
 		if(command == "hide") {
-			ARX_INTERFACE_PlayerInterfaceModify(0, smooth);
+			g_hudRoot.playerInterfaceFader.requestFade(FadeDirection_Out, smooth);
 		} else if(command == "show") {
-			ARX_INTERFACE_PlayerInterfaceModify(1, smooth);
+			g_hudRoot.playerInterfaceFader.requestFade(FadeDirection_In, smooth);
 		} else {
 			ScriptWarning << "unknown command: " << command;
 			return Failed;
@@ -260,7 +277,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string message = context.getWord();
+		std::string message = context.getWord();
 		
 		DebugScript(' ' << message);
 		
@@ -300,10 +317,8 @@ public:
 		
 		DebugScript("");
 		
-		REFUSE_GAME_RETURN = 1;
-		
 		ARX_SOUND_MixerStop(ARX_SOUND_MixerGame);
-		ARX_MENU_Launch();
+		ARX_MENU_Launch(false);
 		ARX_MENU_Clicked_CREDITS();
 		
 		return Success;
@@ -326,7 +341,7 @@ public:
 		
 		if(remove) {
 			
-			string marker = loadUnlocalized(context.getWord());
+			std::string marker = loadUnlocalized(context.getWord());
 			
 			DebugScript(' ' << options << ' ' << marker);
 			
@@ -338,11 +353,11 @@ public:
 			float y = context.getFloat();
 			long level = (long)context.getFloat();
 			
-			string marker = loadUnlocalized(context.getWord());
+			std::string marker = loadUnlocalized(context.getWord());
 			
 			DebugScript(' ' << options << ' ' << x << ' ' << y << ' ' << level << ' ' << marker);
 			
-			g_miniMap.mapMarkerAdd(x, y, level, marker);
+			g_miniMap.mapMarkerAdd(Vec2f(x, y), level, marker);
 			
 		}
 		
@@ -359,7 +374,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string symbol = context.getWord();
+		std::string symbol = context.getWord();
 		
 		float duration = context.getFloat();
 		
@@ -372,7 +387,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedInterface() {
 	

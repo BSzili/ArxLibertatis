@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,7 +44,7 @@ namespace util { namespace cmdline {
  * This class is used as default type to store the name of an option,
  * its alternative names and description.
  */
-template<typename StringType>
+template <typename StringType>
 class key_type : std::vector<StringType> {
 	
 	typedef std::vector<StringType> super_t;
@@ -61,12 +61,18 @@ public:
 	using super_t::end;
 	using super_t::erase;
 	
-	explicit key_type(const value_type & v) : m_argCount(0), m_argNames(NULL) {
+	explicit key_type(const value_type & v)
+		: m_argCount(0)
+		, m_argNames(NULL)
+		, m_argOptional(false)
+	{
 		(*this)(v);
 	}
 	
 	key_type & operator()(const value_type & v) {
-		return super_t::push_back(v), *this;
+		if(!v.empty())
+			super_t::push_back(v);
+		return *this;
 	}
 	
 	key_type & description(const value_type & d) {
@@ -104,11 +110,21 @@ public:
 		return m_argNames != NULL;
 	}
 	
+	key_type & arg_optional(const bool argOptional) {
+		m_argOptional = argOptional;
+		return *this;
+	}
+	
+	bool is_arg_optional() const {
+		return m_argOptional;
+	}
+	
 private:
 	
 	StringType   m_description;
 	size_t       m_argCount;
 	const char * m_argNames;
+	bool         m_argOptional;
 	
 };
 

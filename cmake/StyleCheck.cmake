@@ -40,6 +40,7 @@ set(STYLE_FILTER ${STYLE_FILTER},-runtime/virtual)
 # Very noisy and perhaps a matter of taste.
 set(STYLE_FILTER ${STYLE_FILTER},-whitespace/braces)
 set(STYLE_FILTER ${STYLE_FILTER},-whitespace/parens)
+set(STYLE_FILTER ${STYLE_FILTER},-whitespace/parens_newline)
 set(STYLE_FILTER ${STYLE_FILTER},-whitespace/newline)
 
 # Complains about using short, long, etc.
@@ -48,24 +49,26 @@ set(STYLE_FILTER ${STYLE_FILTER},-runtime/int)
 # Complains about non-const references as parameters
 set(STYLE_FILTER ${STYLE_FILTER},-runtime/references)
 
-# TODO enable these!
+# Has false positives and is already covered by -pedantic or -Wvla
+set(STYLE_FILTER ${STYLE_FILTER},-runtime/arrays)
 
-# Very noisy but should be fixed.
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/operators)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/comma)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/comments)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/end_of_line)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/align_tab)
 set(STYLE_FILTER ${STYLE_FILTER},-whitespace/line_length)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/semicolon)
-set(STYLE_FILTER ${STYLE_FILTER},-whitespace/ident_space)
 
-# Unsafe functions.
-set(STYLE_FILTER ${STYLE_FILTER},-runtime/printf)
-set(STYLE_FILTER ${STYLE_FILTER},-runtime/threadsafe_fn)
+# TODO enable these!
+if(NOT SET_NOISY_WARNING_FLAGS)
+	
+	# Very noisy but should be fixed.
+	set(STYLE_FILTER ${STYLE_FILTER},-whitespace/comments)
+	
+	# Unsafe functions.
+	set(STYLE_FILTER ${STYLE_FILTER},-runtime/threadsafe_fn)
+	
+	# Very much known...
+	set(STYLE_FILTER ${STYLE_FILTER},-readability/fn_size)
+	
+endif()
 
-# Very much known...
-set(STYLE_FILTER ${STYLE_FILTER},-readability/fn_size)
+set(STYLE_CHECK_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/cpplint.py")
 
 # Add a target that runs cpplint.py
 #
@@ -83,13 +86,13 @@ function(add_style_check_target TARGET_NAME SOURCES_LIST PROJECT)
 	
 	add_custom_target(${TARGET_NAME}
 		COMMAND "${CMAKE_COMMAND}" -E chdir
-			"${CMAKE_SOURCE_DIR}"
+			"${PROJECT_SOURCE_DIR}"
 			"${PYTHON_EXECUTABLE}"
-			"${CMAKE_SOURCE_DIR}/scripts/cpplint.py"
+			"${STYLE_CHECK_SCRIPT}"
 			"--filter=${STYLE_FILTER}"
 			"--project=${PROJECT}"
 			${SOURCES_LIST}
-		DEPENDS ${SOURCES_LIST}
+		DEPENDS ${SOURCES_LIST} ${STYLE_CHECK_SCRIPT}
 		COMMENT "Checking code style."
 		VERBATIM
 	)

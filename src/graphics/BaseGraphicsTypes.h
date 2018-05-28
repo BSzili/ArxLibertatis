@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,32 +44,41 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_BASEGRAPHICSTYPES_H
 #define ARX_GRAPHICS_BASEGRAPHICSTYPES_H
 
-#include "math/Vector3.h"
+#include "math/Rectangle.h"
+#include "math/Vector.h"
 
-struct EERIE_QUAT {
-	float x;
-	float y;
-	float z;
-	float w;
-};
-
-struct EERIEMATRIX {
-	float _11, _12, _13, _14;
-	float _21, _22, _23, _24;
-	float _31, _32, _33, _34;
-	float _41, _42, _43, _44;
-};
-
-struct EERIE_CYLINDER {
+struct Cylinder {
 	Vec3f origin;
 	float radius;
 	float height;
+	
+	Cylinder()
+		: origin(Vec3f_ZERO)
+		, radius(0.f)
+		, height(0.f)
+	{}
+	
+	Cylinder(const Vec3f & origin_, float radius_, float height_)
+		: origin(origin_)
+		, radius(radius_)
+		, height(height_)
+	{}
 };
 
-struct EERIE_SPHERE {
+struct Sphere {
 	
 	Vec3f origin;
 	float radius;
+	
+	Sphere()
+		: origin(Vec3f_ZERO)
+		, radius(0.f)
+	{}
+	
+	Sphere(const Vec3f & origin_, float radius_)
+		: origin(origin_)
+		, radius(radius_)
+	{}
 	
 	bool contains(const Vec3f & pos) const {
 		return closerThan(pos, origin, radius);
@@ -77,29 +86,54 @@ struct EERIE_SPHERE {
 	
 };
 
-struct EERIE_3D_BBOX {
-	Vec3f min;
-	Vec3f max;
+struct EERIE_2D_BBOX {
+	
+	Vec2f min;
+	Vec2f max;
+	
+	void reset() {
+		min = Vec2f(32000);
+		max = Vec2f(-32000);
+	}
+	
+	void add(const Vec3f & pos) {
+		min = glm::min(min, Vec2f(pos));
+		max = glm::max(max, Vec2f(pos));
+	}
+	
+	bool valid() const {
+		return (min.x <= max.x && min.y <= max.y);
+	}
+	
+	Rectf toRect() {
+		return Rectf(min.x, min.y, max.x, max.y);
+	}
+	
 };
 
-enum Material {
-	MATERIAL_NONE,
-	MATERIAL_WEAPON,
-	MATERIAL_FLESH,
-	MATERIAL_METAL,
-	MATERIAL_GLASS,
-	MATERIAL_CLOTH,
-	MATERIAL_WOOD,
-	MATERIAL_EARTH,
-	MATERIAL_WATER,
-	MATERIAL_ICE,
-	MATERIAL_GRAVEL,
-	MATERIAL_STONE,
-	MATERIAL_FOOT_LARGE,
-	MATERIAL_FOOT_BARE,
-	MATERIAL_FOOT_SHOE,
-	MATERIAL_FOOT_METAL,
-	MATERIAL_FOOT_STEALTH
+struct EERIE_3D_BBOX {
+	
+	Vec3f min;
+	Vec3f max;
+	
+	EERIE_3D_BBOX() { }
+	
+	EERIE_3D_BBOX(const Vec3f & min_, const Vec3f & max_) : min(min_), max(max_) { }
+	
+	void reset() {
+		min = Vec3f(99999999.f);
+		max = Vec3f(-99999999.f);
+	}
+	
+	void add(const Vec3f & pos) {
+		min = glm::min(min, pos);
+		max = glm::max(max, pos);
+	}
+	
+	bool valid() const {
+		return (min.x <= max.x && min.y <= max.y && min.z <= max.z);
+	}
+	
 };
 
 #endif // ARX_GRAPHICS_BASEGRAPHICSTYPES_H

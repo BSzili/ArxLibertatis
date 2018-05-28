@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -41,7 +41,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 ===========================================================================
 */
 // Code: Cyril Meynier
-//       Sébastien Scieux	(JPEG & PNG)
+//       Sébastien Scieux (JPEG & PNG)
 //
 // Copyright (c) 1999 ARKANE Studios SA. All rights reserved
 
@@ -57,26 +57,61 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_DATA_TEXTURECONTAINER_H
 #define ARX_GRAPHICS_DATA_TEXTURECONTAINER_H
 
+#include <stddef.h>
 #include <vector>
 #include <map>
 
 #include <boost/noncopyable.hpp>
 
-#include "io/resource/ResourcePath.h"
-#include "math/Vector2.h"
-#include "platform/Flags.h"
 #include "graphics/GraphicsTypes.h"
+#include "io/resource/ResourcePath.h"
+#include "math/Vector.h"
+#include "util/Flags.h"
 
-struct SMY_ARXMAT;
-struct SMY_ZMAPPINFO;
-struct EERIEPOLY;
-struct TexturedVertex;
-class Texture2D;
+class Texture;
 
 extern long GLOBAL_EERIETEXTUREFLAG_LOADSCENE_RELEASE;
 
-struct DELAYED_PRIM {
-	EERIEPOLY * data;
+enum BatchBucket {
+	BatchBucket_Opaque = 0,
+	BatchBucket_Blended,
+	BatchBucket_Multiplicative,
+	BatchBucket_Additive,
+	BatchBucket_Subtractive
+};
+
+struct SMY_ARXMAT
+{
+	unsigned long uslStartVertex;
+	unsigned long uslNbVertex;
+
+	unsigned long offset[5];
+	unsigned long count[5];
+};
+
+struct RoomBatches {
+	size_t tMatRoomSize;
+	SMY_ARXMAT * tMatRoom;
+	
+	RoomBatches()
+		: tMatRoomSize(0)
+		, tMatRoom(NULL)
+	{ }
+};
+
+// TODO This RenderBatch class should contain a pointer to the TextureContainer used by the batch
+struct ModelBatch {
+	unsigned long max[5];
+	unsigned long count[5];
+	TexturedVertex * list[5];
+	
+	ModelBatch() {
+		for(size_t i = 0; i < ARRAY_SIZE(max); i++) {
+			max[i] = 0;
+			count[i] = 0;
+			list[i] = NULL;
+		}
+	}
 };
 
 /*!
@@ -89,15 +124,14 @@ class TextureContainer : private boost::noncopyable {
 public:
 	
 	enum TCFlag {
-		NoMipmap     = (1<<0),
-		NoInsert     = (1<<1),
-		NoRefinement = (1<<2),
-		Level        = (1<<3),
-		NoColorKey   = (1<<4)
+		NoMipmap   = 1 << 0,
+		NoInsert   = 1 << 1,
+		Level      = 1 << 2,
+		NoColorKey = 1 << 3,
+		Intensity  = 1 << 4,
 	};
 	
 	DECLARE_FLAGS(TCFlag, TCFlags)
-	static const TCFlags UI;
 	
 	/*!
 	 * Constructor.
@@ -119,8 +153,8 @@ public:
 	 * Find a TextureContainer by its name.
 	 * Searches the internal list of textures for a texture specified by
 	 * its name. Returns the structure associated with that texture.
-	 * @param strTextureName Name of the texture to find.
-	 * @return a pointer to a TextureContainer if this texture was already loaded, NULL otherwise.
+	 * \param strTextureName Name of the texture to find.
+	 * \return a pointer to a TextureContainer if this texture was already loaded, NULL otherwise.
 	 */
 	static TextureContainer * Find(const res::path & strTextureName);
 	
@@ -132,8 +166,8 @@ public:
 	 */
 	bool CreateHalo();
 
-	static const int HALO_RADIUS = 5;
-	TextureContainer *getHalo() {
+	static const size_t HALO_RADIUS = 5;
+	TextureContainer * getHalo() {
 		return (TextureHalo ? TextureHalo : (CreateHalo() ? TextureHalo : NULL));
 	}
 
@@ -147,67 +181,28 @@ public:
 	
 	const res::path m_texName; // Name of texture
 	
-	u32 m_dwWidth;
-	u32 m_dwHeight;
-	Vec2i size() { return Vec2i(m_dwWidth, m_dwHeight); }
+	Vec2i m_size;
+	Vec2i size() { return m_size; }
 	
 	TCFlags m_dwFlags;
 	u32 userflags;
 	
-	Texture2D * m_pTexture; // Diffuse
+	Texture * m_pTexture; // Diffuse
 	
 	/*!
 	 * End of the image in texture coordinates (image size divided by stored size).
-	 * This is usually Vec2f::ONE but may differ if only power of two textures are supported.
+	 * This is usually Vec2f_ONE but may differ if only power of two textures are supported.
 	 */
 	Vec2f uv;
 	
 	//! Size of half a pixel in normalized texture coordinates.
 	Vec2f hd;
 	
-	TextureContainer * TextureRefinement;
 	TextureContainer * m_pNext; // Linked list ptr
 	TCFlags systemflags;
 	
-	// BEGIN TODO: Move to a RenderBatch class... This RenderBatch class should contain a pointer to the TextureContainer used by the batch
-	DELAYED_PRIM * delayed; // delayed_drawing
-	long	delayed_nb;
-	long	delayed_max;
-	
-	std::vector<EERIEPOLY *> vPolyZMap;
-	std::vector<SMY_ZMAPPINFO> vPolyInterZMap;
-	
-	SMY_ARXMAT * tMatRoom;
-	
-	unsigned long ulMaxVertexListCull;
-	unsigned long ulNbVertexListCull;
-	TexturedVertex * pVertexListCull;
-	
-	unsigned long ulMaxVertexListCull_TNormalTrans;
-	unsigned long ulNbVertexListCull_TNormalTrans;
-	TexturedVertex * pVertexListCull_TNormalTrans;
-	
-	unsigned long ulMaxVertexListCull_TAdditive;
-	unsigned long ulNbVertexListCull_TAdditive;
-	TexturedVertex * pVertexListCull_TAdditive;
-	
-	unsigned long ulMaxVertexListCull_TSubstractive;
-	unsigned long ulNbVertexListCull_TSubstractive;
-	TexturedVertex * pVertexListCull_TSubstractive;
-	
-	unsigned long ulMaxVertexListCull_TMultiplicative;
-	unsigned long ulNbVertexListCull_TMultiplicative;
-	TexturedVertex * pVertexListCull_TMultiplicative;
-	// END TODO
-	
-	bool hasColorKey();
-	
-private:
-	void LookForRefinementMap(TCFlags flags);
-	
-	typedef std::map<res::path, res::path> RefinementMap;
-	static RefinementMap s_GlobalRefine;
-	static RefinementMap s_Refine;
+	RoomBatches m_roomBatches;
+	ModelBatch m_modelBatch;
 	
 };
 
@@ -218,9 +213,5 @@ DECLARE_FLAGS_OPERATORS(TextureContainer::TCFlags)
 // ASCII name.
  
 TextureContainer * GetTextureList();
-
-// Texture creation and deletion functions
-
-TextureContainer * GetAnyTexture();
 
 #endif // ARX_GRAPHICS_DATA_TEXTURECONTAINER_H

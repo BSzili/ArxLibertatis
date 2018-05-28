@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -45,7 +45,9 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include <cstdlib>
 
+#include <boost/foreach.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
+#include <boost/range/adaptor/map.hpp>
 
 #include <zlib.h>
 
@@ -55,14 +57,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "platform/Platform.h"
 
-using std::string;
-using std::vector;
-using std::min;
-
-static const u32 SAV_VERSION_OLD = (1<<16) | 0;
-static const u32 SAV_VERSION_RELEASE = (1<<16) | 1;
-static const u32 SAV_VERSION_DEFLATE = (2<<16) | 0;
-static const u32 SAV_VERSION_NOEXT = (2<<16) | 1;
+static const u32 SAV_VERSION_OLD = (1 << 16) | 0;
+static const u32 SAV_VERSION_RELEASE = (1 << 16) | 1;
+static const u32 SAV_VERSION_DEFLATE = (2 << 16) | 0;
+static const u32 SAV_VERSION_NOEXT = (2 << 16) | 1;
 
 static const u32 SAV_COMP_NONE = 0;
 static const u32 SAV_COMP_IMPLODE = 1;
@@ -161,7 +159,7 @@ void SaveBlock::File::writeEntry(std::ostream & handle, const std::string & name
 		case File::None: _comp = SAV_COMP_NONE; break;
 		case File::ImplodeCrypt: _comp = SAV_COMP_IMPLODE; break;
 		case File::Deflate: _comp = SAV_COMP_DEFLATE; break;
-		case File::Unknown: _comp = (u32)-1; break;
+		case File::Unknown: _comp = u32(-1); break;
 	}
 	fs::write(handle, _comp);
 	
@@ -182,7 +180,12 @@ char * SaveBlock::File::loadData(std::istream & handle, size_t & size, const std
 	LogDebug("Loading " << name << ' ' << storedSize << "b in " << chunks.size() << " chunks, "
 	         << compressionName() << " -> " << (int)uncompressedSize << "b");
 	
-	char * buf = (char*)malloc(storedSize);
+	if(storedSize == 0) {
+		size = 0;
+		return NULL;
+	}
+	
+	char * buf = static_cast<char *>(malloc(storedSize));
 	char * p = buf;
 	
 	for(File::ChunkList::const_iterator chunk = chunks.begin();
@@ -205,7 +208,7 @@ char * SaveBlock::File::loadData(std::istream & handle, size_t & size, const std
 		case File::ImplodeCrypt: {
 			unsigned char * crypt = (unsigned char *)buf;
 			for(size_t i = 0; i < storedSize; i += 2) {
-				crypt[i] = ~crypt[i];
+				crypt[i] = static_cast<unsigned char>(~static_cast<unsigned int>(crypt[i]));
 			}
 			char * uncompressed = blastMemAlloc(buf, storedSize, size);
 			free(buf);
@@ -213,15 +216,16 @@ char * SaveBlock::File::loadData(std::istream & handle, size_t & size, const std
 				LogError << "Error decompressing imploded " << name;
 				return NULL;
 			}
-			arx_assert(uncompressedSize == (size_t)-1 || size == uncompressedSize);
+			arx_assert(uncompressedSize == size_t(-1) || size == uncompressedSize);
 			return uncompressed;
 		}
 		
 		case File::Deflate: {
-			arx_assert(uncompressedSize != (size_t)-1);
+			arx_assert(uncompressedSize != size_t(-1));
 			uLongf decompressedSize = uncompressedSize;
-			char * uncompressed = (char*)malloc(uncompressedSize);
-			int ret = uncompress((Bytef*)uncompressed, &decompressedSize, (const Bytef*)buf, storedSize);
+			char * uncompressed = static_cast<char *>(malloc(uncompressedSize));
+			int ret = uncompress(reinterpret_cast<Bytef *>(uncompressed), &decompressedSize,
+			                     reinterpret_cast<const Bytef *>(buf), storedSize);
 			if(ret != Z_OK) {
 				LogError << "Error decompressing deflated " << name << ": " << zError(ret) << " (" << ret << ')';
 				free(buf);
@@ -248,34 +252,39 @@ char * SaveBlock::File::loadData(std::istream & handle, size_t & size, const std
 	}
 }
 
-SaveBlock::SaveBlock(const fs::path & _savefile) : savefile(_savefile), totalSize(0), usedSize(0), chunkCount(0) { }
+SaveBlock::SaveBlock(const fs::path & savefile)
+	: m_savefile(savefile)
+	, m_totalSize(0)
+	, m_usedSize(0)
+	, m_chunkCount(0)
+{ }
 
 SaveBlock::~SaveBlock() { }
 
 bool SaveBlock::loadFileTable() {
 	
-	handle.seekg(0);
+	m_handle.seekg(0);
 	
 	u32 fatOffset;
-	if(fs::read(handle, fatOffset).fail()) {
+	if(fs::read(m_handle, fatOffset).fail()) {
 		return false;
 	}
-	if(handle.seekg(fatOffset + 4).fail()) {
+	if(m_handle.seekg(fatOffset + 4).fail()) {
 		LogError << "Cannot seek to FAT";
 		return false;
 	}
-	totalSize = fatOffset;
+	m_totalSize = fatOffset;
 	
 	u32 version;
-	if(fs::read(handle, version).fail()) {
+	if(fs::read(m_handle, version).fail()) {
 		return false;
 	}
 	if(version != SAV_VERSION_DEFLATE && version != SAV_VERSION_RELEASE && version != SAV_VERSION_NOEXT) {
-		LogWarning << "Unexpected savegame version: " << (version >> 16) << '.' << (version & 0xffff) << " for " << savefile;
+		LogWarning << "Unexpected savegame version: " << (version >> 16) << '.' << (version & 0xffff) << " for " << m_savefile;
 	}
 	
 	u32 nFiles;
-	if(fs::read(handle, nFiles).fail()) {
+	if(fs::read(m_handle, nFiles).fail()) {
 		return false;
 	}
 	nFiles = (version == SAV_VERSION_OLD) ? nFiles - 1 : nFiles;
@@ -286,27 +295,27 @@ bool SaveBlock::loadFileTable() {
 	if(nFiles > (hashMapSize * 3) / 4) {
 		hashMapSize <<= 1;
 	}
-	files.rehash(hashMapSize);
+	m_files.rehash(hashMapSize);
 	
 	if(version == SAV_VERSION_OLD) {
 		char c;
 		do {
-			c = static_cast<char>(handle.get());
-		} while(c != '\0' && handle.good());
+			c = static_cast<char>(m_handle.get());
+		} while(c != '\0' && m_handle.good());
 		File dummy;
-		if(!dummy.loadOffsets(handle, version)) {
+		if(!dummy.loadOffsets(m_handle, version)) {
 			return false;
 		}
 	}
 	
-	usedSize = 0;
-	chunkCount = 0;
+	m_usedSize = 0;
+	m_chunkCount = 0;
 	
 	for(u32 i = 0; i < nFiles; i++) {
 		
 		// Read the file name.
-		string name;
-		if(fs::read(handle, name).fail()) {
+		std::string name;
+		if(fs::read(m_handle, name).fail()) {
 			return false;
 		}
 		if(version < SAV_VERSION_NOEXT) {
@@ -316,13 +325,13 @@ bool SaveBlock::loadFileTable() {
 			}
 		}
 		
-		File & file = files[name];
+		File & file = m_files[name];
 		
-		if(!file.loadOffsets(handle, version)) {
+		if(!file.loadOffsets(m_handle, version)) {
 			return false;
 		}
 		
-		usedSize += file.storedSize, chunkCount += file.chunks.size();
+		m_usedSize += file.storedSize, m_chunkCount += file.chunks.size();
 	}
 	
 	return true;
@@ -374,60 +383,60 @@ static void mos_seekp(std::ostream &handle, std::streampos ofs)
 
 void SaveBlock::writeFileTable(const std::string & important) {
 	
-	LogDebug("writeFileTable " << savefile);
+	LogDebug("writeFileTable " << m_savefile);
 	
-	u32 fatOffset = totalSize;
+	u32 fatOffset = m_totalSize;
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-	mos_seekp(handle, fatOffset + 4);
+	mos_seekp(m_handle, fatOffset + 4);
 #else
-	handle.seekp(fatOffset + 4);
+	m_handle.seekp(fatOffset + 4);
 #endif
 	
-	fs::write(handle, SAV_VERSION_NOEXT);
+	fs::write(m_handle, SAV_VERSION_NOEXT);
 	
-	u32 nFiles = files.size();
-	fs::write(handle, nFiles);
+	u32 nFiles = m_files.size();
+	fs::write(m_handle, nFiles);
 	
-	Files::const_iterator ifile = files.find(important);
-	if(ifile != files.end()) {
-		ifile->second.writeEntry(handle, ifile->first);
+	Files::const_iterator ifile = m_files.find(important);
+	if(ifile != m_files.end()) {
+		ifile->second.writeEntry(m_handle, ifile->first);
 	}
 	
-	for(Files::const_iterator file = files.begin(); file != files.end(); ++file) {
+	for(Files::const_iterator file = m_files.begin(); file != m_files.end(); ++file) {
 		if(file != ifile) {
-			file->second.writeEntry(handle, file->first);
+			file->second.writeEntry(m_handle, file->first);
 		}
 	}
 	
-	handle.seekp(0);
-	fs::write(handle, fatOffset);
+	m_handle.seekp(0);
+	fs::write(m_handle, fatOffset);
 	
 }
 
 bool SaveBlock::open(bool writable) {
 	
-	LogDebug("opening savefile " << savefile << " witable=" << writable);
+	LogDebug("opening savefile " << m_savefile << " witable=" << writable);
 	
 	fs::fstream::openmode mode = fs::fstream::in | fs::fstream::binary | fs::fstream::ate;
 	if(writable) {
 		mode |= fs::fstream::out;
 	}
 	
-	handle.clear();
-	handle.open(savefile, mode);
-	if(!handle.is_open()) {
-		handle.clear();
+	m_handle.clear();
+	m_handle.open(m_savefile, mode);
+	if(!m_handle.is_open()) {
+		m_handle.clear();
 		if(writable) {
-			handle.open(savefile, mode | fs::fstream::trunc);
+			m_handle.open(m_savefile, mode | fs::fstream::trunc);
 		}
-		if(!handle.is_open()) {
-			LogError << "Could not open " << savefile << " for "
+		if(!m_handle.is_open()) {
+			LogError << "Could not open " << m_savefile << " for "
 			         << (writable ? "reading/writing" : "reading");
 			return false;
 		}
 	}
 	
-	if(handle.tellg() > 0 && !loadFileTable()) {
+	if(m_handle.tellg() > 0 && !loadFileTable()) {
 		LogError << "Broken save file";
 		return false;
 	}
@@ -435,107 +444,138 @@ bool SaveBlock::open(bool writable) {
 	return true;
 }
 
-bool SaveBlock::flush(const string & important) {
+bool SaveBlock::flush(const std::string & important) {
 	
-	arx_assert_msg(important.find_first_of(BADSAVCHAR) == string::npos,
+	arx_assert_msg(important.find_first_of(BADSAVCHAR) == std::string::npos,
 	               "bad save filename: \"%s\"", important.c_str());
 	
-	if((usedSize * 2 < totalSize || chunkCount > (files.size() * 4 / 3))) {
+	if((m_usedSize * 2 < m_totalSize || m_chunkCount > (m_files.size() * 4 / 3))) {
 		defragment();
 	}
 	
 	writeFileTable(important);
 	
-	handle.flush();
+	m_handle.flush();
 	
-	return handle.good();
+	return m_handle.good();
 }
 
 bool SaveBlock::defragment() {
 	
-	LogDebug("defragmenting " << savefile << " save: using " << usedSize << " / " << totalSize
-	         << " b for " << files.size() << " files in " << chunkCount << " chunks");
+	LogDebug("defragmenting " << m_savefile << " save: using " << m_usedSize << " / " << m_totalSize
+	         << " b for " << m_files.size() << " files in " << m_chunkCount << " chunks");
 	
-	fs::path tempFileName = savefile;
-	int i = 0;
-	
-	do {
-		std::ostringstream oss;
-		oss << "defrag" << i++;
-		tempFileName.set_ext(oss.str());
-	} while(fs::exists(tempFileName));
+	fs::path tempFileName = m_savefile;
+	{
+		int i = 0;
+		do {
+			std::ostringstream oss;
+			oss << "defrag" << i++;
+			tempFileName.set_ext(oss.str());
+		} while(fs::exists(tempFileName));
+	}
 	
 	fs::ofstream tempFile(tempFileName, fs::fstream::out | fs::fstream::binary | fs::fstream::trunc);
 	if(!tempFile.is_open()) {
+		LogWarning << "Could not open temporary save file for defragmenting: " << tempFileName;
 		return false;
 	}
 	
-	totalSize = 0;
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 	mos_seekp(tempFile, 4);
 #else
 	tempFile.seekp(4);
 #endif
 	
-	for(Files::iterator file = files.begin(); file != files.end(); ++file) {
+	#ifdef ARX_DEBUG
+	size_t checkTotalSize = 0;
+	#endif
+	std::vector<char> buffer;
+	BOOST_FOREACH(const File & file, m_files | boost::adaptors::map_values) {
 		
-		if(file->second.storedSize == 0) {
+		if(file.storedSize == 0) {
 			continue;
 		}
 		
-		char * buf = new char[file->second.storedSize];
-		char * p = buf;
+		buffer.resize(file.storedSize);
+		char * p = &buffer.front();
 		
-		for(File::ChunkList::iterator chunk = file->second.chunks.begin();
-		    chunk != file->second.chunks.end(); ++chunk) {
-			handle.seekg(chunk->offset + 4);
-			handle.read(p, chunk->size);
-			p += chunk->size;
+		BOOST_FOREACH(const File::Chunk & chunk, file.chunks) {
+			m_handle.seekg(chunk.offset + 4);
+			m_handle.read(p, chunk.size);
+			p += chunk.size;
 		}
 		
-		arx_assert(p == buf + file->second.storedSize);
+		arx_assert(p == &buffer.front() + file.storedSize);
 		
-		tempFile.write(buf, file->second.storedSize);
+		if(!tempFile.write(&buffer.front(), file.storedSize)) {
+			break;
+		}
 		
-		file->second.chunks.resize(1);
-		file->second.chunks.front().offset = totalSize;
-		file->second.chunks.front().size = file->second.storedSize;
-		
-		delete[] buf;
-		
-		totalSize += file->second.storedSize;
+		#ifdef ARX_DEBUG
+		checkTotalSize += file.storedSize;
+		#endif
 	}
 	
-	usedSize = totalSize, chunkCount = files.size();
-	
-	if(tempFile.fail()) {
+	if(!tempFile) {
+		tempFile.close();
 		fs::remove(tempFileName);
-		handle.close(), files.clear();
-		LogWarning << "Defragmenting failed: " << tempFileName;
+		LogWarning << "Failed to write defragmented save file: " << tempFileName;
 		return false;
 	}
 	
-	tempFile.flush(), tempFile.close(), handle.close();
+	tempFile.flush(), tempFile.close(), m_handle.close();
 	
-	if(!fs::rename(tempFileName, savefile, true)) {
-		LogWarning << "Failed to move defragmented savegame " << tempFileName << " to " << savefile;
+	bool renamed = fs::rename(tempFileName, m_savefile, true);
+	if(!renamed) {
+		fs::remove(tempFileName);
+		LogWarning << "Failed to move defragmented save file " << tempFileName << " to " << m_savefile;
+	} else {
+		
+		size_t newTotalSize = 0;
+		for(Files::iterator i = m_files.begin(); i != m_files.end(); ++i) {
+			File & file = i->second;
+			if(file.storedSize != 0) {
+				file.chunks.resize(1);
+				file.chunks.front().offset = newTotalSize;
+				file.chunks.front().size = file.storedSize;
+				newTotalSize += file.storedSize;
+			}
+		}
+		arx_assert(checkTotalSize == newTotalSize);
+		
+		m_usedSize = m_totalSize = newTotalSize;
+		m_chunkCount = m_files.size();
+		
+	}
+	
+	m_handle.open(m_savefile, fs::fstream::in | fs::fstream::out | fs::fstream::binary | fs::fstream::ate);
+	if(!m_handle.is_open()) {
+		m_files.clear();
+		LogError << "Failed to open defragmented save file: " << m_savefile;
 		return false;
 	}
 	
-	handle.open(savefile, fs::fstream::in | fs::fstream::out | fs::fstream::binary);
-	return handle.is_open();
+	if(m_handle.tellg() < fs::fstream::pos_type(m_totalSize + 4)) {
+		m_files.clear();
+		m_handle.close();
+		LogError << "Save file corrupted after defragmenting: " << m_savefile;
+		return false;
+	}
+	
+	return renamed;
 }
 
-bool SaveBlock::save(const string & name, const char * data, size_t size) {
+bool SaveBlock::save(const std::string & name, const char * data, size_t size) {
 	
-	if(!handle) {
+	if(!m_handle) {
 		return false;
 	}
 	
-	arx_assert_msg(name.find_first_of(BADSAVCHAR) == string::npos,
+	arx_assert_msg(name.find_first_of(BADSAVCHAR) == std::string::npos,
 	               "bad save filename: \"%s\"", name.c_str());
 	
-	File * file = &files[name];
+	File * file = &m_files[name];
 	
 	file->uncompressedSize = size;
 	
@@ -548,7 +588,8 @@ bool SaveBlock::save(const string & name, const char * data, size_t size) {
 	uLongf compressedSize = size - 1;
 	char * compressed = new char[compressedSize];
 	const char * p;
-	if(compress2((Bytef*)compressed, &compressedSize, (const Bytef*)data, size, 1) == Z_OK) {
+	if(compress2(reinterpret_cast<Bytef *>(compressed), &compressedSize,
+	             reinterpret_cast<const Bytef *>(data), size, 1) == Z_OK) {
 		file->comp = File::Deflate;
 		file->storedSize = compressedSize;
 		p = compressed;
@@ -566,17 +607,17 @@ bool SaveBlock::save(const string & name, const char * data, size_t size) {
 	    chunk != file->chunks.end(); ++chunk) {
 		
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-		mos_seekp(handle, chunk->offset + 4);
+		mos_seekp(m_handle, chunk->offset + 4);
 #else
-		handle.seekp(chunk->offset + 4);
+		m_handle.seekp(chunk->offset + 4);
 #endif
 		
 		if(chunk->size > remaining) {
-			usedSize -= chunk->size - remaining;
+			m_usedSize -= chunk->size - remaining;
 			chunk->size = remaining;
 		}
 		
-		handle.write(p, chunk->size);
+		m_handle.write(p, chunk->size);
 		p += chunk->size;
 		remaining -= chunk->size;
 		
@@ -587,51 +628,55 @@ bool SaveBlock::save(const string & name, const char * data, size_t size) {
 		}
 	}
 	
-	file->chunks.push_back(File::Chunk(remaining, totalSize));
+	file->chunks.push_back(File::Chunk(remaining, m_totalSize));
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-	mos_seekp(handle, totalSize + 4);
+	mos_seekp(m_handle, totalSize + 4);
 #else
-	handle.seekp(totalSize + 4);
+	m_handle.seekp(m_totalSize + 4);
 #endif
-	handle.write(p, remaining);
-	totalSize += remaining, usedSize += remaining, chunkCount++;
+	m_handle.write(p, remaining);
+	m_totalSize += remaining, m_usedSize += remaining, m_chunkCount++;
 	
 	delete[] compressed;
 	
-	return !handle.fail();
+	return !m_handle.fail();
 }
 
-char * SaveBlock::load(const string & name, size_t & size) {
+void SaveBlock::remove(const std::string & name) {
+	m_files.erase(name);
+}
+
+char * SaveBlock::load(const std::string & name, size_t & size) {
 	
-	arx_assert_msg(name.find_first_of(BADSAVCHAR) == string::npos,
+	arx_assert_msg(name.find_first_of(BADSAVCHAR) == std::string::npos,
 	               "bad save filename: \"%s\"", name.c_str());
 	
-	Files::const_iterator file = files.find(name);
+	Files::const_iterator file = m_files.find(name);
 	
-	return (file == files.end()) ? NULL : file->second.loadData(handle, size, name);
+	return (file == m_files.end()) ? NULL : file->second.loadData(m_handle, size, name);
 }
 
-bool SaveBlock::hasFile(const string & name) const {
-	arx_assert_msg(name.find_first_of(BADSAVCHAR) == string::npos,
+bool SaveBlock::hasFile(const std::string & name) const {
+	arx_assert_msg(name.find_first_of(BADSAVCHAR) == std::string::npos,
 	               "bad save filename: \"%s\"", name.c_str());
-	return (files.find(name) != files.end());
+	return (m_files.find(name) != m_files.end());
 }
 
-vector<string> SaveBlock::getFiles() const {
+std::vector<std::string> SaveBlock::getFiles() const {
 	
-	vector<string> result;
+	std::vector<std::string> result;
 	
-	for(Files::const_iterator file = files.begin(); file != files.end(); ++file) {
+	for(Files::const_iterator file = m_files.begin(); file != m_files.end(); ++file) {
 		result.push_back(file->first);
 	}
 	
 	return result;
 }
 
-char * SaveBlock::load(const fs::path & savefile, const std::string & filename, size_t & size) {
+char * SaveBlock::load(const fs::path & savefile, const std::string & name, size_t & size) {
 	
-	arx_assert_msg(filename.find_first_of(BADSAVCHAR) == string::npos,
-	               "bad save filename: \"%s\"", filename.c_str());
+	arx_assert_msg(name.find_first_of(BADSAVCHAR) == std::string::npos,
+	               "bad save filename: \"%s\"", name.c_str());
 	
 	LogDebug("reading savefile " << savefile);
 	
@@ -670,14 +715,14 @@ char * SaveBlock::load(const fs::path & savefile, const std::string & filename, 
 	for(u32 i = 0; i < nFiles; i++) {
 		
 		// Read the file name.
-		string name;
-		if(fs::read(handle, name).fail()) {
+		std::string filename;
+		if(fs::read(handle, filename).fail()) {
 			return NULL;
 		}
 		if(version < SAV_VERSION_NOEXT) {
-			boost::to_lower(name);
-			if(name.size() > 4 && !name.compare(name.size() - 4, 4, ".sav", 4)) {
-				name.resize(name.size() - 4);
+			boost::to_lower(filename);
+			if(filename.size() > 4 && !filename.compare(filename.size() - 4, 4, ".sav", 4)) {
+				filename.resize(filename.size() - 4);
 			}
 		}
 		
@@ -689,7 +734,7 @@ char * SaveBlock::load(const fs::path & savefile, const std::string & filename, 
 			continue;
 		}
 		
-		if(name != filename) {
+		if(filename != name) {
 			file.chunks.clear();
 			continue;
 		}

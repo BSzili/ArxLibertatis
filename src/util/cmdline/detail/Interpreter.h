@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -40,7 +40,7 @@
 
 namespace util { namespace cmdline { namespace detail {
 
-template<typename OpName, typename TypeCast>
+template <typename OpName, typename TypeCast>
 class interpreter {
 	
 public:
@@ -49,25 +49,25 @@ public:
 	typedef typename op_name_t::value_type  string_type;
 	typedef TypeCast                        type_cast_t;
 	
-	template<typename Handler>
-	void add(const Handler &, const op_name_t &);
+	template <typename Handler>
+	void add(const Handler & handler, const op_name_t & key);
 	
-	template<typename HndlSign, typename Handler>
-	void add(const Handler &, const op_name_t &);
+	template <typename HndlSign, typename Handler>
+	void add(const Handler & handler, const op_name_t & key);
 	
 	void erase(const string_type & option_name);
 	
-	template<typename It>
+	template <typename It>
 	void invoke(const string_type & option_name, It & args_begin, It args_optend, It args_end,
-	            type_cast_t &) const;
+	            type_cast_t & type_cast) const;
 	
-	template<typename It>
+	template <typename It>
 	void invoke(const string_type & option_name, It & args_begin, It args_end,
 	            type_cast_t & type_cast) const {
 		invoke(option_name, args_begin, args_end, args_end, type_cast);
 	}
 	
-	template<typename Visitor>
+	template <typename Visitor>
 	void visit(Visitor & visitor) const {
 		do_visit(storage.begin(), storage.end(), visitor);
 	}
@@ -78,28 +78,30 @@ private:
 	
 	typedef lexical_call_t<void(string_type, string_type, type_cast_t)> function_type;
 	
-	template<typename Iter, typename Visitor>
+	template <typename Iter, typename Visitor>
 	void do_visit(Iter begin, Iter end, Visitor & visitor) const {
-		for(;begin!=end;visitor((begin++)->second.key));
+		for(; begin != end; ++begin) {
+			visitor(begin->second.m_key);
+		}
 	}
 	
 	void do_add(const function_type & handler, const op_name_t & key);
 	
 	struct ikey_t {
 		
-		function_type function;
-		op_name_t     key;
+		function_type m_function;
+		op_name_t m_key;
 		
 		void key_erase(const string_type & v) {
-			typename op_name_t::iterator it(std::find(key.begin(), key.end(), v));
-			if(key.end() != it) {
-				key.erase(it);
+			typename op_name_t::iterator it(std::find(m_key.begin(), m_key.end(), v));
+			if(m_key.end() != it) {
+				m_key.erase(it);
 			}
 		}
 		
 		ikey_t(const function_type & function, const op_name_t & key)
-			: function(function)
-			, key(key)
+			: m_function(function)
+			, m_key(key)
 		{ }
 		
 	};
@@ -114,7 +116,7 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template<typename StringType, typename TypeCast>
+template <typename StringType, typename TypeCast>
 void interpreter<StringType, TypeCast>::erase(const string_type & option_name) {
 	
 	typename alt_name_t::iterator it(alt_name.find(option_name));
@@ -137,21 +139,21 @@ void interpreter<StringType, TypeCast>::erase(const string_type & option_name) {
 	storage.erase(option_name);
 }
 
-template<typename StringType, typename TypeCast>
-template<typename Handler>
+template <typename StringType, typename TypeCast>
+template <typename Handler>
 void interpreter<StringType, TypeCast>::add(const Handler & handler,
                                             const op_name_t & key) {
 	do_add(function_type::construct(handler), key);
 }
 
-template<typename StringType, typename TypeCast>
-template<typename HndlSign, typename Handler>
+template <typename StringType, typename TypeCast>
+template <typename HndlSign, typename Handler>
 void interpreter<StringType, TypeCast>::add(const Handler & handler,
                                             const op_name_t & key) {
 	do_add(function_type::template construct<HndlSign>(handler), key);
 }
 
-template<typename StringType, typename TypeCast>
+template <typename StringType, typename TypeCast>
 void interpreter<StringType, TypeCast>::do_add(const function_type & handler,
                                                const op_name_t & key) {
 	
@@ -182,8 +184,8 @@ void interpreter<StringType, TypeCast>::do_add(const function_type & handler,
 	}
 }
 
-template<typename StringType, typename TypeCast>
-template<typename It>
+template <typename StringType, typename TypeCast>
+template <typename It>
 void interpreter<StringType, TypeCast>::invoke(const string_type & key,
                                               It & args_begin, It args_optend, It args_end,
                                               type_cast_t & type_cast) const {
@@ -195,7 +197,7 @@ void interpreter<StringType, TypeCast>::invoke(const string_type & key,
 	}
 	
 	typename storage_t::const_iterator it(storage.find(primary_key->second));
-	it->second.function(args_begin, args_optend, args_end, type_cast);
+	it->second.m_function(args_begin, args_optend, args_end, type_cast);
 }
 
 } } } // namespace util::cmdline::detail

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,12 +47,13 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_PHYSICS_ATTRACTORS_H
 #define ARX_PHYSICS_ATTRACTORS_H
 
-#include "math/MathFwd.h"
+#include "game/GameTypes.h"
+#include "math/Types.h"
 
 class Entity;
 
 void ARX_SPECIAL_ATTRACTORS_Reset();
-bool ARX_SPECIAL_ATTRACTORS_Add(long ionum, float power, float radius);
+bool ARX_SPECIAL_ATTRACTORS_Add(EntityHandle ionum, float power, float radius);
 void ARX_SPECIAL_ATTRACTORS_ComputeForIO(const Entity & io, Vec3f & force);
 
 #endif // ARX_PHYSICS_ATTRACTORS_H

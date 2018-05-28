@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -28,6 +28,11 @@
 #include "graphics/image/Image.h"
 #include "io/fs/FilePath.h"
 #include "io/resource/ResourcePath.h"
+#include "util/HandleType.h"
+
+typedef HandleType<struct SavegameHandleTag, long, -1> SavegameHandle;
+
+extern const fs::path SAVEGAME_NAME;
 
 struct SaveGame {
 	
@@ -43,7 +48,11 @@ struct SaveGame {
 	
 	std::string time;
 	
-	SaveGame() : level(0) { }
+	SaveGame()
+		: quicksave(false)
+		, level(0)
+		, stime(0)
+	{}
 };
 
 //! Central management of the list of savegames.
@@ -57,19 +66,19 @@ public:
 	void update(bool verbose = false);
 	
 	/*! Save the current game state
-	 * @param name The name of the new savegame.
-	 * @param overwrite A savegame to overwrite with this save or end()
-	 * @return true if the game was successfully saved.
+	 * \param name The name of the new savegame.
+	 * \param overwrite A savegame to overwrite with this save or end()
+	 * \return true if the game was successfully saved.
 	 */
 	bool save(const std::string & name, iterator overwrite, const Image & thumbnail = Image());
 	
 	/*! Save the current game state
-	 * @param name The name of the new savegame.
-	 * @param overwrite A savegame to overwrite with this save or end()
-	 * @return true if the game was successfully saved.
+	 * \param name The name of the new savegame.
+	 * \param overwrite A savegame to overwrite with this save or end()
+	 * \return true if the game was successfully saved.
 	 */
-	bool save(const std::string & name, size_t overwrite = size_t(-1), const Image & th = Image()) {
-		return save(name, (overwrite == size_t(-1)) ? end() : begin() + overwrite, th);
+	bool save(const std::string & name, SavegameHandle overwrite = SavegameHandle(), const Image & th = Image()) {
+		return save(name, (overwrite == SavegameHandle()) ? end() : begin() + overwrite.handleData(), th);
 	}
 	
 	//! Perform a quicksave: Maintain a number of quicksave slots and always overwrite the oldest one.
@@ -79,10 +88,7 @@ public:
 	iterator quickload();
 	
 	//! Delete the given savegame. This removes the actual on-disk files.
-	void remove(iterator idx);
-	
-	//! Delete the given savegame. This removes the actual on-disk files.
-	void remove(size_t idx) { remove(begin() + idx); }
+	void remove(SavegameHandle handle);
 	
 	iterator begin() const { return savelist.begin(); }
 	iterator end() const { return savelist.end(); }

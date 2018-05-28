@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -24,7 +24,7 @@
 
 #include "Configure.h"
 
-#ifdef ARX_HAVE_ISATTY
+#if ARX_HAVE_ISATTY
 
 namespace logger {
 
@@ -45,6 +45,6 @@ public:
 
 } // namespace logger
 
-#endif // #ifdef ARX_HAVE_ISATTY
+#endif // ARX_HAVE_ISATTY
 
 #endif // ARX_IO_LOG_COLORLOGGER_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -22,6 +22,8 @@
 
 #include "Configure.h"
 
+#include <vector>
+
 #if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
 #include <AL/al.h>
 #include <AL/alc.h>
@@ -29,14 +31,17 @@
 #include <al.h>
 #include <alc.h>
 #endif
-#ifdef ARX_HAVE_OPENAL_EFX
-	#include <efx.h>
+#if ARX_HAVE_OPENAL_EFX
+#include <efx.h>
+#endif
+#if ARX_HAVE_OPENAL_HRTF
+#include <alext.h>
 #endif
 
 #include "audio/AudioBackend.h"
 #include "audio/AudioTypes.h"
 #include "audio/AudioResource.h"
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 namespace audio {
 
@@ -49,15 +54,19 @@ public:
 	OpenALBackend();
 	~OpenALBackend();
 	
-	aalError init(bool enableEax);
+	aalError init(const char * device = NULL, HRTFAttribute hrtf = HRTFDefault);
 	
-	aalError updateDeferred();
+	std::vector<std::string> getDevices();
 	
 	Source * createSource(SampleId sampleId, const Channel & channel);
 	
 	Source * getSource(SourceId sourceId);
 	
 	aalError setReverbEnabled(bool enable);
+	bool isReverbSupported();
+	
+	aalError setHRTFEnabled(HRTFAttribute enable);
+	HRTFStatus getHRTFStatus();
 	
 	aalError setUnitFactor(float factor);
 	aalError setRolloffFactor(float factor);
@@ -66,7 +75,6 @@ public:
 	aalError setListenerOrientation(const Vec3f & front, const Vec3f & up);
 	
 	aalError setListenerEnvironment(const Environment & env);
-	aalError setRoomRolloffFactor(float factor);
 	
 	source_iterator sourcesBegin();
 	source_iterator sourcesEnd();
@@ -74,22 +82,41 @@ public:
 	
 private:
 	
+	static const char * shortenDeviceName(const char * deviceName);
+	
+	void fillDeviceAttributes(ALCint (&attrs)[3]);
+	
 	ALCdevice * device;
 	ALCcontext * context;
 	
-#ifdef ARX_HAVE_OPENAL_EFX
-	
-	aalError setEffect(ALenum type, float val);
+	#if ARX_HAVE_OPENAL_EFX
 	
 	bool hasEFX;
+	
 	LPALGENEFFECTS alGenEffects;
 	LPALDELETEEFFECTS alDeleteEffects;
+	LPALEFFECTI alEffecti;
 	LPALEFFECTF alEffectf;
+	
+	LPALGENAUXILIARYEFFECTSLOTS alGenAuxiliaryEffectSlots;
+	LPALDELETEAUXILIARYEFFECTSLOTS alDeleteAuxiliaryEffectSlots;
+	LPALAUXILIARYEFFECTSLOTI alAuxiliaryEffectSloti;
 	
 	bool effectEnabled;
 	ALuint effect;
+	ALuint effectSlot;
 	
-#endif
+	#endif
+	
+	#if ARX_HAVE_OPENAL_HRTF
+	
+	bool m_hasHRTF;
+	
+	LPALCRESETDEVICESOFT alcResetDeviceSOFT;
+	
+	HRTFAttribute m_HRTFAttribute;
+	
+	#endif
 	
 	ResourceList<OpenALSource> sources;
 	

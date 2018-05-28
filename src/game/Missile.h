@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -45,7 +45,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GAME_MISSILE_H
 #define ARX_GAME_MISSILE_H
 
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 class Entity;
 
@@ -54,7 +54,7 @@ enum ARX_SPELLS_MISSILE_TYPE {
 	MISSILE_FIREBALL = 1
 };
 
-void ARX_MISSILES_Spawn(Entity * io, ARX_SPELLS_MISSILE_TYPE type, const Vec3f * startpos, const Vec3f * targetpos);
+void ARX_MISSILES_Spawn(Entity * io, ARX_SPELLS_MISSILE_TYPE type, const Vec3f & startpos, const Vec3f & targetpos);
 void ARX_MISSILES_Update();
 void ARX_MISSILES_ClearAll();
 

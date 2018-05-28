@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -44,21 +44,76 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_ANIMATION_ANIMATIONRENDER_H
 #define ARX_ANIMATION_ANIMATIONRENDER_H
 
+#include "core/TimeTypes.h"
+#include "graphics/BaseGraphicsTypes.h"
 #include "graphics/Color.h"
-#include "math/MathFwd.h"
+#include "graphics/Math.h"
+#include "graphics/Renderer.h"
+#include "math/Types.h"
 
 struct EERIE_3DOBJ;
-struct ANIM_USE;
+struct AnimLayer;
 class Entity;
-struct EERIEMATRIX;
-struct EERIE_QUAT;
-struct TexturedVertex;
+struct RenderMaterial;
+struct TexturedQuad;
 
-void Cedric_AnimateDrawEntity(EERIE_3DOBJ * eobj, ANIM_USE * animuse, Anglef * angle, Vec3f * pos, Entity * io, bool render, bool update_movement);
+float Cedric_GetInvisibility(Entity * io);
 
-void ARX_DrawPrimitive(TexturedVertex *, TexturedVertex *, TexturedVertex *, float _fAdd = 0.0f);
+void Cedric_ApplyLightingFirstPartRefactor(Entity * io);
 
-void MakeCLight(Entity * io, Color3f * infra, Anglef * angle, Vec3f * pos, EERIE_3DOBJ * eobj, EERIEMATRIX * BIGMAT, EERIE_QUAT * BIGQUAT);
-void MakeCLight2(Entity * io, Color3f * infra, Anglef * angle, Vec3f * pos, EERIE_3DOBJ * eobj, EERIEMATRIX * BIGMAT, EERIE_QUAT * BIGQUAT, long i);
+void PopAllTriangleListOpaque(RenderState baseState = render3D(), bool clear = true);
+void PopAllTriangleListTransparency();
+
+void drawQuadRTP(const RenderMaterial & mat, TexturedQuad quat);
+void drawTriangle(const RenderMaterial & mat, const TexturedVertexUntransformed * vertices);
+
+struct TransformInfo {
+	
+	Vec3f pos;
+	glm::quat rotation;
+	float scale;
+	Vec3f offset;
+	
+	TransformInfo()
+		: pos(Vec3f_ZERO)
+		, scale(1.f)
+		, offset(Vec3f_ZERO)
+	{
+		rotation = glm::quat();
+	}
+	
+	TransformInfo(Vec3f pos_, glm::quat rotation_, float scale_ = 1.f, Vec3f offset_ = Vec3f_ZERO)
+		: pos(pos_)
+		, rotation(rotation_)
+		, scale(scale_)
+		, offset(offset_)
+	{}
+	
+};
+
+EERIE_2D_BBOX UpdateBbox2d(const EERIE_3DOBJ & eobj);
+
+void DrawEERIEInter_ModelTransform(EERIE_3DOBJ * eobj, const TransformInfo & t);
+void DrawEERIEInter_ViewProjectTransform(EERIE_3DOBJ * eobj);
+
+void DrawEERIEInter_Render(EERIE_3DOBJ * eobj, const TransformInfo & t, Entity * io, float invisibility = 0.f);
+
+void DrawEERIEInter(EERIE_3DOBJ * eobj,
+                    const TransformInfo & t,
+                    Entity * io,
+                    bool forceDraw,
+                    float invisibility);
+
+void EERIEDrawAnimQuatUpdate(EERIE_3DOBJ * eobj,
+                             AnimLayer * animlayer,
+                             const Anglef & angle,
+                             const Vec3f & pos,
+                             AnimationDuration time,
+                             Entity * io,
+                             bool update_movement);
+
+void EERIEDrawAnimQuatRender(EERIE_3DOBJ * eobj, const Vec3f & pos, Entity * io, float invisibility);
+
+void AnimatedEntityRender(Entity * entity, float invisibility);
 
 #endif // ARX_ANIMATION_ANIMATIONRENDER_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -34,8 +34,8 @@ class File : public Backend {
 	
 public:
 	
-	inline File(const fs::path & path,
-	            std::ios_base::openmode mode = std::ios_base::out | std::ios_base::trunc)
+	explicit File(const fs::path & path,
+	     std::ios_base::openmode mode = std::ios_base::out | std::ios_base::trunc)
 		: ofs(path, mode) { }
 	
 	void quickShutdown();

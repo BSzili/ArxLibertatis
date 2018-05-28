@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -52,7 +52,6 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "script/ScriptEvent.h"
 #include "script/ScriptUtils.h"
 
-using std::string;
 
 namespace script {
 
@@ -81,7 +80,7 @@ public:
 			}
 		}
 		
-		string command = context.getWord();
+		std::string command = context.getWord();
 		
 		if(options.empty()) {
 			if(command == "stack") {
@@ -126,7 +125,7 @@ public:
 			behavior |= BEHAVIOUR_WANDER_AROUND;
 		} else if(command == "guard") {
 			behavior |= BEHAVIOUR_GUARD;
-			io->targetinfo = -2;
+			io->targetinfo = EntityHandle(TARGET_NONE);
 			io->_npcdata->movemode = NOMOVEMODE;
 		} else if(command != "none") {
 			ScriptWarning << "unexpected command: " << options << " \"" << command << '"';
@@ -156,7 +155,7 @@ public:
 		
 		DebugScript(' ' << options);
 		
-		ARX_NPC_Revive(context.getEntity(), init ? 1 : 0);
+		ARX_NPC_Revive(context.getEntity(), init);
 		
 		return Success;
 	}
@@ -173,23 +172,20 @@ public:
 		
 		SpellcastFlags spflags = 0;
 		long duration = -1;
-		bool haveDuration = 0;
+		bool haveDuration = false;
 		
 		HandleFlags("kdxmsfz") {
 			
 			if(flg & flag('k')) {
 				
-				string spellname = context.getWord();
-				Spell spellid = GetSpellId(spellname);
+				std::string spellname = context.getWord();
+				SpellType spellid = GetSpellId(spellname);
 				
 				DebugScript(' ' << options << ' ' << spellname);
 				
-				long from = context.getEntity()->index();
+				EntityHandle from = context.getEntity()->index();
 				if(ValidIONum(from)) {
-					long sp = ARX_SPELLS_GetInstanceForThisCaster(spellid, from);
-					if(sp >= 0) {
-						spells[sp].tolive = 0;
-					}
+					spells.endByCaster(from, spellid);
 				}
 				
 				return Success;
@@ -197,11 +193,11 @@ public:
 			
 			if(flg & flag('d')) {
 				spflags |= SPELLCAST_FLAG_NOCHECKCANCAST;
-				duration = context.getFloat();
+				duration = long(context.getFloat());
 				if(duration <= 0) {
 					duration = 99999999; // TODO should this be FLT_MAX?
 				}
-				haveDuration = 1;
+				haveDuration = true;
 			}
 			if(flg & flag('x')) {
 				spflags |= SPELLCAST_FLAG_NOSOUND;
@@ -220,15 +216,15 @@ public:
 			}
 		}
 		
-		long level = clamp(static_cast<long>(context.getFloat()), 1l, 10l);
+		long level = glm::clamp(static_cast<long>(context.getFloat()), 1l, 10l);
 		if(!haveDuration) {
 			duration = 1000 + level * 2000;
 		}
 		
-		string spellname = context.getWord();
-		Spell spellid = GetSpellId(spellname);
+		std::string spellname = context.getWord();
+		SpellType spellid = GetSpellId(spellname);
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		Entity * t = entities.getById(target, context.getEntity());
 		if(!t) {
 			// Some scripts have a bogus (or no) target for spellcast commands.
@@ -246,7 +242,7 @@ public:
 		
 		DebugScript(' ' << spellname << ' ' << level << ' ' << target << ' ' << spflags << ' ' << duration);
 		
-		TryToCastSpell(context.getEntity(), spellid, level, t->index(), spflags, duration);
+		TryToCastSpell(context.getEntity(), spellid, level, t->index(), spflags, GameDurationMs(duration));
 		
 		return Success;
 	}
@@ -261,14 +257,14 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string detectvalue = context.getWord();
+		std::string detectvalue = context.getWord();
 		
 		DebugScript(' ' << detectvalue);
 		
 		if(detectvalue == "off") {
 			context.getEntity()->_npcdata->fDetect = -1;
 		} else {
-			context.getEntity()->_npcdata->fDetect = clamp((int)context.getFloatVar(detectvalue), -1, 100);
+			context.getEntity()->_npcdata->fDetect = glm::clamp((int)context.getFloatVar(detectvalue), -1, 100);
 		}
 		
 		return Success;
@@ -305,7 +301,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		float speed = clamp(context.getFloat(), 0.f, 10.f);
+		float speed = glm::clamp(context.getFloat(), 0.f, 10.f);
 		
 		DebugScript(' ' << speed);
 		
@@ -343,7 +339,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string stat = context.getWord();
+		std::string stat = context.getWord();
 		float value = context.getFloat();
 		
 		DebugScript(' ' << stat << ' ' << value);
@@ -388,7 +384,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string mode = context.getWord();
+		std::string mode = context.getWord();
 		
 		DebugScript(' ' << mode);
 		
@@ -423,7 +419,9 @@ public:
 		
 		DebugScript(' ' << life);
 		
-		context.getEntity()->_npcdata->maxlife = context.getEntity()->_npcdata->life = life;
+		IO_NPCDATA & npc = *context.getEntity()->_npcdata;
+		
+		npc.lifePool.max = npc.lifePool.current = life;
 		
 		return Success;
 	}
@@ -440,7 +438,7 @@ public:
 		
 		Entity * io = context.getEntity();
 		if(io->ioflags & IO_NPC) {
-			io->_npcdata->pathfind.flags &= ~(PATHFIND_ALWAYS|PATHFIND_ONCE|PATHFIND_NO_UPDATE);
+			io->_npcdata->pathfind.flags &= ~(PATHFIND_ALWAYS | PATHFIND_ONCE | PATHFIND_NO_UPDATE);
 		}
 		
 		HandleFlags("san") {
@@ -457,17 +455,17 @@ public:
 			}
 		}
 		
-		long old_target = -12;
+		EntityHandle old_target = EntityHandle(-12);
 		if(io->ioflags & IO_NPC) {
 			if(io->_npcdata->reachedtarget) {
 				old_target = io->targetinfo;
 			}
-			if(io->_npcdata->behavior & (BEHAVIOUR_FLEE|BEHAVIOUR_WANDER_AROUND)) {
-				old_target = -12;
+			if(io->_npcdata->behavior & (BEHAVIOUR_FLEE | BEHAVIOUR_WANDER_AROUND)) {
+				old_target = EntityHandle(-12);
 			}
 		}
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		if(target == "object") {
 			target = context.getWord();
 		}
@@ -477,20 +475,20 @@ public:
 		DebugScript(' ' << options << ' ' << target);
 		
 		if(io->ioflags & IO_CAMERA) {
-			io->_camdata->cam.translatetarget = Vec3f::ZERO;
+			io->_camdata->translatetarget = Vec3f_ZERO;
 		}
 		
-		long i = -1;
+		EntityHandle i = EntityHandle();
 		if(t != NULL) {
 			i = io->targetinfo = t->index();
 			GetTargetPos(io);
 		}
 		
 		if(target == "path") {
-			io->targetinfo = TARGET_PATH;
+			io->targetinfo = EntityHandle(TARGET_PATH);
 			GetTargetPos(io);
 		} else if(target == "none") {
-			io->targetinfo = TARGET_NONE;
+			io->targetinfo = EntityHandle(TARGET_NONE);
 		}
 		
 		if(old_target != i) {
@@ -513,7 +511,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
@@ -538,11 +536,11 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << target);
 		
-		long t = entities.getById(target);
+		EntityHandle t = entities.getById(target);
 		ARX_NPC_LaunchPathfind(context.getEntity(), t);
 		
 		return Success;
@@ -550,7 +548,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedNPC() {
 	

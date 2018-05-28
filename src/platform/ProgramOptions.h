@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2013-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -23,11 +23,11 @@
 #include <string>
 
 #include <boost/intrusive/list.hpp>
-#include <boost/preprocessor/cat.hpp>
 #include <boost/function_types/function_arity.hpp>
 
 #include "platform/Platform.h"
 #include "util/cmdline/Interpreter.h"
+#include "util/cmdline/Optional.h"
 
 // Linked list of statically defined options (no memory allocation)
 class BaseOption : public boost::intrusive::list_base_hook<
@@ -40,7 +40,7 @@ public:
 		
 protected:
 	
-	BaseOption(const char* longName, const char* shortName, const char* description);
+	BaseOption(const char * longName, const char * shortName, const char * description);
 	
 private:
 	
@@ -61,24 +61,51 @@ protected:
 	
 };
 
-template<typename Handler>
+#define ARX_PROGRAM_OPTION_ARGS \
+	const char * longName, const char * shortName, const char * description, \
+	const Handler & handler, const char * args
+
+namespace detail {
+
+template <typename T>
+struct is_arg_optional {
+	static const bool value = false;
+};
+
+template <typename T>
+struct is_arg_optional<void(util::cmdline::optional<T>)> {
+	static const bool value = true;
+};
+
+template <typename T>
+struct is_arg_optional<void(*)(util::cmdline::optional<T>)> {
+	static const bool value = true;
+};
+
+} // namespace detail
+
+template <typename Handler>
 class Option : public BaseOption {
 	
 public:
 	
-	Option(const char * longName, const char * shortName, const char * description,
-	       const Handler & handler, const char * argNames)
+	explicit Option(ARX_PROGRAM_OPTION_ARGS)
 		: BaseOption(longName, shortName, description)
-		, m_handler(handler), m_argNames(argNames) { }
+		, m_handler(handler), m_argNames(args) { }
 	
 	virtual void registerOption(util::cmdline::interpreter<std::string> & l) {
-		l.add(
-			m_handler,
-			util::cmdline::interpreter<std::string>::op_name_t(std::string("-") + m_shortName)
-			(std::string("--") + m_longName)
-			.description(m_description)
-			.arg_count(boost::function_types::function_arity<Handler>::value)
-			.arg_names(m_argNames)
+		std::string shortName = (m_shortName == NULL || *m_shortName == 0) ? "" : std::string("-") + m_shortName;
+		std::string longName = (m_longName == NULL || *m_longName == 0) ? "" : std::string("--") + m_longName;
+		if(shortName.empty() && longName.empty()) {
+			longName = "--";
+		}
+		
+		l.add(m_handler,
+			  util::cmdline::interpreter<std::string>::op_name_t(shortName)(longName)
+			  .description(m_description)
+			  .arg_count(boost::function_types::function_arity<Handler>::value)
+			  .arg_names(m_argNames)
+				.arg_optional(detail::is_arg_optional<Handler>::value)
 		);
 	}
 	
@@ -90,31 +117,37 @@ private:
 };
 
 
-#define UNIQUE_NAME(X) BOOST_PP_CAT(X,__LINE__)
-
-#ifdef ARX_COMPILER_HAS_CXX11_AUTO
-	template<typename Handler>
-	Option<Handler> make_option(const char * longName, const char * shortName,
-	                            const char * desc, const Handler & funcHandler,
-	                            const char * argDesc = NULL) {
-		return Option<Handler>(longName, shortName, desc, funcHandler, argDesc);
+/*!
+ * \def ARX_PROGRAM_OPTION(longName, shortName, description, handler, args)
+ * \brief Register a program option
+ */
+#if ARX_HAVE_CXX11_AUTO
+	template <typename Handler>
+	Option<Handler> makeProgramOption(ARX_PROGRAM_OPTION_ARGS) {
+		return Option<Handler>(longName, shortName, description, handler, args);
 	}
-	#define ARX_PROGRAM_OPTION(longOpt, shortOpt, description, handler, ...) \
-		static auto UNIQUE_NAME(optionRegistrator) \
-			= make_option(longOpt, shortOpt, description, handler, ##__VA_ARGS__);
+	#define ARX_PROGRAM_OPTION_ARG(longName, shortName, description, handler, args) \
+		static auto ARX_UNIQUE_SYMBOL(programOptionRegistrator) = makeProgramOption( \
+			longName, shortName, description, handler, args \
+		);
 #else
-	#define ARX_PROGRAM_OPTION(longOpt, shortOpt, description, handler, ...) \
-		template<typename Handler> \
-		static BaseOption * UNIQUE_NAME(declare_option)(const char * longName, \
-		                                                const char * shortName, \
-		                                                const char * desc, \
-		                                                const Handler & funcHandler, \
-		                                                const char * argDesc = NULL) { \
-			static Option<Handler> s_handler(longName, shortName, desc, funcHandler, argDesc); \
+	#define ARX_PROGRAM_OPTION_ARG(longName, shortName, description, handler, args) \
+		template <typename Handler> \
+		static BaseOption * ARX_UNIQUE_SYMBOL(makeProgramOption)(const Handler &); \
+		static BaseOption * ARX_UNIQUE_SYMBOL(programOptionRegistrator) \
+			= ARX_UNIQUE_SYMBOL(makeProgramOption)(handler); \
+		template <typename Handler> \
+		static BaseOption * ARX_UNIQUE_SYMBOL(makeProgramOption)(const Handler &) { \
+			ARX_UNUSED(ARX_UNIQUE_SYMBOL(programOptionRegistrator)); \
+			static Option<Handler> s_handler( \
+				longName, shortName, description, handler, args \
+			); \
 			return &s_handler; \
-		} \
-		static BaseOption * UNIQUE_NAME(optionRegistrator) \
-			= UNIQUE_NAME(declare_option)(longOpt, shortOpt, description, handler, ##__VA_ARGS__)
+		}
 #endif
+#define ARX_PROGRAM_OPTION(longName, shortName, description, handler) \
+	ARX_PROGRAM_OPTION_ARG(longName, shortName, description, handler, NULL)
+
+#undef ARX_PROGRAM_OPTION_ARGS
 
 #endif // ARX_PLATFORM_PROGRAMOPTIONS_H

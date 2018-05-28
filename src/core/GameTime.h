@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,134 +47,95 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_CORE_GAMETIME_H
 #define ARX_CORE_GAMETIME_H
 
-#include "graphics/Math.h"
+#include "core/TimeTypes.h"
+#include "util/Flags.h"
 
-#include "platform/Time.h"
 
-namespace arx
-{
-	class time
-	{
-	public:
-
-		time();
-		~time() {}
-
-		void init();
-
-		void pause();
-		void resume();
-
-		void force_time_restore(const float &time);
-
-		// TODO probably the source of the need to clip frame_delay
-		inline void force_frame_time_restore(const float &v) {
-			frame_time_us = v * 1000;
-			last_frame_time_us = v * 1000;
-		}
-
-		inline bool operator>(const float &v) const { 
-			return delta_time_us > (v * 1000); 
-		}
-
-		inline operator float() const {
-			return delta_time_us / 1000.0f;
-		}
-
-		inline operator long() const {
-			//return static_cast<long>(delta_time);
-			return checked_range_cast<long>(delta_time_us / 1000);
-		}
-
-		inline operator unsigned long() const {
-			return checked_range_cast<unsigned long>(delta_time_us / 1000);
-		}
-
-		inline void setMs(const float &v) {
-			delta_time_us = v * 1000;
-		}
-
-		inline void update(const bool & use_pause = true) {
-
-			if (is_paused() && use_pause) {
-				delta_time_us = Time::getElapsedUs(start_time, pause_time);
-			} else {
-				delta_time_us = Time::getElapsedUs(start_time);
-			}
-		}
-
-		inline float get_updated(const bool & use_pause = true) {
-			
-			update(use_pause);
-			return delta_time_us / 1000.0f;
-		}
-
-		inline unsigned long get_updated_ul(const bool & use_pause = true) {
-
-			update(use_pause);
-			return checked_range_cast<unsigned long>(delta_time_us / 1000);
-		}
-
-		inline bool is_paused() const { 
-			return paused; 
-		}
-
-		// used only for "slow time" spell
-		inline void increment_start_time(const u64 & inc) {
-			start_time += inc;
-		}
-
-		inline float get_frame_time() const { 
-			return frame_time_us / 1000.0f; 
-		}
-
-		inline float get_last_frame_time() const {
-			return last_frame_time_us / 1000.0f;
-		}
-
-		inline float get_frame_delay() const {
-			return frame_delay_ms;
-		}
-
-		inline void update_frame_time() {
-			update();
-			frame_time_us = delta_time_us;
-			frame_delay_ms = (frame_time_us - last_frame_time_us) / 1000.0f;
-		}
-
-		inline void update_last_frame_time() {
-			last_frame_time_us = frame_time_us;
-		}
-
-	private:
-		bool paused;
-
-		// these values are expected to wrap
-		u64 pause_time;
-		u64 start_time;
-
-		// TODO this sometimes respects pause and sometimes not! [adejr]: is this TODO still valid?
-		// TODO an absolute time value stored in a floating point number will lose precision 
-		// when large numbers are stored.
-		u64 delta_time_us;
-		
-		u64 last_frame_time_us;
-		u64 frame_time_us;
-		float frame_delay_ms;
-
-		/* TODO RFC (adejr: safe to allow varied precision?)
-		** since these values and their accessors are isolated in this class, 
-		** last_frame_time and frame_time could be replaced with u64 values 
-		** and stored as int before cast to float. 
-		**
-		** this would eliminate the need for casting to int from the float value 
-		** in the operator "int" accessors and also increase precision.
-		** assuming that would be safe while the float value is still used.
-		** as frame_delay is a delta the issue of precision is less critical.
-		*/
-	};
+class PlatformTime {
+	
+	PlatformInstant m_frameStartTime;
+	PlatformDuration m_lastFrameDuration;
+	
+public:
+	
+	PlatformTime()
+		: m_frameStartTime(0)
+		, m_lastFrameDuration(0)
+	{ }
+	
+	void updateFrame();
+	
+	void overrideFrameDuration(PlatformDuration duration) {
+		m_lastFrameDuration = duration;
+	}
+	
+	PlatformInstant frameStart() {
+		return m_frameStartTime;
+	}
+	
+	PlatformDuration lastFrameDuration() {
+		return m_lastFrameDuration;
+	}
+	
 };
 
-extern arx::time arxtime;
+extern PlatformTime g_platformTime;
+
+
+class GameTime {
+	
+public:
+	
+	enum PauseFlag {
+		PauseInitial   = (1 << 0),
+		PauseMenu      = (1 << 1),
+		PauseCinematic = (1 << 2),
+		PauseUser      = (1 << 3),
+	};
+	DECLARE_FLAGS(PauseFlag, PauseFlags)
+	
+private:
+	
+	GameInstant m_now;
+	GameDuration m_lastFrameDuration;
+	float m_speed;
+	PauseFlags m_paused;
+	
+public:
+	
+	GameTime();
+	
+	void pause(PauseFlags flags) {
+		m_paused |= flags;
+	}
+	
+	void resume(PauseFlags flags) {
+		m_paused &= ~flags;
+	}
+	
+	void reset(GameInstant time);
+	
+	GameInstant now() const {
+		return m_now;
+	}
+	
+	void update(PlatformDuration frameDuration);
+	
+	PauseFlags isPaused() const {
+		return m_paused;
+	}
+	
+	GameDuration lastFrameDuration() const {
+		return m_lastFrameDuration;
+	}
+	
+	float speed() const { return m_speed; }
+	void setSpeed(float speed) { m_speed = speed; }
+	
+};
+
+DECLARE_FLAGS_OPERATORS(GameTime::PauseFlags)
+
+extern GameTime g_gameTime;
 
 #endif // ARX_CORE_GAMETIME_H

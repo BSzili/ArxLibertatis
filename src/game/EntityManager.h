@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -24,6 +24,9 @@
 #include <string>
 #include <vector>
 
+#include "game/EntityId.h"
+#include "game/GameTypes.h"
+
 class Entity;
 
 class EntityManager {
@@ -42,12 +45,24 @@ public:
 	//! Free all entities except for the player
 	void clear();
 	
-	long getById(const std::string & name) const;
-	Entity * getById(const std::string & name, Entity * self) const;
+	EntityHandle getById(const std::string & idString) const;
+	EntityHandle getById(const EntityId & id) const;
 	
-	Entity * operator[](size_t index) const {
-		return entries[index];
+	Entity * getById(const std::string & idString, Entity * self) const;
+	
+	Entity * operator[](EntityHandle index) const {
+		return entries[index.handleData()];
 	}
+	
+	Entity * get(EntityHandle handle) const {
+		
+		if(handle.handleData() < 0 || handle.handleData() >= long(size())) {
+			return NULL;
+		}
+		
+		return entries[handle.handleData()];
+	}
+	
 	
 	//! Get the player entity
 	Entity * player() const {
@@ -69,10 +84,15 @@ public:
 	iterator begin() const { return entries.begin(); }
 	iterator end() const { return entries.end(); }
 	
+	typedef bool (*AutocompleteHandler)(void * context, const std::string & suggestion);
+	void autocomplete(const std::string & prefix, AutocompleteHandler handler, void * context);
+	
 private:
 	
 	Entries entries;
-	size_t minfree; // first unused index (value == NULL)
+	
+	struct Impl;
+	Impl * m_impl;
 	
 	size_t add(Entity * entity);
 	

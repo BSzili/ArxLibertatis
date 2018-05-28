@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,64 +47,57 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #ifndef ARX_GRAPHICS_EFFECTS_SPELLEFFECTS_H
 #define ARX_GRAPHICS_EFFECTS_SPELLEFFECTS_H
 
+#include "game/GameTypes.h"
 #include "graphics/Color.h"
 #include "graphics/Math.h"
-#include "math/MathFwd.h"
+#include "math/Random.h"
+#include "math/Types.h"
+#include "platform/Alignment.h"
+#include "scene/Light.h"
 
-struct TexturedVertex;
+struct RenderMaterial;
 
 const int BEZIERPrecision = 32;
 
-void EE_RT2(TexturedVertex * in, TexturedVertex * out);
+class ARX_ALIGNAS(16) CSpellFx {
+	
+public:
+	
+	// We can't use ARX_ALIGNOF(glm::mat4x4) directly because MSVC sucks
+	ARX_STATIC_ASSERT(ARX_ALIGNOF(glm::mat4x4) <= 16, "need to increase alignment");
+	
+		GameDuration m_duration;
+		GameDuration m_elapsed;
 
-class CSpellFx
-{
-	protected:
-		float	fBeta;
-		float	fBetaRad;
-		float	fBetaRadCos;
-		float	fBetaRadSin;
-
-		float	fManaCostToLaunch;
-		float	fManaCostPerSecond;
-
-		float	fOneOnDuration;
-
-
-	public:
-		unsigned long ulDuration;
-		unsigned long ulCurrentTime;
-		long lLightId;
-		long lSrc;
-
-	public:
 		CSpellFx();
 		virtual ~CSpellFx() { }
-
-		// accesseurs
-	public:
-		virtual void SetDuration(const unsigned long ulaDuration);
-		virtual unsigned long getCurrentTime();
-		virtual unsigned long GetDuration();
-		void SetAngle(float angle);
-
-		// surcharge
-	public:
-		long			spellinstance;
-		virtual void	Update(unsigned long) { }
-		void			Update(float time);
-		virtual float	Render()
-		{
-			return 1;
-		};
+		
+		virtual void SetDuration(GameDuration ulaDuration);
+		
+		virtual void Update(GameDuration timeDelta) = 0;
+		virtual void Render() = 0;
+	
+	ARX_USE_ALIGNED_NEW(CSpellFx)
 };
 
-#define frand2() (1.0f - (2.0f * rnd()))
+void Draw3DLineTexNew(const RenderMaterial & mat, Vec3f startPos, Vec3f endPos, Color startColor, Color endColor, float startSize, float endSize);
 
-void Draw3DLineTex2(Vec3f s, Vec3f e, float fSize, Color color, Color color2);
-void Draw3DLineTex(Vec3f, Vec3f, Color, float, float);
+void Split(Vec3f * v, int a, int b, Vec3f f);
+void Split(Vec3f * v, int a, int b, float yo, float fMul = 0.5f);
 
-void Split(TexturedVertex * v, int a, int b, float fX, float fMulX, float fY, float fMulY, float fZ, float fMulZ);
-void Split(TexturedVertex * v, int a, int b, float yo, float fMul = 0.5f);
+extern EERIE_3DOBJ * cabal;
+extern EERIE_3DOBJ * ssol;
+extern EERIE_3DOBJ * slight;
+extern EERIE_3DOBJ * srune;
+extern EERIE_3DOBJ * smotte;
+extern EERIE_3DOBJ * stite;
+extern EERIE_3DOBJ * smissile;
+extern EERIE_3DOBJ * spapi;
+extern EERIE_3DOBJ * svoodoo;
+extern EERIE_3DOBJ * stone0;
+extern EERIE_3DOBJ * stone1;
+
+void LoadSpellModels();
+void ReleaseSpellModels();
 
 #endif // ARX_GRAPHICS_EFFECTS_SPELLEFFECTS_H

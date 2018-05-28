@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2017 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -45,31 +45,32 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "graphics/Math.h"
 #include "graphics/effects/SpellEffects.h"
+#include "math/RandomVector.h"
 
 Particle::Particle()
-	: p3Pos(frand2() * 5, frand2() * 5, frand2() * 5),
-	  p3Velocity(frand2() * 10, frand2() * 10, frand2() * 10),
-	  ulTime(0), fSize(1.f), fSizeStart(1.f), fSizeEnd(1.f),
-	  iTexTime(0), iTexNum(0) {
+	: p3Pos(arx::randomVec(-5.f, 5.f))
+	, p3Velocity(arx::randomVec(-10.f, 10.f))
+	, m_age(0)
+	, fSize(1.f)
+	, fSizeStart(1.f)
+	, fSizeEnd(1.f)
+	, iRot(1)
+	, fRotStart(0.f)
+	, iTexTime(0)
+	, iTexNum(0)
+{
 	
-	ulTTL = checked_range_cast<long>(2000 + rnd() * 3000);
-	fOneOnTTL = 1.0f / float(ulTTL);
+	m_timeToLive = GameDurationMs(Random::get(2000, 5000));
 	
-	fColorStart[0] = 1;
-	fColorStart[1] = 1;
-	fColorStart[2] = 1;
-	fColorStart[3] = 0.5f;
-	fColorEnd[0] = 1;
-	fColorEnd[1] = 1;
-	fColorEnd[2] = 1;
-	fColorEnd[3] = 0.1f;
+	fColorStart = Color4f(1, 1, 1, 0.5f);
+	fColorEnd = Color4f(1, 1, 1, 0.1f);
 }
 
 Particle::~Particle() { }
 
 void Particle::Regen() {
-	p3Pos = Vec3f::ZERO;
-	ulTime = 0;
+	p3Pos = Vec3f_ZERO;
+	m_age = 0;
 	fSize = 1;
 	iTexTime = 0;
 	iTexNum = 0;
@@ -81,37 +82,37 @@ void Particle::Validate() {
 	fSizeStart = std::max(fSizeStart, 1.f);
 	fSizeEnd = std::max(fSizeEnd, 1.f);
 	
-	for(int i = 0; i < 4; i++) {
-		fColorStart[i] = clamp(fColorStart[i], 0.f, 1.f);
-		fColorEnd[i] = clamp(fColorEnd[i], 0.f, 1.f);
-	}
+	fColorStart.r = glm::clamp(fColorStart.r, 0.f, 1.f);
+	fColorStart.g = glm::clamp(fColorStart.g, 0.f, 1.f);
+	fColorStart.b = glm::clamp(fColorStart.b, 0.f, 1.f);
+	fColorStart.a = glm::clamp(fColorStart.a, 0.f, 1.f);
 	
-	if(ulTTL < 100) {
-		ulTTL = 100;
-		fOneOnTTL = 1.0f / float(ulTTL);
+	fColorEnd.r = glm::clamp(fColorEnd.r, 0.f, 1.f);
+	fColorEnd.g = glm::clamp(fColorEnd.g, 0.f, 1.f);
+	fColorEnd.b = glm::clamp(fColorEnd.b, 0.f, 1.f);
+	fColorEnd.a = glm::clamp(fColorEnd.a, 0.f, 1.f);
+	
+	if(m_timeToLive < GameDurationMs(100)) {
+		m_timeToLive = GameDurationMs(100);
 	}
 }
 
-void Particle::Update(long _lTime) {
+void Particle::Update(GameDuration delta) {
 	
-	ulTime += _lTime;
-	iTexTime += _lTime;
-	float fTimeSec = _lTime * (1.f / 1000);
+	m_age += delta;
+	iTexTime += toMsi(delta); // FIXME time, this will break with sub ms deltas
+	float fTimeSec = delta / GameDurationMs(1000);
 	
-	if(ulTime < ulTTL) {
+	if(m_age < m_timeToLive) {
 		
-		float ft = fOneOnTTL * ulTime;
+		float ft = m_age / m_timeToLive;
 		
 		// update new pos
 		p3Pos += p3Velocity * fTimeSec;
 		
 		fSize = fSizeStart + (fSizeEnd - fSizeStart) * ft;
 		
-		Color4f fColor;
-		fColor.r = fColorStart[0] + (fColorEnd[0] - fColorStart[0]) * ft;
-		fColor.g = fColorStart[1] + (fColorEnd[1] - fColorStart[1]) * ft;
-		fColor.b = fColorStart[2] + (fColorEnd[2] - fColorStart[2]) * ft;
-		fColor.a = fColorStart[3] + (fColorEnd[3] - fColorStart[3]) * ft;
+		Color4f fColor = fColorStart + (fColorEnd - fColorStart) * ft;
 		ulColor = fColor.to<u8>();
 	}
 }

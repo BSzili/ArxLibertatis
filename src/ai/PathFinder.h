@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -47,7 +47,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <stddef.h>
 #include <vector>
 
-#include "math/MathFwd.h"
+#include "math/Types.h"
 
 struct ANCHOR_DATA;
 struct EERIE_LIGHT;
@@ -92,43 +92,43 @@ public:
 	
 	/*!
 	 * Find a path between two nodes.
-	 * @param from The index of the start node into the provided map_data.
-	 * @param to The index of the destination node into the provided map_data.
-	 * @param rlist A list to append the path to.
-	 * @param stealth True if the path should avoid light sources.
-	 * @return true if a path was found.
+	 * \param from The index of the start node into the provided map_data.
+	 * \param to The index of the destination node into the provided map_data.
+	 * \param rlist A list to append the path to.
+	 * \param stealth True if the path should avoid light sources.
+	 * \return true if a path was found.
 	 */
 	bool move(NodeId from, NodeId to, Result & rlist, bool stealth = false) const;
 	
 	/*!
 	 * Find a path away from a position.
-	 * @param from The index of the start node into the provided map_data.
-	 * @param danger The position to get away from.
-	 * @param safeDistance How far to get away from danger.
-	 * @param rlist A list to append the path to.
-	 * @param stealth True if the path should avoid light sources.
-	 * @return true if a path was found.
+	 * \param from The index of the start node into the provided map_data.
+	 * \param danger The position to get away from.
+	 * \param safeDistance How far to get away from danger.
+	 * \param rlist A list to append the path to.
+	 * \param stealth True if the path should avoid light sources.
+	 * \return true if a path was found.
 	 */
 	bool flee(NodeId from, const Vec3f & danger, float safeDistance, Result & rlist, bool stealth = false) const;
 	
 	/*!
 	 * Wander around and then return to the start node.
-	 * @param from The index of the start node into the provided map_data.
-	 * @param aroundRadius How far to wander.
-	 * @param rlist A list to append the path to.
-	 * @param stealth True if the path should avoid light sources.
-	 * @return true if a path was found.
+	 * \param from The index of the start node into the provided map_data.
+	 * \param aroundRadius How far to wander.
+	 * \param rlist A list to append the path to.
+	 * \param stealth True if the path should avoid light sources.
+	 * \return true if a path was found.
 	 */
 	bool wanderAround(NodeId from, float aroundRadius, Result & rlist, bool stealth = false) const;
 	
 	/*!
 	 * Walk to and then to random offsets around the given position
-	 * @param from The index of the start node into the provided map_data.
-	 * @param danger The position to walk to.
-	 * @param radius How far to walk around the given position.
-	 * @param rlist A list to append the path to.
-	 * @param stealth True if the path should avoid light sources.
-	 * @return true if a path was found.
+	 * \param from The index of the start node into the provided map_data.
+	 * \param pos The position to walk to.
+	 * \param radius How far to walk around the given position.
+	 * \param rlist A list to append the path to.
+	 * \param stealth True if the path should avoid light sources.
+	 * \return true if a path was found.
 	 */
 	bool lookFor(NodeId from, const Vec3f & pos, float radius, Result & rlist, bool stealth = false) const;
 	
@@ -138,16 +138,13 @@ private:
 	class OpenNodeList;
 	class ClosedNodeList;
 	
-	/*!
-	 * @return the best node (lowest cost) from open list or NULL if the list is empty
-	 */
 	static void buildPath(const Node & node, Result & rlist);
 	float getIlluminationCost(const Vec3f & pos) const;
 	NodeId getNearestNode(const Vec3f & pos) const;
 	
-	float radius;
-	float height;
-	float heuristic;
+	float m_radius;
+	float m_height;
+	float m_heuristic;
 	
 	size_t map_s; // Map size
 	const ANCHOR_DATA * map_d; // Map data

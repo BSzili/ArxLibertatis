@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2014 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -50,8 +50,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 namespace audio {
 
-Sample::Sample(const res::path & _name) : ResourceHandle(), name(_name), length(0) {
-}
+Sample::Sample(const res::path & _name)
+	: name(_name)
+	, length(0)
+	, format()
+{}
 
 Sample::~Sample() {
 	

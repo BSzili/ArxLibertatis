@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2015 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -21,8 +21,33 @@
 #define ARX_GRAPHICS_OPENGL_OPENGLUTIL_H
 
 #include "platform/Platform.h"
+#include "Configure.h"
 
-#if defined(__MORPHOS__) || defined(__amigaos4__)
+#if ARX_PLATFORM == ARX_PLATFORM_WIN32
+// Make sure we get the APIENTRY define from windows.h first to avoid a re-definition warning
+#include <windows.h>
+#endif
+
+#if ARX_HAVE_EPOXY
+
+#include <epoxy/gl.h>
+
+#define ARX_HAVE_GL_VER(x, y) (epoxy_gl_version() >= x##y)
+#define ARX_HAVE_GL_EXT(name) epoxy_has_gl_extension("GL_" #name)
+#define ARX_HAVE_GLES_VER(x, y) ARX_HAVE_GL_VER(x, y)
+#define ARX_HAVE_GLES_EXT(name) ARX_HAVE_GL_EXT(name)
+
+#elif ARX_HAVE_GLEW
+
+#include <GL/glew.h>
+
+#define ARX_HAVE_GL_VER(x, y) (glewIsSupported("GL_VERSION_" #x "_" #y) != 0)
+#define ARX_HAVE_GL_EXT(name) (glewIsSupported("GL_" #name) != 0)
+#define ARX_HAVE_GLES_VER(x, y) (false)
+#define ARX_HAVE_GLES_EXT(name) (false)
+
+#elif defined(__MORPHOS__) || defined(__amigaos4__)
+
 #include <GL/gl.h>
 #ifdef __amigaos4__
 #include <GL/glext.h>
@@ -32,19 +57,9 @@
 #define glActiveTexture glActiveTextureARB
 #define GL_MAX_TEXTURE_UNITS GL_MAX_TEXTURE_UNITS_ARB
 #endif
+
 #else
-#include <GL/glew.h>
-#endif
-
-#include <io/log/Logger.h>
-
-const char * getGLErrorString(GLenum error);
-
-#ifdef ARX_DEBUG
-#define CHECK_GL if(GLenum error = glGetError()) \
-	LogError << "GL error in " << __func__ << ": " << error << " = " << getGLErrorString(error)
-#else
-#define CHECK_GL
+#error "OpenGL renderer not supported: need ARX_HAVE_EPOXY or ARX_HAVE_GLEW"
 #endif
 
 #endif // ARX_GRAPHICS_OPENGL_OPENGLUTIL_H

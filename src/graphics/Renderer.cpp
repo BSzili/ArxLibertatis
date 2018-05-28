@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -19,7 +19,10 @@
 
 #include "graphics/Renderer.h"
 
-#include "graphics/GraphicsUtility.h"
+#include <algorithm>
+
+#include <boost/foreach.hpp>
+
 #include "graphics/texture/TextureStage.h"
 #include "graphics/data/TextureContainer.h"
 #include "graphics/texture/Texture.h"
@@ -27,39 +30,67 @@
 
 Renderer * GRenderer;
 
-TextureStage * Renderer::GetTextureStage(unsigned int textureStage) {
+TextureStage * Renderer::GetTextureStage(size_t textureStage) {
+	return (textureStage < m_TextureStages.size()) ? m_TextureStages[textureStage] : NULL;
+}
+
+const TextureStage * Renderer::GetTextureStage(size_t textureStage) const {
 	return (textureStage < m_TextureStages.size()) ? m_TextureStages[textureStage] : NULL;
 }
 
 void Renderer::ResetTexture(unsigned int textureStage) {
-	GetTextureStage(textureStage)->ResetTexture();
+	GetTextureStage(textureStage)->resetTexture();
+}
+
+Texture * Renderer::GetTexture(unsigned int textureStage) const {
+	return GetTextureStage(textureStage)->getTexture();
 }
 
 void Renderer::SetTexture(unsigned int textureStage, Texture * pTexture) {
-	GetTextureStage(textureStage)->SetTexture(pTexture);
+	GetTextureStage(textureStage)->setTexture(pTexture);
 }
 
 void Renderer::SetTexture(unsigned int textureStage, TextureContainer * pTextureContainer) {
 	
 	if(pTextureContainer && pTextureContainer->m_pTexture) {
-		GetTextureStage(textureStage)->SetTexture(pTextureContainer->m_pTexture);
+		GetTextureStage(textureStage)->setTexture(pTextureContainer->m_pTexture);
 	} else {
-		GetTextureStage(textureStage)->ResetTexture();
+		GetTextureStage(textureStage)->resetTexture();
 	}
 }
 
-Renderer::Renderer() { }
+Renderer::Renderer()
+	: m_initialized(false)
+{ }
 
 Renderer::~Renderer() {
+	if(isInitialized()) {
+		onRendererShutdown();
+	}
 	for(size_t i = 0; i < m_TextureStages.size(); ++i) {
 		delete m_TextureStages[i];
 	}
 }
 
-void Renderer::SetViewMatrix(const Vec3f & position, const Vec3f & dir, const Vec3f & up) {
-	
-	EERIEMATRIX mat;
-	Util_SetViewMatrix(mat, position, dir, up);
-	
-	SetViewMatrix(mat);
+void Renderer::addListener(Listener * listener) {
+	m_listeners.push_back(listener);
+}
+
+void Renderer::removeListener(Listener * listener) {
+	m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), listener),
+	                  m_listeners.end());
+}
+
+void Renderer::onRendererInit() {
+	m_initialized = true;
+	BOOST_FOREACH(Listener * listener, m_listeners) {
+		listener->onRendererInit(*this);
+	}
+}
+
+void Renderer::onRendererShutdown() {
+	BOOST_FOREACH(Listener * listener, m_listeners) {
+		listener->onRendererShutdown(*this);
+	}
+	m_initialized = false;
 }

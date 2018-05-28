@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -43,10 +43,11 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "script/ScriptedControl.h"
 
+#include "ai/Anchors.h"
+
 #include "core/Core.h"
 #include "core/GameTime.h"
 #include "game/EntityManager.h"
-#include "graphics/GraphicsModes.h"
 #include "physics/Attractors.h"
 #include "physics/Collisions.h"
 #include "io/resource/PakReader.h"
@@ -54,10 +55,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include "scene/Interactive.h"
 #include "scene/GameSound.h"
 #include "script/ScriptUtils.h"
+#include "cinematic/CinematicController.h"
 
-using std::string;
 
-extern long GLOBAL_MAGIC_MODE;
+extern bool GLOBAL_MAGIC_MODE;
 
 namespace script {
 
@@ -88,11 +89,11 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		Entity * t = entities.getById(target, context.getEntity());
 		
-		string power = context.getWord();
+		std::string power = context.getWord();
 		
 		float val = 0.f;
 		float radius = 0.f;
@@ -104,7 +105,7 @@ public:
 		
 		DebugScript(' ' << target << ' ' << val << ' ' << radius);
 		
-		ARX_SPECIAL_ATTRACTORS_Add((t == NULL) ? -1 : t->index(), val, radius);
+		ARX_SPECIAL_ATTRACTORS_Add((t == NULL) ? EntityHandle() : t->index(), val, radius);
 		
 		return Success;
 	}
@@ -185,20 +186,20 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string sourceio = context.getWord();
+		std::string sourceio = context.getWord();
 		Entity * t = entities.getById(sourceio, context.getEntity());
 		
-		string source = context.getWord(); // source action_point
+		std::string source = context.getWord(); // source action_point
 		
-		string targetio = context.getWord();
+		std::string targetio = context.getWord();
 		Entity * t2 = entities.getById(targetio, context.getEntity());
 		
-		string target = context.getWord();
+		std::string target = context.getWord();
 		
 		DebugScript(' ' << sourceio << ' ' << source << ' ' << targetio << ' ' << target);
 		
-		long i = (t == NULL) ? -1 : t->index();
-		long i2 = (t2 == NULL) ? -1 : t2->index();
+		EntityHandle i = (t == NULL) ? EntityHandle() : t->index();
+		EntityHandle i2 = (t2 == NULL) ? EntityHandle() : t2->index();
 		
 		ARX_INTERACTIVE_Attach(i, i2, source, target);
 		
@@ -222,20 +223,18 @@ public:
 			}
 		}
 		
-		string name = context.getWord();
+		std::string name = context.getWord();
 		
 		DebugScript(' ' << options << " \"" << name << '"');
 		
 		if(name == "kill") {
-			DANAE_KillCinematic();
+			cinematicKill();
 		} else if(name == "play") {
-			PLAY_LOADED_CINEMATIC = 1;
-			arxtime.pause();
+			cinematicRequestStart();
 		} else {
 			
-			if(resources->getFile(res::path("graph/interface/illustrations") / (name + ".cin"))) {
-				WILL_LAUNCH_CINE = name + ".cin";
-				CINE_PRELOAD = preload;
+			if(g_resources->getFile(res::path("graph/interface/illustrations") / (name + ".cin"))) {
+				cinematicPrepare(name + ".cin", preload);
 			} else {
 				ScriptWarning << "unable to find cinematic \"" << name << '"';
 				return Failed;
@@ -260,7 +259,7 @@ public:
 			rem = test_flag(flg, 'r');
 		}
 		
-		string group = context.getStringVar(context.getWord());
+		std::string group = context.getStringVar(context.getWord());
 		
 		DebugScript(' ' << options << ' ' << group);
 		
@@ -297,34 +296,9 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string options = context.getFlags();
-		string command = context.getWord();
+		std::string command = context.getWord();
 		
-		if(command == "stack") {
-			DebugScript(" stack");
-			ARX_GLOBALMODS_Stack();
-			
-		} else if(command == "unstack") {
-			DebugScript(" unstack");
-			ARX_GLOBALMODS_UnStack();
-			
-		} else if(command == "rgb") {
-			
-			desired.depthcolor.r = context.getFloat();
-			desired.depthcolor.g = context.getFloat();
-			desired.depthcolor.b = context.getFloat();
-			desired.flags |= GMOD_DCOLOR;
-			
-			DebugScript(" rgb " << desired.depthcolor.r << ' ' << desired.depthcolor.g << ' ' << desired.depthcolor.b);
-			
-		} else if(command == "zclip") {
-				
-			desired.zclip = context.getFloat();
-			desired.flags |= GMOD_ZCLIP;
-			
-			DebugScript(" zclip " << desired.zclip);
-			
-		} else if(command == "ambiance") {
+		if(command == "ambiance") {
 			
 			res::path ambiance = res::path::load(context.getWord());
 			
@@ -353,7 +327,7 @@ public:
 	
 	Result execute(Context & context) {
 		
-		GLOBAL_MAGIC_MODE = context.getBool() ? 1 : 0;
+		GLOBAL_MAGIC_MODE = context.getBool();
 		
 		DebugScript(' ' << GLOBAL_MAGIC_MODE);
 		
@@ -370,8 +344,8 @@ public:
 	
 	Result execute(Context & context) {
 		
-		string source = context.getWord(); // source IO
-		string target = context.getWord(); // target IO
+		std::string source = context.getWord(); // source IO
+		std::string target = context.getWord(); // target IO
 		
 		DebugScript(' ' << source << ' ' << target);
 		
@@ -394,7 +368,7 @@ public:
 	
 };
 
-}
+} // anonymous namespace
 
 void setupScriptedControl() {
 	

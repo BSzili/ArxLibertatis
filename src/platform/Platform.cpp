@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2013 Arx Libertatis Team (see the AUTHORS file)
+ * Copyright 2011-2016 Arx Libertatis Team (see the AUTHORS file)
  *
  * This file is part of Arx Libertatis.
  *
@@ -28,6 +28,12 @@
 #warning "Unknown target platform"
 #endif
 
+#ifdef ARX_DEBUG
+
+typedef void(*AssertHandler)(const char * expr, const char * file, unsigned int line,
+                             const char * msg);
+AssertHandler g_assertHandler = 0;
+
 void assertionFailed(const char * expr, const char * file, unsigned int line,
                      const char * msg, ...) {
 	
@@ -35,17 +41,26 @@ void assertionFailed(const char * expr, const char * file, unsigned int line,
 		file = "<unknown>";
 	}
 	
-	Logger(file, line, Logger::Error) << "Assertion Failed: " << expr;
+	Logger(file, line, Logger::Critical) << "Assertion Failed: " << expr;
 	if(msg) {
 		char formattedmsgbuf[4096];
 		va_list args;
 		va_start(args, msg);
 		vsnprintf(formattedmsgbuf, sizeof(formattedmsgbuf) - 1, msg, args);
 		va_end(args);
-		Logger(file, line, Logger::Error) << "Message: " << formattedmsgbuf;
+		Logger(file, line, Logger::Critical) << "Message: " << formattedmsgbuf;
+		if(g_assertHandler) {
+			g_assertHandler(expr, file, line, formattedmsgbuf);
+		}
+	} else {
+		if(g_assertHandler) {
+			g_assertHandler(expr, file, line, NULL);
+		}
 	}
 	
 }
+
+#endif // ARX_DEBUG
 
 // When building without exceptions, there's a chance the boost precompiled library are built with exception handling turned on... in that case
 // we would get an undefined symbol at link time.  In order to solve this, we define this symbol here:
