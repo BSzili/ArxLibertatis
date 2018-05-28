@@ -630,7 +630,7 @@ bool SaveBlock::save(const std::string & name, const char * data, size_t size) {
 	
 	file->chunks.push_back(File::Chunk(remaining, m_totalSize));
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-	mos_seekp(m_handle, totalSize + 4);
+	mos_seekp(m_handle, m_totalSize + 4);
 #else
 	m_handle.seekp(m_totalSize + 4);
 #endif

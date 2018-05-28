@@ -97,32 +97,17 @@ PlatformInstant getTime() {
 
 time_t timeBase = 0;
 
-void init() {
-	LogWarning << "using gettimeofday, time will jump if adjusted by other processes";
-}
-
-u32 getMs() {
+void initializeTime() {
+	//LogWarning << "using gettimeofday, time will jump if adjusted by other processes";
 	struct timeval tp;
 	gettimeofday(&tp, NULL);
-
-	if (!timeBase) {
-		timeBase = tp.tv_sec;
-		return tp.tv_usec / 1000;
-	}
-
-	return (tp.tv_sec - timeBase) * 1000 + tp.tv_usec / 1000;
+	timeBase = tp.tv_sec;
 }
 
-u64 getUs() {
+PlatformInstant getTime() {
 	struct timeval tp;
 	gettimeofday(&tp, NULL);
-
-	if (!timeBase) {
-		timeBase = tp.tv_sec;
-		return tp.tv_usec;
-	}
-
-	return /*(u64)*/(tp.tv_sec - timeBase) * 1000000ull + /*(u64)*/tp.tv_usec;
+	return PlatformInstantUs((tp.tv_sec - timeBase) * 1000000ull + tp.tv_usec);
 }
 
 #else

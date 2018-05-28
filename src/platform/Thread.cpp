@@ -67,6 +67,10 @@ void Thread::setThreadName(const std::string & threadName) {
 #include <pthread_np.h>
 #endif
 
+#ifdef __MORPHOS__
+#undef shutdown
+#endif
+
 Thread::Thread()
 	: m_thread()
 	, m_priority()
@@ -400,8 +404,8 @@ void Thread::sleep(PlatformDuration time) {
 
 #elif defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
 
-void Thread::sleep(unsigned milliseconds) {
-	usleep(milliseconds * 1000);
+void Thread::sleep(PlatformDuration time) {
+	usleep(toUs(time));
 }
 
 #else

@@ -108,6 +108,10 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 
 #include "util/String.h"
 
+#ifdef __MORPHOS__
+//#define asi arx_asi
+#endif
+
 
 extern bool GLOBAL_MAGIC_MODE;
 

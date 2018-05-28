@@ -97,7 +97,11 @@ public:
 	Color3(T _r, T _g, T _b) : b(_b), g(_g), r(_r) { }
 	
 	static Color3 fromRGB(ColorRGB rgb) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		return Color3(value(rgb.t >> 24), value(rgb.t >> 16), value(rgb.t >> 8));
+#else
 		return Color3(value(rgb.t), value(rgb.t >> 8), value(rgb.t >> 16));
+#endif
 	}
 	
 	static Color3 fromBGR(ColorBGR bgr) {
@@ -105,7 +109,11 @@ public:
 	}
 	
 	ColorRGBA toRGB(u8 _a = ColorLimits<u8>::max()) const {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		return ColorRGBA(u32(_a) | (byteval(b) << 8) | (byteval(g) << 16) | (byteval(r) << 24));
+#else
 		return ColorRGBA(byteval(r) | (byteval(g) << 8) | (byteval(b) << 16) | (u32(_a) << 24));
+#endif
 	}
 	
 	ColorBGRA toBGR(u8 _a = ColorLimits<u8>::max()) const {
@@ -228,7 +236,11 @@ public:
 	}
 	
 	static Color4 fromRGBA(ColorRGBA rgba) {
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		return fromRGB(ColorRGB(rgba.t), C3::value(rgba.t));
+#else
 		return fromRGB(ColorRGB(rgba.t), C3::value(rgba.t >> 24));
+#endif
 	}
 	
 	static Color4 fromBGRA(ColorBGRA bgra) {

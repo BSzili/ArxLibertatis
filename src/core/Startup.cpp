@@ -96,7 +96,6 @@ void threadCleanup(void)
 	ARX_SOUND_Release();
 	SDL_Quit();
 }
-#endif
 
 int main(int argc, char ** argv) {
 #else

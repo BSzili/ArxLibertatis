@@ -138,10 +138,9 @@ void GLTexture::upload() {
 		if (hasMipmaps())
 			gluBuild2DMipmaps(GL_TEXTURE_2D, internal, getSize().x, getSize().y, format, GL_UNSIGNED_BYTE, m_image.getData());
 		else
-#else
+#endif
 		glTexImage2D(GL_TEXTURE_2D, 0, internal, getSize().x, getSize().y, 0, format,
 		             GL_UNSIGNED_BYTE, m_image.getData());
-#endif
 	}
 	
 }

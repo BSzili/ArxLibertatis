@@ -28,21 +28,31 @@ namespace fs {
 
 typedef const char * const str_t;
 
-static str_t data_dir = ARX_GET_STR("games/arx:arx");
+//static str_t data_dir = ARX_GET_STR("games/arx:arx");
+static str_t data_dir = ARX_GET_STR("");
 
-static str_t user_dir = ARX_GET_STR("arx");
+//static str_t user_dir = ARX_GET_STR("arx");
+static str_t user_dir = ARX_GET_STR("");
 
-static str_t config_dir = ARX_GET_STR("arx");
+//static str_t config_dir = ARX_GET_STR("arx");
+static str_t config_dir = ARX_GET_STR("");
 
 static str_t data_dir_prefixes = ARX_GET_STR("");
 
-static str_t user_dir_prefixes = ARX_GET_STR(".local/share");
+//static str_t user_dir_prefixes = ARX_GET_STR(".local/share");
+static str_t user_dir_prefixes = ARX_GET_STR("");
 
-static str_t config_dir_prefixes = ARX_GET_STR(".config");
+//static str_t config_dir_prefixes = ARX_GET_STR(".config");
+static str_t config_dir_prefixes = ARX_GET_STR("");
 
-static str_t ignore_exe_dir = ARX_GET_STR("/usr/bin:/usr/games:/usr/games/bin:/usr/local/bin:/usr/local/games:/usr/local/games/bin");
+//static str_t ignore_exe_dir = ARX_GET_STR("/usr/bin:/usr/games:/usr/games/bin:/usr/local/bin:/usr/local/games:/usr/local/games/bin");
+static str_t ignore_exe_dir = ARX_GET_STR("");
 
-static str_t libexec_dir = ARX_GET_STR("/usr/local/libexec");
+//static str_t libexec_dir = ARX_GET_STR("/usr/local/libexec");
+static str_t libexec_dir = ARX_GET_STR("");
+
+//static str_t relative_data_dir = ARX_GET_STR(".");
+static str_t relative_data_dir = ARX_GET_STR("");
 
 #undef ARX_GET_STR
 

@@ -41,7 +41,7 @@
 #include "graphics/opengl/GLTexture.h"
 #include "graphics/opengl/GLTextureStage.h"
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-#include "graphics/Math.h"
+#include "graphics/opengl/GLVertexArray.h"
 #else
 #include "graphics/opengl/GLVertexBuffer.h"
 #endif
@@ -204,7 +204,6 @@ void OpenGLRenderer::initialize() {
 	
 	gldebug::initialize();
 }
-#endif
 
 void OpenGLRenderer::beforeResize(bool wasOrIsFullscreen) {
 	
@@ -827,7 +826,9 @@ void OpenGLRenderer::drawIndexed(Primitive primitive, const TexturedVertex * ver
 	
 	beforeDraw<TexturedVertex>();
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	bindBuffer(GL_NONE);
+#endif
 	
 	setVertexArray(this, vertices, vertices);
 	

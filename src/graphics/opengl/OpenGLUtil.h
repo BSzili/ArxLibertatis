@@ -55,8 +55,32 @@
 #ifdef __MORPHOS__
 #define glMultiTexCoord2f glMultiTexCoord2fARB
 #define glActiveTexture glActiveTextureARB
+#define glClientActiveTexture glClientActiveTextureARB
+#define glFogCoordPointer(x,y,z)
+#define glDrawRangeElementsBaseVertex(mode, start, end, count, type, indices, basevertex)
+#define glDrawElementsBaseVertex(mode, count, type, indices, basevertex)
 #define GL_MAX_TEXTURE_UNITS GL_MAX_TEXTURE_UNITS_ARB
+#define GL_GENERATE_MIPMAP                0x8191
+#define GL_FOG_COORDINATE_ARRAY           0x8457
+#define GL_SAMPLE_BUFFERS                 0x80A8
+#define GL_SAMPLES                        0x80A9
+#define GL_FOG_DISTANCE_MODE_NV           0x855A
+#define GL_FOG_COORDINATE_SOURCE          0x8450
+#define GL_FOG_COORDINATE                 0x8451
+#define GL_FRAGMENT_DEPTH                 0x8452
+#define GL_SAMPLE_ALPHA_TO_COVERAGE       0x809E
+#undef glGetString
+#define glGetString(name) ((const GLubyte*)GLGetString(__tglContext, name))
+#undef glDrawElements
+#define glDrawElements(mode, count, type, indices) GLDrawElements(__tglContext, mode, count, type, (GLvoid*)indices)
+#undef glDrawRangeElements
+#define glDrawRangeElements(mode, start, end, count, type, indices) GLDrawRangeElements(__tglContext, mode, start, end, count, type, (GLvoid*)indices)
 #endif
+
+#define ARX_HAVE_GL_VER(x, y) ((x) == 1)
+#define ARX_HAVE_GL_EXT(name) (false)
+#define ARX_HAVE_GLES_VER(x, y) (false)
+#define ARX_HAVE_GLES_EXT(name) (false)
 
 #else
 #error "OpenGL renderer not supported: need ARX_HAVE_EPOXY or ARX_HAVE_GLEW"

@@ -54,9 +54,9 @@
 #include <sys/param.h>
 #endif
 
-#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+/*#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
 #include <proto/dos.h>
-#endif
+#endif*/
 
 #if ARX_HAVE_SYSCTL
 #include <sys/types.h>
@@ -77,6 +77,11 @@
 
 #include "util/String.h"
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#define Lock ARXLock
+#include <proto/dos.h>
+#undef Lock
+#endif
 
 namespace platform {
 

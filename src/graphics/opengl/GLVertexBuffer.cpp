@@ -17,7 +17,11 @@
 * along with Arx Libertatis.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include "graphics/opengl/GLVertexArray.h"
+#else
 #include "graphics/opengl/GLVertexBuffer.h"
+#endif
 
 static GLArrayClientState glArrayClientState = GL_NoArray;
 static const void * glArrayClientStateRef = NULL;

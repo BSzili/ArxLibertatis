@@ -225,7 +225,7 @@ TextureContainer * TextureContainer::Load(const res::path & name, TCFlags flags)
 	// why would the interface textures need mipmaps is beyond me anyway...
 	if(name.string().find("interface") != std::string::npos || name.string().find("levels") != std::string::npos) {
 		//LogWarning << name << " loaded with " << __FUNCTION__;
-		flags |= UI;
+		flags |= TextureContainer::NoMipmap;
 	}
 #endif
 	

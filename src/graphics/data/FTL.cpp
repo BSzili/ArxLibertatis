@@ -290,14 +290,14 @@ EERIE_3DOBJ * ARX_FTL_Load(const res::path & file) {
 			EERIE_OLD_VERTEX eow_copy = *eow;
 			eow = &eow_copy;
 			
-			eow->vert.pos.x = SDL_SwapFloatLE(eow->vert.pos.x);
+			/*eow->vert.pos.x = SDL_SwapFloatLE(eow->vert.pos.x);
 			eow->vert.pos.y = SDL_SwapFloatLE(eow->vert.pos.y);
 			eow->vert.pos.z = SDL_SwapFloatLE(eow->vert.pos.z);
 			eow->vert.rhw = SDL_SwapFloatLE(eow->vert.rhw);
 			eow->vert.color = SDL_SwapLE32(eow->vert.color);
 			eow->vert.specular = SDL_SwapLE32(eow->vert.specular);
 			eow->vert.tu = SDL_SwapFloatLE(eow->vert.tu);
-			eow->vert.tv = SDL_SwapFloatLE(eow->vert.tv);
+			eow->vert.tv = SDL_SwapFloatLE(eow->vert.tv);*/
 			eow->v.x = SDL_SwapFloatLE(eow->v.x);
 			eow->v.y = SDL_SwapFloatLE(eow->v.y);
 			eow->v.z = SDL_SwapFloatLE(eow->v.z);

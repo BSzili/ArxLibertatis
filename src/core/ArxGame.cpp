@@ -1060,7 +1060,7 @@ bool ArxGame::addPaks() {
 	
 #ifdef __MORPHOS__
 	// streaming from the PAKs is super slow, we need to extract the sounds
-	dump(resources);
+	dump(g_resources);
 #endif
 	
 	// Load optional patch files

@@ -1133,14 +1133,14 @@ static bool loadFastScene(const res::path & file, const char * data, const char 
 			epo->poly.v[j].tu = SDL_SwapFloatLE(epo->poly.v[j].tu);
 			epo->poly.v[j].tv = SDL_SwapFloatLE(epo->poly.v[j].tv);
 
-			epo->poly.tv[j].pos.x = SDL_SwapFloatLE(epo->poly.tv[j].pos.x);
+			/*epo->poly.tv[j].pos.x = SDL_SwapFloatLE(epo->poly.tv[j].pos.x);
 			epo->poly.tv[j].pos.y = SDL_SwapFloatLE(epo->poly.tv[j].pos.y);
 			epo->poly.tv[j].pos.z = SDL_SwapFloatLE(epo->poly.tv[j].pos.z);
 			epo->poly.tv[j].rhw = SDL_SwapFloatLE(epo->poly.tv[j].rhw);
 			epo->poly.tv[j].color = SDL_SwapLE32(epo->poly.tv[j].color);
 			epo->poly.tv[j].specular = SDL_SwapLE32(epo->poly.tv[j].specular);
 			epo->poly.tv[j].tu = SDL_SwapFloatLE(epo->poly.tv[j].tu);
-			epo->poly.tv[j].tv = SDL_SwapFloatLE(epo->poly.tv[j].tv);
+			epo->poly.tv[j].tv = SDL_SwapFloatLE(epo->poly.tv[j].tv);*/
 
 			epo->poly.nrml[j].x = SDL_SwapFloatLE(epo->poly.nrml[j].x);
 			epo->poly.nrml[j].y = SDL_SwapFloatLE(epo->poly.nrml[j].y);
@@ -1236,8 +1236,8 @@ static bool loadFastScene(const res::path & file, const char * data, const char 
 			std::copy(ed, ed + room.nb_polys, room.epdata);
 #if defined(__MORPHOS__) || defined(__amigaos4__)
 			for(int i = 0; i < room.nb_polys; i++) {
-				room.epdata[i].px = SDL_SwapLE16(room.epdata[i].px);
-				room.epdata[i].py = SDL_SwapLE16(room.epdata[i].py);
+				room.epdata[i].tile.x = SDL_SwapLE16(room.epdata[i].tile.x);
+				room.epdata[i].tile.y = SDL_SwapLE16(room.epdata[i].tile.y);
 				room.epdata[i].idx = SDL_SwapLE16(room.epdata[i].idx);
 				room.epdata[i].padd = SDL_SwapLE16(room.epdata[i].padd);
 			}
