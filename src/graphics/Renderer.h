@@ -346,6 +346,9 @@ public:
 	virtual void ReleaseAllTextures() = 0;
 	virtual void RestoreAllTextures() = 0;
 	virtual void reloadColorKeyTextures() = 0;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	virtual void reloadMipmappedTextures() = 0;
+#endif
 
 	// Factory
 	virtual Texture * createTexture() = 0;

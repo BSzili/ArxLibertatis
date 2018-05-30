@@ -24,6 +24,10 @@
 #include "graphics/opengl/OpenGLRenderer.h"
 #include "graphics/opengl/OpenGLUtil.h"
 #include "io/fs/FilePath.h" // TODO remove
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+#include "core/Config.h"
+#include "io/log/Logger.h"
+#endif
 
 
 GLTexture::GLTexture(OpenGLRenderer * _renderer)
@@ -117,13 +121,31 @@ void GLTexture::upload() {
 	}
 	
 	if(hasMipmaps()) {
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 		glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+#endif
 		if(renderer->getMaxAnisotropy() > 1.f) {
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, renderer->getMaxAnisotropy());
 		}
 	} else {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
 	}
+	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	if(renderer->hasTextureCompression() && config.video.textureCompression) {
+		switch(internalUnsized) {
+			case GL_RGB:
+#ifndef __MORPHOS__
+				internal = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+				break;
+#endif
+			case GL_RGBA:
+				internal = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+				break;
+		}
+		//LogWarning << "compressing from " << internalSized << " to " << internal << " format " << getFormat();
+	}
+#endif
 	
 	// TODO handle GL_MAX_TEXTURE_SIZE
 	
@@ -135,9 +157,21 @@ void GLTexture::upload() {
 		             GL_UNSIGNED_BYTE, extended.getData());
 	} else {
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-		if (hasMipmaps())
-			gluBuild2DMipmaps(GL_TEXTURE_2D, internal, getSize().x, getSize().y, format, GL_UNSIGNED_BYTE, m_image.getData());
-		else
+		if(hasMipmaps()) {
+			arx_assert(!isNPOT);
+			int iDiv = 1 << (2 - config.video.textureDetail);
+			if(iDiv != 1) {
+				size_t newWidth = m_image.getWidth() / iDiv;
+				size_t newHeight = m_image.getHeight() / iDiv;
+				unsigned char *scaledbuffer = new unsigned char[newWidth * newHeight * 4];
+				gluScaleImage(m_image.hasAlpha() ? GL_RGBA : GL_RGB, m_image.getWidth(), m_image.getHeight(), GL_UNSIGNED_BYTE, m_image.getData(), newWidth, newHeight, GL_UNSIGNED_BYTE, scaledbuffer);
+				gluBuild2DMipmaps(GL_TEXTURE_2D, internal, newWidth, newHeight, format, GL_UNSIGNED_BYTE, scaledbuffer);
+				delete[] scaledbuffer;
+				//LogWarning << "resized from " << getSize().x << "x" << getSize().y << " to " << newWidth << "x" << newHeight << " format " << getFormat() << " internal " << internal;
+			} else {
+				gluBuild2DMipmaps(GL_TEXTURE_2D, internal, getSize().x, getSize().y, format, GL_UNSIGNED_BYTE, m_image.getData());
+			}
+		} else
 #endif
 		glTexImage2D(GL_TEXTURE_2D, 0, internal, getSize().x, getSize().y, 0, format,
 		             GL_UNSIGNED_BYTE, m_image.getData());

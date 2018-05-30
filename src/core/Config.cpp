@@ -63,6 +63,9 @@ const std::string
 
 const int
 	levelOfDetail = 2,
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	textureDetail = 2,
+#endif
 	vsync = -1,
 	fpsLimit = 240,
 	maxAnisotropicFiltering = 9001,
@@ -83,6 +86,9 @@ const bool
 	showCrosshair = true,
 	antialiasing = true,
 	colorkeyAntialiasing = true,
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	textureCompression = false,
+#endif
 	limitSpeechWidth = true,
 	hudScaleInteger = true,
 	scaleCursorWithHud = true,
@@ -185,6 +191,10 @@ const std::string
 	resolution = "resolution",
 	fullscreen = "full_screen",
 	levelOfDetail = "others_details",
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	textureDetail = "texture",
+	textureCompression = "texture_compression",
+#endif
 	fogDistance = "fog",
 	gamma = "gamma",
 	antialiasing = "antialiasing",
@@ -417,6 +427,10 @@ bool Config::save() {
 	}
 	writer.writeKey(Key::fullscreen, video.fullscreen);
 	writer.writeKey(Key::levelOfDetail, video.levelOfDetail);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	writer.writeKey(Key::textureDetail, video.textureDetail);
+	writer.writeKey(Key::textureCompression, video.textureCompression);
+#endif
 	writer.writeKey(Key::fogDistance, video.fogDistance);
 	writer.writeKey(Key::gamma, video.gamma);
 	writer.writeKey(Key::antialiasing, video.antialiasing);
@@ -552,6 +566,10 @@ bool Config::init(const fs::path & file) {
 	}
 	video.fullscreen = reader.getKey(Section::Video, Key::fullscreen, Default::fullscreen);
 	video.levelOfDetail = reader.getKey(Section::Video, Key::levelOfDetail, Default::levelOfDetail);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	video.textureDetail = reader.getKey(Section::Video, Key::textureDetail, Default::textureDetail);
+	video.textureCompression = reader.getKey(Section::Video, Key::textureCompression, Default::textureCompression);
+#endif
 	video.fogDistance = reader.getKey(Section::Video, Key::fogDistance, Default::fogDistance);
 	video.gamma = reader.getKey(Section::Video, Key::gamma, Default::gamma);
 	video.antialiasing = reader.getKey(Section::Video, Key::antialiasing, Default::antialiasing);

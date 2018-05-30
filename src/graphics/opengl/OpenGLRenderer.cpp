@@ -63,6 +63,9 @@ OpenGLRenderer::OpenGLRenderer()
 	, m_hasSizedTextureFormats(false)
 	, m_hasIntensityTextures(false)
 	, m_hasBGRTextureTransfer(false)
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	, m_hasTextureCompression(false)
+#endif
 	, m_hasMapBuffer(false)
 	, m_hasMapBufferRange(false)
 	, m_hasBufferStorage(false)
@@ -281,6 +284,10 @@ void OpenGLRenderer::reinit() {
 		m_hasIntensityTextures = true;
 		m_hasBGRTextureTransfer = true;
 	}
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	m_hasTextureCompression = ARX_HAVE_GL_EXT(EXT_texture_compression_s3tc);
+	//LogWarning << "texture compression " << m_hasTextureCompression << " ext " << ARX_HAVE_GL_EXT(EXT_texture_compression_s3tc) << " s3tc " << ARX_HAVE_GL_EXT(GL_S3_s3tc);
+#endif
 	
 	// EXT_texture_filter_anisotropic is available for both OpenGL ES and desktop OpenGL
 	if(ARX_HAVE_GL_EXT(EXT_texture_filter_anisotropic) || ARX_HAVE_GL_EXT(ARB_texture_filter_anisotropic)) {
@@ -554,6 +561,17 @@ void OpenGLRenderer::reloadColorKeyTextures() {
 		}
 	}
 }
+
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+void OpenGLRenderer::reloadMipmappedTextures()
+{
+	for(TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
+		if(it->hasMipmaps()) {
+			it->restore();
+		}
+	}
+}
+#endif
 
 Texture * OpenGLRenderer::createTexture() {
 	GLTexture * texture = new GLTexture(this);

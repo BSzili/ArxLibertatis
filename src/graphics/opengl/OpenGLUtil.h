@@ -78,8 +78,20 @@
 
 #define glFogCoordPointer(x,y,z)
 
+#include <string.h>
+static inline bool GL_CheckForExtension(const char *ext)
+{
+	const char *ptr = strstr((const char *)glGetString(GL_EXTENSIONS), ext);
+	if (ptr == NULL)
+		return false;
+	ptr += strlen(ext);
+	return ((*ptr == ' ') || (*ptr == '\0'));  // verify it's complete string.
+	return true;
+}
+
 #define ARX_HAVE_GL_VER(x, y) ((x) == 1)
-#define ARX_HAVE_GL_EXT(name) (false)
+//#define ARX_HAVE_GL_EXT(name) (false)
+#define ARX_HAVE_GL_EXT(name) (GL_CheckForExtension(#name))
 #define ARX_HAVE_GLES_VER(x, y) (false)
 #define ARX_HAVE_GLES_EXT(name) (false)
 

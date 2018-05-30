@@ -1032,8 +1032,32 @@ public:
 		}
 		
 		{
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+			PanelWidget * panel = new PanelWidget;
+			std::string szMenuText = getLocalised("system_menus_options_video_texture");
+			szMenuText += " ";
+			TextWidget * txt = new TextWidget(hFontMenu, szMenuText, Vec2f(20, 0));
+			txt->SetCheckOff();
+			panel->AddElement(txt);
+			
+			CycleTextWidget * cb = new CycleTextWidget;
+			cb->valueChanged = boost::bind(&RenderOptionsMenuPage::onChangedTexture, this, _1, _2);
+			szMenuText = getLocalised("system_menus_options_video_texture_low");
+			cb->AddText(new TextWidget(hFontMenu, szMenuText));
+			szMenuText = getLocalised("system_menus_options_video_texture_med");
+			cb->AddText(new TextWidget(hFontMenu, szMenuText));
+			szMenuText = getLocalised("system_menus_options_video_texture_high");
+			cb->AddText(new TextWidget(hFontMenu, szMenuText));
+			cb->setValue(config.video.textureDetail);
+			
+			cb->Move(Vec2f(RATIO_X(m_size.x - 9) - cb->m_rect.width(), 0));
+			panel->AddElement(cb);
+			
+			addCenter(panel);
+#else
 			// Add spacing
 			addCenter(new TextWidget(hFontMenu, std::string(), Vec2f(20, 0)));
+#endif
 		}
 		
 		{
@@ -1180,6 +1204,18 @@ public:
 			addCenter(panel);
 		}
 		
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		{
+			std::string szMenuText = getLocalised("system_menus_options_video_texture_compression", "Texture Compression");
+			TextWidget * txt = new TextWidget(hFontMenu, szMenuText, Vec2f(20, 0));
+			txt->SetCheckOff();
+			CheckboxWidget * cb = new CheckboxWidget(txt);
+			cb->stateChanged = boost::bind(&RenderOptionsMenuPage::onChangedTextureCompression, this, _1);
+			cb->iState = config.video.textureCompression ? 1 : 0;
+			addCenter(cb);
+		}
+#endif
+		
 		{
 			ButtonWidget * cb = new ButtonWidget(Vec2f(20, 380), Vec2f(16, 16), "graph/interface/menus/back");
 			cb->m_targetMenu = Page_Options;
@@ -1218,6 +1254,20 @@ private:
 			default: config.video.renderer = "auto"; break;
 		}
 	}
+	
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	void onChangedTexture(int pos, const std::string & str) {
+		ARX_UNUSED(str);
+		
+		config.video.textureDetail = glm::clamp(pos, 0, 2);
+		GRenderer->reloadMipmappedTextures();
+	}
+	
+	void onChangedTextureCompression(int state) {
+		config.video.textureCompression = state != 0;
+		GRenderer->RestoreAllTextures();
+	}
+#endif
 	
 	void onChangedQuality(int pos, const std::string & str) {
 		ARX_UNUSED(str);

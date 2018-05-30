@@ -137,6 +137,10 @@ public:
 		
 		bool fullscreen;
 		int levelOfDetail;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		int textureDetail;
+		bool textureCompression;
+#endif
 		float fogDistance;
 		float gamma;
 		bool antialiasing;

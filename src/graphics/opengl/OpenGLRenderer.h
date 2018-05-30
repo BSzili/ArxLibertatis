@@ -52,6 +52,9 @@ public:
 	void ReleaseAllTextures();
 	void RestoreAllTextures();
 	void reloadColorKeyTextures();
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	void reloadMipmappedTextures();
+#endif
 	
 	// Factory
 	Texture * createTexture();
@@ -98,6 +101,9 @@ public:
 	bool hasSizedTextureFormats() const { return m_hasSizedTextureFormats; }
 	bool hasIntensityTextures() const { return m_hasIntensityTextures; }
 	bool hasBGRTextureTransfer() const { return m_hasBGRTextureTransfer; }
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	bool hasTextureCompression() const { return m_hasTextureCompression; }
+#endif
 	
 	bool hasMapBuffer() const { return m_hasMapBuffer; }
 	bool hasMapBufferRange() const { return m_hasMapBufferRange; }
@@ -147,6 +153,9 @@ private:
 	bool m_hasSizedTextureFormats;
 	bool m_hasIntensityTextures;
 	bool m_hasBGRTextureTransfer;
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	bool m_hasTextureCompression;
+#endif
 	
 	bool m_hasMapBuffer;
 	bool m_hasMapBufferRange;
