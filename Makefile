@@ -1,8 +1,14 @@
-CXX ?= g++
+BINPREFIX ?=
+CXX = $(BINPREFIX)g++
 OSTYPE ?= $(shell uname -s)
 DEBUG ?= 0
 SDL_CFLAGS ?= $(shell sdl-config --cflags)
 SDL_LDFLAGS ?= $(shell sdl-config --libs)
+RM = rm -f
+STRIPBIN = $(BINPREFIX)strip -K ___stack
+ifeq ($(PLATFORM), AROS)
+STRIPBIN += --strip-unneeded
+endif
 
 CXXFLAGS = -Wall 
 
@@ -390,6 +396,9 @@ all: arx
 
 arx: $(OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
+ifeq ($(DEBUG),0)
+	$(STRIPBIN) $@
+endif
 
 arxunpak: $(UNPAK_OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
@@ -398,4 +407,4 @@ savetool: $(SAVETOOL_OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 clean:
-	-rm -f $(OBJ) $(UNPAK_OBJ) $(SAVETOOL_OBJ)
+	$(RM) $(OBJ) $(UNPAK_OBJ) $(SAVETOOL_OBJ)
