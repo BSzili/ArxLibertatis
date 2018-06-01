@@ -21,7 +21,11 @@
 
 #if BUILD_PROFILER_INSTRUMENT
 
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+#include <SDL_endian.h>
+#else
 #include <atomic>
+#endif
 #include <cstring>
 #include <map>
 #include <iomanip>
@@ -81,7 +85,11 @@ private:
 	ThreadInfos        m_threads;
 	
 	boost::array<ProfilerSample, NB_SAMPLES> m_samples;
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+	u32 m_writeIndex;
+#else
 	std::atomic<int> m_writeIndex;
+#endif
 	volatile bool    m_canWrite;
 	
 	void writeProfileLog();
@@ -117,9 +125,17 @@ void Profiler::unregisterThread() {
 void Profiler::addProfilePoint(const char * tag, thread_id_type threadId,
                                PlatformInstant startTime, PlatformInstant endTime) {
 	
+#if defined(__AROS__) || defined(__MORPHOS__) || defined(__amigaos4__)
+	while(!m_canWrite) {
+		Thread::sleep(PlatformDurationMs(1));
+	}
+	
+	u32 pos = __sync_fetch_and_add(&m_writeIndex, 1);
+#else
 	while(!m_canWrite);
 	
 	u32 pos = m_writeIndex.fetch_add(1);
+#endif
 	
 	ProfilerSample & sample = m_samples[pos % NB_SAMPLES];
 	sample.tag = tag;
@@ -147,6 +163,10 @@ static void writeChunk(std::ofstream & out, ArxProfilerChunkType type, size_t da
 	chunk.type = type;
 	chunk.size = dataSize;
 	std::memset(chunk.padding, 0, sizeof(chunk.padding));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	chunk.type = SDL_SwapLE32(chunk.type);
+	chunk.size = SDL_SwapLE64(chunk.size);
+#endif
 	writeStruct(out, chunk, pos);
 	LogDebug("Writing chunk at offset " << pos << " type " << chunk.type << " size " << chunk.size);
 }
@@ -199,6 +219,9 @@ void Profiler::writeProfileLog() {
 	std::strncpy(header.magic, profilerMagic, 8);
 	header.version = fileVersion;
 	std::memset(header.padding, 0, sizeof(header.padding));
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+	header.version = SDL_SwapLE32(header.version);
+#endif
 	writeStruct(out, header, pos);
 	
 	LogDebug("Building string table");
@@ -216,6 +239,12 @@ void Profiler::writeProfileLog() {
 		saved.threadId = thread.threadId;
 		saved.startTime = toUs(thread.startTime);
 		saved.endTime = toUs(thread.endTime);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		saved.stringIndex = SDL_SwapLE32(saved.stringIndex);
+		saved.threadId = SDL_SwapLE64(saved.threadId);
+		saved.startTime = SDL_SwapLE64(saved.startTime);
+		saved.endTime = SDL_SwapLE64(saved.endTime);
+#endif
 		threadsData.push_back(saved);
 	}
 	
@@ -238,6 +267,12 @@ void Profiler::writeProfileLog() {
 		saved.threadId = sample.threadId;
 		saved.startTime = toUs(sample.startTime);
 		saved.endTime = toUs(sample.endTime);
+#if defined(__MORPHOS__) || defined(__amigaos4__)
+		saved.stringIndex = SDL_SwapLE32(saved.stringIndex);
+		saved.threadId = SDL_SwapLE64(saved.threadId);
+		saved.startTime = SDL_SwapLE64(saved.startTime);
+		saved.endTime = SDL_SwapLE64(saved.endTime);
+#endif
 		samplesData.push_back(saved);
 	}
 	

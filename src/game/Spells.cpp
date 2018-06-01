@@ -55,9 +55,7 @@ ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
 #include <sstream>
 #include <utility>
 
-#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 #include <boost/container/flat_set.hpp>
-#endif
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
 
