@@ -449,7 +449,11 @@ static void Insertllight(boost::array<EERIE_LIGHT *, llightsSize> & llights,
 	if(!el)
 		return;
 	
+#if defined(__MORPHOS__)  || defined(__amigaos4__)
+	float dist = fdist(el->pos, pos);
+#else
 	float dist = glm::distance(el->pos, pos);
+#endif
 	
 	if(forPlayerColor) {
 		if(!(el->fallstart > 10.f && el->fallend > 100.f)) {
@@ -661,7 +665,12 @@ ColorRGBA ApplyLight(ShaderLight lights[], size_t lightsCount, const glm::quat &
 	for(size_t l = 0; l != lightsCount; l++) {
 		const ShaderLight & light = lights[l];
 		
+#if defined(__MORPHOS__)  || defined(__amigaos4__)
+		Vec3f vLight = light.pos - position;
+		vLight = vLight * FastRSqrt(glm::dot(vLight, vLight));
+#else
 		Vec3f vLight = glm::normalize(light.pos - position);
+#endif
 		
 		Vec3f Cur_vLights = inv * vLight;
 		
@@ -729,7 +738,12 @@ void ApplyTileLights(EERIEPOLY * ep, const Vec2s & pos)
 		for(size_t i = 0; i < tls->el.size(); i++) {
 			EERIE_LIGHT * light = tls->el[i];
 
+#if defined(__MORPHOS__)  || defined(__amigaos4__)
+			Vec3f vLight = light->pos - position;
+			vLight = vLight * FastRSqrt(glm::dot(vLight, vLight));
+#else
 			Vec3f vLight = glm::normalize(light->pos - position);
+#endif
 
 			float cosangle = glm::dot(normal, vLight);
 
