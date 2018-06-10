@@ -350,8 +350,10 @@ void OpenGLRenderer::reinit() {
 		                   || ARX_HAVE_GL_EXT(OES_single_precision);
 	}
 	
+#if !defined(__MORPHOS__) && !defined(__amigaos4__)
 	// Introduced in OpenGL 1.4, no extension available for OpenGL ES
 	m_hasVertexFogCoordinate = !isES;
+#endif
 	
 	if(isES) {
 		m_hasSampleShading = ARX_HAVE_GLES_VER(3, 2) || ARX_HAVE_GLES_EXT(OES_sample_shading);
