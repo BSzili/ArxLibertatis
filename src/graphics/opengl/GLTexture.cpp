@@ -132,18 +132,33 @@ void GLTexture::upload() {
 	}
 	
 #if defined(__MORPHOS__) || defined(__amigaos4__)
-	if(renderer->hasTextureCompression() && config.video.textureCompression) {
-		switch(internalUnsized) {
-			case GL_RGB:
+	if(config.video.textureCompression) {
+		if(renderer->hasTextureCompression()) {
+			// DXTn
+			switch(internalUnsized) {
+				case GL_RGB:
 #ifndef __MORPHOS__
-				internal = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
-				break;
+					internal = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+					break;
 #endif
-			case GL_RGBA:
-				internal = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-				break;
+				case GL_RGBA:
+					internal = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+					break;
+			}
+		} else {
+			// 16-bit
+			switch(internalUnsized) {
+				case GL_RGB:
+					internal = GL_RGB5;
+					break;
+				case GL_RGBA:
+					internal = GL_RGBA4;
+					break;
+			}
 		}
-		//LogWarning << "compressing from " << internalSized << " to " << internal << " format " << getFormat();
+		if (internalSized != internal) {
+			//LogWarning << "compressing from " << internalSized << " to " << internal << " format " << getFormat();
+		}
 	}
 #endif
 	
@@ -199,11 +214,7 @@ void GLTexture::destroy() {
 
 static const GLint arxToGlWrapMode[] = {
 	GL_REPEAT, // WrapRepeat,
-#if defined(__MORPHOS__) || defined(__amigaos4__)
-	GL_REPEAT, // sigh
-#else
 	GL_MIRRORED_REPEAT, // WrapMirror
-#endif
 	GL_CLAMP_TO_EDGE // WrapClamp
 };
 

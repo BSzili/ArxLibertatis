@@ -76,6 +76,9 @@
 #define glDrawRangeElements(mode, start, end, count, type, indices) GLDrawRangeElements(__tglContext, mode, start, end, count, type, (GLvoid*)indices)*/
 #endif
 
+#ifndef GL_MIRRORED_REPEAT
+#define GL_MIRRORED_REPEAT GL_REPEAT
+#endif
 #define glFogCoordPointer(x,y,z)
 
 #include <string.h>
