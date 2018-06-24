@@ -112,7 +112,9 @@ void CinematicBorder::render() {
 		rectz[0].bottom = lMulResult;
 		rectz[1].top = g_size.height() - lMulResult;
 		rectz[1].bottom = g_size.height();
+#ifndef __MORPHOS__
 		GRenderer->Clear(Renderer::ColorBuffer | Renderer::DepthBuffer, Color::none, 0.0f, 2, rectz);
+#endif
 		GRenderer->SetScissor(Rect(0, lMulResult, g_size.width(), g_size.height() - lMulResult));
 	}
 }
