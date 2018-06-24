@@ -10,7 +10,7 @@ ifeq ($(PLATFORM), AROS)
 STRIPBIN += --strip-unneeded
 endif
 
-CXXFLAGS = -Wall 
+CXXFLAGS = -Wall -fno-rtti
 
 ifeq ($(DEBUG),1)
 	CXXFLAGS += -DARX_DEBUG=1
